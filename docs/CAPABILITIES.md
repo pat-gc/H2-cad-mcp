@@ -38,9 +38,10 @@ flowchart TD
   Onshape --> Observed
 ```
 
-The bridge dependency is optional and separately installed. No upstream source or
-recorded command payload is bundled. Browser REST and official developer REST are
-not implicit execution alternatives.
+The bridge dependency is optional and installed as a pinned local fork with
+compatibility patches. User-reported owner permission is recorded in
+`UPSTREAM-PERMISSION.md`; upstream attribution is retained. Browser REST and
+official developer REST are not implicit execution alternatives.
 
 ## Required operation inventory and current gaps
 

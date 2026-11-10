@@ -13,8 +13,9 @@ the sketch/extrusion capture is observation rather than verified replay.
 Choose a small Python semantic model and deterministic planner/executor around
 these components. Preserve FSGen compilation and local geometry as an optional
 pinned dependency. Use an independently implemented adapter against the installed
-Native bridge protocol, without bundling its source or captures while its license
-is unresolved. Native browser mode may never emit `kind: rest` or silently switch
+Native bridge protocol, extended through a pinned local fork under the user's
+reported owner permission (see `UPSTREAM-PERMISSION.md`). Native browser mode may
+never emit `kind: rest` or silently switch
 to the developer API.
 
 The semantic representation wraps complete native feature definitions and adds
