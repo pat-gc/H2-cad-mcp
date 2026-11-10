@@ -1,0 +1,17 @@
+{
+  "schema_version": 1,
+  "repositories": {
+    "fsgen": {
+      "url": "https://github.com/Lucasfrit/onshape-fsgen",
+      "commit": "eabcc02ba104005da3de869e613cefe53042fd98",
+      "license": "MIT",
+      "local_path": "upstream/onshape-fsgen"
+    },
+    "onshape_native": {
+      "url": "https://github.com/godbrigero/onshape-native",
+      "commit": "f5304ed0aa49347dec40911af9c2018d81012604",
+      "license": "Repository-wide license not found; do not redistribute",
+      "local_path": "upstream/onshape-native"
+    }
+  }
+}
