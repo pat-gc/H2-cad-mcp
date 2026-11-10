@@ -55,6 +55,15 @@ def test_cli_doctor_and_plan_json(tmp_path, capsys):
     plan = json.loads(capsys.readouterr().out)
     assert plan["operations"][0]["action"] == "update"
     assert plan["operations"][0]["after"]["parameters"]["depth"] == "6 mm"
+    concurrent = Snapshot(target, "e" * 24, [Feature("f", "extrude", {"depth": "7 mm"}, native_id="native-f")])
+    path = tmp_path / "concurrent.json"
+    path.write_text(json.dumps(concurrent.to_dict()), encoding="utf-8")
+    desired_conflict = Snapshot(target, "d" * 24, [Feature("f", "extrude", {"depth": "8 mm"}, native_id="native-f")])
+    desired_path = tmp_path / "desired-conflict.json"
+    desired_path.write_text(json.dumps(desired_conflict.to_dict()), encoding="utf-8")
+    assert main(["plan", "--base", str(tmp_path / "base.json"), "--observed", str(path),
+                 "--desired", str(desired_path)]) == 2
+    assert json.loads(capsys.readouterr().out)["conflicts"]
 
 
 def test_cli_compile_reads_path_and_stages_native_rectangle(tmp_path, capsys):

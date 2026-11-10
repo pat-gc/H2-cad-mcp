@@ -83,15 +83,18 @@ async def _bridge_action(args: argparse.Namespace) -> tuple[object, int]:
 def main(argv: list[str] | None = None) -> int:
     args = build_parser().parse_args(argv)
     try:
+        result_status = 0
         if args.command == "compile":
             from .fsgen import compile_fsgen
             value = compile_fsgen(Path(args.source), _target(args), revision=args.revision).to_dict()
         elif args.command == "validate":
             from .validation import validate_fsgen
             value = validate_fsgen(Path(args.source)).to_dict()
+            result_status = 0 if value["status"] == "passed" else 2
         elif args.command == "plan":
             from .planner import plan_changes
             value = plan_changes(_snapshot(args.base), _snapshot(args.observed), _snapshot(args.desired)).to_dict()
+            result_status = 2 if value["conflicts"] else 0
         elif args.command == "doctor" and args.bridge_config is None:
             value = {"python": sys.version.split()[0], "package": "h2cad",
                      "bridge": "not checked; supply --bridge-config to inspect an installed companion",
@@ -104,7 +107,7 @@ def main(argv: list[str] | None = None) -> int:
             args.output.parent.mkdir(parents=True, exist_ok=True)
             args.output.write_text(json.dumps(value, indent=2, ensure_ascii=False, sort_keys=True) + "\n", encoding="utf-8")
         _print(value)
-        return 0
+        return result_status
     except (OSError, ValueError, RuntimeError, KeyError, ImportError) as exc:
         print(f"h2cad: {exc}", file=sys.stderr)
         return 1
