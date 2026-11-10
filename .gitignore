@@ -1,0 +1,13 @@
+.worktrees/
+upstream/
+.venv/
+__pycache__/
+*.py[cod]
+.pytest_cache/
+node_modules/
+dist/
+*.egg-info/
+.env
+.env.*
+!.env.example
+.h2cad/
