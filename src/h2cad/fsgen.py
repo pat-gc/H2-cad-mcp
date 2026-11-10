@@ -113,7 +113,16 @@ def compile_fsgen(source: str | Path, target: Target, revision: str = "local") -
         if missing_vars:
             raise FsgenCompileError(f"{rec.name}: unresolved variable(s): {sorted(missing_vars)}")
         params = {p["parameterId"]: _parameter_value(p) for p in template.get("parameters", [])}
-        structure = {}
+        # The body contains real nonparameter semantics (sketch entities,
+        # constraints, feature type). They must participate in conflict checks.
+        # Parameter payload values live only in `parameters`; retaining them
+        # here would turn a simple depth edit into a false structural conflict.
+        structure = {"fsgen_native": {k: v for k, v in template.items()
+                                      if k not in {"parameters", "_driven"}},
+                     "parameter_schema": {
+                         p["parameterId"]: {k: v for k, v in p.items()
+                                            if k not in {"expression", "value", "queries"}}
+                         for p in template.get("parameters", [])}}
         if rec.sketch:
             structure["sketch"] = {"plane_name": rec.sketch.plane_name,
                                    "rectangle": _rectangle(rec.sketch)}

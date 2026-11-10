@@ -22,6 +22,13 @@ export function build(context is Context, id is Id)
 '''
 
 
+def upstream_plate() -> Path | None:
+    here = Path(__file__).resolve()
+    return next((parent / "upstream" / "onshape-fsgen" / "examples" / "native" / "plate.fs"
+                 for parent in here.parents
+                 if (parent / "upstream" / "onshape-fsgen" / "examples" / "native" / "plate.fs").exists()), None)
+
+
 def test_fsgen_rectangle_extrude_compiles_to_semantic_graph():
     snapshot = compile_fsgen(SOURCE, Target("d", "w", "e"))
     sketch, extrude = snapshot.features
@@ -42,8 +49,8 @@ def test_fsgen_local_occ_full_geometry():
 
 
 def test_upstream_plate_local_occ_matches_recorded_volume():
-    path = Path(__file__).resolve().parents[3] / "upstream" / "onshape-fsgen" / "examples" / "native" / "plate.fs"
-    if not path.exists():
+    path = upstream_plate()
+    if path is None:
         pytest.skip("separate pinned upstream checkout unavailable")
     report = validate_fsgen(path)
     assert report.status == "passed", report.to_dict()
@@ -51,8 +58,8 @@ def test_upstream_plate_local_occ_matches_recorded_volume():
 
 
 def test_real_plate_variable_edit_plans_parameter_update_without_structure_conflict():
-    path = Path(__file__).resolve().parents[3] / "upstream" / "onshape-fsgen" / "examples" / "native" / "plate.fs"
-    if not path.exists():
+    path = upstream_plate()
+    if path is None:
         pytest.skip("separate pinned upstream checkout unavailable")
     source = path.read_text()
     base = compile_fsgen(source, Target("d", "w", "e"), "r1")
@@ -65,3 +72,29 @@ def test_real_plate_variable_edit_plans_parameter_update_without_structure_confl
     assert not plan.conflicts, [c.to_dict() for c in plan.conflicts]
     assert [op.logical_id for op in plan.operations] == ["#thickness"]
     assert plan.merged.features[2].parameters["lengthValue"] == "7 mm"
+
+
+def test_circle_entity_and_constraint_changes_are_not_invisible():
+    circle = SOURCE.replace('skRectangle(s, "box", { "firstCorner" : vector(0, 0) * millimeter,\n'
+                            '                            "secondCorner" : vector(40, 20) * millimeter });',
+                            'skCircle(s, "rim", { "center" : vector(0, 0) * millimeter, '
+                            '"radius" : 4 * millimeter });')
+    assert "skCircle" in circle and "skRectangle" not in circle
+    base = compile_fsgen(circle, Target("d", "w", "e"), "r1")
+    changed = compile_fsgen(circle.replace('"radius" : 4 * millimeter',
+                                           '"radius" : 5 * millimeter'), Target("d", "w", "e"), "r1")
+    before = base.features[0].structure["fsgen_native"]
+    after = changed.features[0].structure["fsgen_native"]
+    assert before["entities"] != after["entities"]
+    assert before["constraints"] != after["constraints"]
+    plan = plan_changes(base, base, changed)
+    assert any(c.path == "structure" and c.logical_id == "Outline" for c in plan.conflicts)
+
+
+def test_literal_extrusion_depth_edit_is_parameter_only():
+    base = compile_fsgen(SOURCE, Target("d", "w", "e"), "r1")
+    changed = compile_fsgen(SOURCE.replace('"depth" : 5 * millimeter',
+                                           '"depth" : 7 * millimeter'), Target("d", "w", "e"), "r1")
+    plan = plan_changes(base, base, changed)
+    assert not plan.conflicts
+    assert [op.logical_id for op in plan.operations] == ["Solid"]
