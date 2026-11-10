@@ -1,0 +1,96 @@
+From 4320d04337a6b0e96b814df3569bfd38b87b621e Mon Sep 17 00:00:00 2001
+From: patcybermind <pato.gonzalezcabrera@gmail.com>
+Date: Tue, 10 Nov 2026 14:26:43 -0500
+Subject: [PATCH] feat: add fail-closed H2 native readback probe
+
+---
+ extension/page-adapter.js | 30 +++++++++++++++++++++++++++++-
+ tests/adapter.test.mjs    | 17 +++++++++++++++--
+ 2 files changed, 44 insertions(+), 3 deletions(-)
+
+diff --git a/extension/page-adapter.js b/extension/page-adapter.js
+index 91902eb..5919ed4 100644
+--- a/extension/page-adapter.js
++++ b/extension/page-adapter.js
+@@ -214,9 +214,37 @@ export async function pageCommand(job) {
+     const definition = elementModel?.definition;
+     const root = definition?.assembly || cache?.getModelTreeState(target.eid)?.diffableModelTree?.getRoot();
+     if (!root) throw new Error("Native model tree unavailable.");
++    // H2 compatibility probe: expose only observed structural evidence. The
++    // editor tree has no demonstrated complete feature/status contract yet.
++    // Never report a verified semantic snapshot based on guessed property names.
++    const candidateNodes = [];
++    const visited = new WeakSet();
++    function walk(node, depth = 0) {
++      if (!node || typeof node !== "object" || depth > 30 || candidateNodes.length >= 500 || visited.has(node)) return;
++      visited.add(node);
++      if (typeof node.featureId === "string" && node.featureId) {
++        candidateNodes.push({featureId:node.featureId,
++          nodeId:typeof node.nodeId === "string" ? node.nodeId : null,
++          featureType:typeof node.featureType === "string" ? node.featureType : null,
++          name:typeof node.name === "string" ? node.name : null,
++          featureStatus:typeof node.featureStatus === "string" ? node.featureStatus : null,
++          hasParameters:Array.isArray(node.parameters), hasEntities:Array.isArray(node.entities),
++          hasConstraints:Array.isArray(node.constraints)});
++      }
++      if (Array.isArray(node)) for (const value of node) walk(value, depth + 1);
++      else if (node instanceof Map) for (const value of node.values()) walk(value, depth + 1);
++      else for (const [key, value] of Object.entries(node)) {
++        if (!key.startsWith("_") && typeof value !== "function") walk(value, depth + 1);
++      }
++    }
++    walk(root);
++    const h2Readback = {contract:"h2-readback-probe-v1", complete:false,
++      reason:"Editor tree feature definitions, status and geometry are not established as complete readback.",
++      definitionKeys:definition && typeof definition === "object" ? Object.keys(definition).filter(k=>!k.startsWith("_")).slice(0,100) : [],
++      candidateNodes};
+     return bounded({target, microversion: getMicroversion(), element_microversion:getElementMicroversion(), connected:controller.connection?.isClosed?.() === false,
+       editingFeatureId: elementModel?.get("idEditingFeature") || null,
+-      tree: plain(root),
++      tree: plain(root), h2Readback,
+       ...(definition?.assembly ? {assemblyTree: plain(definition.assemblyTree), computedData: plain(definition.computedData),
+         assemblyTreeValid: definition.assemblyTree?.isValid === true,
+         completeness: "Assembly definitions may be lazy. Use GBTUiAssemblyTreeItemDefinitionRequest or the full REST assembly for specific mate parameters."} : {}),
+diff --git a/tests/adapter.test.mjs b/tests/adapter.test.mjs
+index 68e993c..fdc11a7 100644
+--- a/tests/adapter.test.mjs
++++ b/tests/adapter.test.mjs
+@@ -28,13 +28,13 @@ class Location {
+   getMessageName(){return 'tree.GBTInsertionLocation';}
+ }
+ let sent=[];
+-function setup(definition, current=false, elementMicro=null){
++function setup(definition, current=false, elementMicro=null, root={children:[]}){
+   globalThis.crypto ||= webcrypto;
+   globalThis.location = {origin:'https://cad.onshape.com',pathname:`/documents/${target.did}/w/${target.wid}/e/${target.eid}`};
+   sent=[];
+   const controller = {getActiveElementTabId:()=>target.eid,
+     documentModel:{get:k=>k==='microversionId'?{theId:micro}:{get:k=>k==='microversionId'?elementMicro:null,definition}},
+-    documentClientCache:{getModelTreeState:()=>({diffableModelTree:{getRoot:()=>({children:[]})}})},
++    documentClientCache:{getModelTreeState:()=>({diffableModelTree:{getRoot:()=>root}})},
+     elementConnection:{callAndPromise:async m=>{sent.push(m);return {errorEnum:0};}}};
+   const modules = {27940:{CJP:()=>{},D0n:()=>{},Folder,Location},3392:{GI:{getOpenDocumentController:()=>controller}}};
+   if (current === '1.223') {
+@@ -66,6 +66,19 @@ test('state returns the native tree and microversion without HTTP',async()=>{
+   setup();const state=await pageCommand({kind:'state',target});assert.equal(state.microversion,micro);assert.deepEqual(state.tree,{children:[]});assert.equal(sent.length,0);
+ });
+ 
++test('H2 readback probe identifies candidates but never claims complete semantics',async()=>{
++  const root={children:[{featureId:'fresh-feature',nodeId:'fresh-node',featureType:'extrude',
++    name:'Extrude 1',parameters:[{parameterId:'depth',expression:'5 mm'}]}]};
++  setup(undefined,false,null,root);
++  const state=await pageCommand({kind:'state',target});
++  assert.equal(state.h2Readback.contract,'h2-readback-probe-v1');
++  assert.equal(state.h2Readback.complete,false);
++  assert.deepEqual(state.h2Readback.candidateNodes,[{featureId:'fresh-feature',nodeId:'fresh-node',
++    featureType:'extrude',name:'Extrude 1',featureStatus:null,hasParameters:true,
++    hasEntities:false,hasConstraints:false}]);
++  assert.equal(sent.length,0);
++});
++
+ test('assembly sidebar Map entries survive serialization with typed nodes',async()=>{
+   const node={displayName:'Folder',childrenCount:0,getMessageName(){return 'assembly.tree.GBTAssemblyTreeFolder'}};
+   setup({assembly:{nodeId:'root'},assemblyTree:{isValid:true,pathToNodes:new Map([['Ffolder',node]])}});
+-- 
+2.54.0.windows.1
+
