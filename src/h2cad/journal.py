@@ -27,6 +27,8 @@ class Journal:
         self._db.execute("""CREATE TABLE IF NOT EXISTS sync_snapshots (
             target TEXT PRIMARY KEY, revision TEXT NOT NULL, snapshot TEXT NOT NULL,
             verified_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP)""")
+        self._db.execute("""CREATE UNIQUE INDEX IF NOT EXISTS one_unresolved_write_per_target
+            ON writes(target) WHERE state IN ('prepared','sent','unknown')""")
 
     def close(self) -> None:
         self._db.close()
@@ -61,7 +63,7 @@ class Journal:
                 self._db.execute("INSERT INTO writes (op_id,target,expected_revision,action,logical_id,intent,state) VALUES (?,?,?,?,?,?,'prepared')",
                                  (op_id, target, expected_revision, action, logical_id, json.dumps(intent, sort_keys=True)))
             except sqlite3.IntegrityError as exc:
-                raise ValueError(f"Operation {op_id} already journaled; inspect it before another submission") from exc
+                raise ValueError(f"Operation {op_id} or target already has an unresolved write; inspect before submission") from exc
 
     def transition(self, op_id: str, state: str, *, receipt: dict[str, Any] | None = None,
                    observation: dict[str, Any] | None = None, error: str | None = None) -> None:

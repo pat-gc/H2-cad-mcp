@@ -7,14 +7,18 @@ name = "h2cad"
 version = "0.1.0"
 description = "Semantic planning and guarded execution for editable Onshape CAD"
 requires-python = ">=3.11"
-dependencies = []
+dependencies = ["httpx>=0.28,<1"]
+
+[project.scripts]
+h2cad = "h2cad.cli:main"
 
 [project.optional-dependencies]
 fsgen = ["fsgen @ git+https://github.com/Lucasfrit/onshape-fsgen.git@eabcc02ba104005da3de869e613cefe53042fd98"]
-test = ["pytest>=8"]
+test = ["pytest>=8", "pytest-asyncio>=0.25"]
 
 [tool.setuptools.packages.find]
 where = ["src"]
 
 [tool.pytest.ini_options]
 testpaths = ["tests"]
+asyncio_default_fixture_loop_scope = "function"

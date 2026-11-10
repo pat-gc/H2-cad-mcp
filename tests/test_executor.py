@@ -155,3 +155,29 @@ async def test_verified_remote_snapshot_survives_restart_with_human_values(tmp_p
     assert saved.features[1].parameters == {"radius": "8 mm"}
     assert saved.features[1].ownership == "human"
     reopened.close()
+
+
+@pytest.mark.asyncio
+async def test_reordered_human_features_rejected_preflight_and_readback(tmp_path):
+    h1 = Feature("h1", "sketch", {}, native_id="h1-id", ownership="human", regeneration="OK")
+    h2 = Feature("h2", "sketch", {}, native_id="h2-id", ownership="human", regeneration="OK")
+    backend = FakeBackend()
+    backend.current = Snapshot(T, "1" * 24, (BASE, h1, h2))
+    op = Operation("order-op", "create", "new", None, NEW)
+    bad = Plan(T, "1" * 24, (op,), (), Snapshot(T, "1" * 24, (BASE, h2, h1, NEW)))
+    journal = Journal(tmp_path / "journal.db")
+    assert (await Executor(backend, journal).execute(bad)).status == "invalid_plan"
+    assert backend.submissions == 0
+
+    class Reorders(FakeBackend):
+        async def apply(self, operation, target, expected_revision):
+            self.submissions += 1
+            self.current = Snapshot(T, "2" * 24, (BASE, h2, h1, replace(NEW, native_id="native-new", regeneration="OK")))
+            return Receipt("native-new", "2" * 24)
+
+    backend2 = Reorders()
+    backend2.current = Snapshot(T, "1" * 24, (BASE, h1, h2))
+    good = Plan(T, "1" * 24, (op,), (), Snapshot(T, "1" * 24, (BASE, h1, h2, NEW)))
+    result = await Executor(backend2, journal).execute(good)
+    assert result.steps[0].status == "unknown" and "order" in result.steps[0].reason
+    journal.close()

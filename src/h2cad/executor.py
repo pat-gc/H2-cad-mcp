@@ -101,6 +101,9 @@ def _verified_feature(operation: Operation, receipt: Receipt, before: Snapshot, 
         return False, "regeneration was not verified OK", {"regeneration": actual.regeneration}
     old_unrelated = {f.logical_id: f for f in before.features if f.logical_id != operation.logical_id}
     new_unrelated = {f.logical_id: f for f in snapshot.features if f.logical_id != operation.logical_id}
+    if [f.logical_id for f in before.features if f.logical_id != operation.logical_id] != [
+            f.logical_id for f in snapshot.features if f.logical_id != operation.logical_id]:
+        return False, "unrelated feature order changed during operation", {}
     if old_unrelated.keys() != new_unrelated.keys() or any(not _same_feature(f, new_unrelated[k]) for k, f in old_unrelated.items()):
         return False, "unrelated feature changed during operation", {}
     if any(f.regeneration == "OK" and new_unrelated[k].regeneration != "OK" for k, f in old_unrelated.items()):
@@ -138,6 +141,9 @@ class Executor:
             touched = {op.logical_id for op in plan.operations}
             state_untouched = {f.logical_id: f for f in state.features if f.logical_id not in touched}
             merged_untouched = {f.logical_id: f for f in plan.merged.features if f.logical_id not in touched}
+            if [f.logical_id for f in state.features if f.logical_id not in touched] != [
+                    f.logical_id for f in plan.merged.features if f.logical_id not in touched]:
+                return ExecutionResult("invalid_plan", (StepOutcome("", "rejected", "merged plan reorders untouched features"),), state.revision)
             if state_untouched.keys() != merged_untouched.keys() or any(
                     not _same_feature(f, merged_untouched[k]) for k, f in state_untouched.items()):
                 return ExecutionResult("invalid_plan", (StepOutcome("", "rejected", "merged plan changes untouched features"),), state.revision)
@@ -179,6 +185,10 @@ class Executor:
                     ok, reason, evidence = False, "readback target differs", {}
                 else:
                     ok, reason, evidence = _verified_feature(op, receipt, state, observed)
+                observed_ids = [f.logical_id for f in observed.features]
+                intended_seen = [f.logical_id for f in plan.merged.features if f.logical_id in set(observed_ids)]
+                if ok and observed_ids != intended_seen:
+                    ok, reason, evidence = False, "feature order differs from plan", {}
                 if not ok:
                     self.journal.transition(op.op_id, "unknown", observation={"revision": observed.revision}, error=reason)
                     steps.append(StepOutcome(op.op_id, "unknown", reason, receipt, evidence))

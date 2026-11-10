@@ -1,0 +1,41 @@
+{
+  "target": {
+    "did": "aaaaaaaaaaaaaaaaaaaaaaaa",
+    "wid": "bbbbbbbbbbbbbbbbbbbbbbbb",
+    "eid": "cccccccccccccccccccccccc"
+  },
+  "revision": "dddddddddddddddddddddddd",
+  "features": [
+    {
+      "logical_id": "human-mount",
+      "kind": "newSketch",
+      "parameters": {
+        "radius": "8 mm"
+      },
+      "dependencies": [],
+      "structure": {
+        "plane": "Top"
+      },
+      "native_id": "native-human-001",
+      "ownership": "human",
+      "regeneration": "OK",
+      "provenance": {}
+    },
+    {
+      "logical_id": "ai-boss",
+      "kind": "extrude",
+      "parameters": {
+        "depth": "6 mm"
+      },
+      "dependencies": [
+        "human-mount"
+      ],
+      "structure": {},
+      "native_id": "native-ai-001",
+      "ownership": "ai",
+      "regeneration": "OK",
+      "provenance": {}
+    }
+  ],
+  "complete": true
+}
