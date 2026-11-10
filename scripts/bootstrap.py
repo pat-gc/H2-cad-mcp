@@ -17,6 +17,7 @@ FS_URL = "https://github.com/Lucasfrit/onshape-fsgen.git"
 FS_SHA = "eabcc02ba104005da3de869e613cefe53042fd98"
 NATIVE_URL = "https://github.com/godbrigero/onshape-native.git"
 NATIVE_SHA = "f5304ed0aa49347dec40911af9c2018d81012604"
+NATIVE_PATCH_TREE = "d121da374a4a8a5c5d0df89748e5ad4593a2f14f"
 PATCH = ROOT / "patches" / "onshape-native" / "0001-feat-add-fail-closed-H2-native-readback-probe.patch"
 
 
@@ -62,6 +63,23 @@ def ensure_checkout(path: Path, url: str, pin: str, *, dry_run: bool) -> None:
     run("git", "checkout", "--detach", pin, cwd=path)
 
 
+def native_checkout_reviewed(path: Path, state: dict) -> bool:
+    """Accept base or precisely one reviewed patch commit, independent of committer SHA."""
+    if not state.get("present"):
+        return False
+    if not state["clean"]:
+        raise RuntimeError("Refusing dirty Native checkout")
+    if state["head"] == NATIVE_SHA:
+        return False
+    if run("git", "rev-list", "--count", f"{NATIVE_SHA}..HEAD", cwd=path) != "1":
+        raise RuntimeError("Unrecognized Native descendant: expected exactly one reviewed patch commit")
+    if run("git", "rev-parse", "HEAD^", cwd=path) != NATIVE_SHA:
+        raise RuntimeError("Unrecognized Native ancestry: reviewed patch must directly follow pinned base")
+    if run("git", "rev-parse", "HEAD^{tree}", cwd=path) != NATIVE_PATCH_TREE:
+        raise RuntimeError("Unrecognized Native content: checkout differs from reviewed patch tree")
+    return True
+
+
 def bootstrap(root: Path, *, with_fsgen: bool, dry_run: bool, python: str, sources_only: bool = False) -> dict:
     if not shutil.which("git"):
         raise RuntimeError("Git is required")
@@ -72,22 +90,12 @@ def bootstrap(root: Path, *, with_fsgen: bool, dry_run: bool, python: str, sourc
     native = root / "upstream" / "onshape-native"
     fsgen = root / "upstream" / "onshape-fsgen"
     native_state = git_state(native)
-    if native_state.get("present") and native_state["head"] != NATIVE_SHA:
-        if not native_state["clean"]:
-            raise RuntimeError("Refusing dirty Native checkout")
-        ancestor = subprocess.run(["git", "merge-base", "--is-ancestor", NATIVE_SHA, "HEAD"], cwd=native,
-                                  stdout=subprocess.PIPE, stderr=subprocess.PIPE, check=False)
-        if ancestor.returncode:
-            raise RuntimeError("Existing Native checkout does not descend from the pinned base")
-        # A previously applied patch is acceptable only when it reverses cleanly.
-        result = subprocess.run(["git", "apply", "--reverse", "--check", str(PATCH)], cwd=native,
-                                stdout=subprocess.PIPE, stderr=subprocess.PIPE, check=False)
-        if result.returncode:
-            raise RuntimeError("Existing Native checkout is neither pinned base nor an applied compatibility patch")
-    else:
+    reviewed = native_checkout_reviewed(native, native_state)
+    if not reviewed:
         ensure_checkout(native, NATIVE_URL, NATIVE_SHA, dry_run=dry_run)
         if not dry_run:
             run("git", "am", str(PATCH), cwd=native)
+            native_checkout_reviewed(native, git_state(native))
     if with_fsgen:
         ensure_checkout(fsgen, FS_URL, FS_SHA, dry_run=dry_run)
     if not dry_run and not sources_only:
