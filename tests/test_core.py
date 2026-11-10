@@ -78,3 +78,7 @@ def test_duplicate_ids_and_nonfinite_values_rejected():
         snap(feature("a"), feature("a"))
     with pytest.raises(ValueError):
         feature("a", float("nan"))
+    with pytest.raises(ValueError):
+        Feature("a", "sketch", {"nested": {1: "bad"}})
+    with pytest.raises(ValueError):
+        Feature("a", "extrude", {}, dependencies="outline")

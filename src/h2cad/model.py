@@ -10,6 +10,17 @@ from typing import Any
 
 def canonical(value: Any) -> str:
     """Stable JSON representation of supported semantic values."""
+    def check(node: Any) -> None:
+        if isinstance(node, dict):
+            if any(not isinstance(k, str) for k in node):
+                raise ValueError("semantic JSON object keys must be strings")
+            for child in node.values():
+                check(child)
+        elif isinstance(node, (list, tuple)):
+            for child in node:
+                check(child)
+
+    check(value)
     return json.dumps(value, sort_keys=True, separators=(",", ":"), ensure_ascii=False, allow_nan=False)
 
 
@@ -41,6 +52,7 @@ class Feature:
     native_id: str | None = None
     ownership: str = "ai"
     regeneration: str = "unknown"
+    provenance: dict[str, Any] = field(default_factory=dict)
 
     def __post_init__(self) -> None:
         if not isinstance(self.logical_id, str) or not self.logical_id:
@@ -55,13 +67,17 @@ class Feature:
             raise ValueError("parameters must have string keys")
         if not isinstance(self.structure, dict) or not all(isinstance(k, str) for k in self.structure):
             raise ValueError("structure must have string keys")
+        if isinstance(self.dependencies, str):
+            raise ValueError("dependencies must be a sequence of logical IDs")
         self.dependencies = tuple(self.dependencies)
         if any(not isinstance(d, str) or not d for d in self.dependencies) or len(set(self.dependencies)) != len(self.dependencies):
             raise ValueError("dependencies must be unique nonempty strings")
         canonical(self.parameters)
         canonical(self.structure)
+        canonical(self.provenance)
         self.parameters = copy.deepcopy(self.parameters)
         self.structure = copy.deepcopy(self.structure)
+        self.provenance = copy.deepcopy(self.provenance)
 
     def semantic_dict(self) -> dict[str, Any]:
         return {"logical_id": self.logical_id, "kind": self.kind,
@@ -72,14 +88,15 @@ class Feature:
         return isinstance(other, Feature) and canonical(self.semantic_dict()) == canonical(other.semantic_dict())
 
     def to_dict(self) -> dict[str, Any]:
-        return {**self.semantic_dict(), "native_id": self.native_id, "regeneration": self.regeneration}
+        return {**self.semantic_dict(), "native_id": self.native_id, "regeneration": self.regeneration,
+                "provenance": self.provenance}
 
     @classmethod
     def from_dict(cls, data: dict[str, Any]) -> Feature:
         return cls(data["logical_id"], data["kind"], data["parameters"],
                    tuple(data["dependencies"]), data["structure"],
                    data.get("native_id"), data["ownership"],
-                   data.get("regeneration", "unknown"))
+                   data.get("regeneration", "unknown"), data.get("provenance", {}))
 
 
 @dataclass

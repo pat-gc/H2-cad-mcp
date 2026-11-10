@@ -30,7 +30,7 @@ def validate_fsgen(source: str | Path) -> ValidationReport:
         from fsgen.native.script import trace
     except ImportError as exc:
         raise FsgenUnavailable("install pinned FSGen and its x64 OCP dependencies") from exc
-    text = source.read_text() if isinstance(source, Path) else source
+    text = source.read_text(encoding="utf-8") if isinstance(source, Path) else source
     traced = trace(text, variables_mode="studio")
     if not traced.ok:
         return ValidationReport("failed", error=f"trace line {traced.error_line}: {traced.error}")
