@@ -120,84 +120,89 @@ class Executor:
     async def execute(self, plan: Plan, experimental_isolated: bool = False) -> ExecutionResult:
         key = _target_key(plan.target)
         async with self._locks.setdefault(key, asyncio.Lock()):
-            if plan.conflicts:
-                return ExecutionResult("conflict", (), plan.expected_revision)
-            invalid = _validate_plan(plan)
-            if invalid:
-                return ExecutionResult("invalid_plan", (StepOutcome("", "rejected", invalid),), plan.expected_revision)
-            if self.journal.unresolved(key):
-                return ExecutionResult("unresolved_prior_write", (), plan.expected_revision)
-            caps = await self.backend.capabilities()
-            if not caps.atomic_revision and not experimental_isolated:
-                return ExecutionResult("atomic_revision_required", (), plan.expected_revision)
-            if any(op.action not in {"create", "update"} or op.after is None or op.after.kind not in caps.supported_kinds
-                   for op in plan.operations):
-                return ExecutionResult("unsupported", (), plan.expected_revision)
-            state = await self.backend.read(plan.target)
-            if not _same_target(state.target, plan.target) or not state.complete:
-                return ExecutionResult("incomplete_baseline", (), state.revision)
-            if state.revision != plan.expected_revision:
-                return ExecutionResult("stale_plan", (), state.revision)
-            touched = {op.logical_id for op in plan.operations}
-            state_untouched = {f.logical_id: f for f in state.features if f.logical_id not in touched}
-            merged_untouched = {f.logical_id: f for f in plan.merged.features if f.logical_id not in touched}
-            if [f.logical_id for f in state.features if f.logical_id not in touched] != [
-                    f.logical_id for f in plan.merged.features if f.logical_id not in touched]:
-                return ExecutionResult("invalid_plan", (StepOutcome("", "rejected", "merged plan reorders untouched features"),), state.revision)
-            if state_untouched.keys() != merged_untouched.keys() or any(
-                    not _same_feature(f, merged_untouched[k]) for k, f in state_untouched.items()):
-                return ExecutionResult("invalid_plan", (StepOutcome("", "rejected", "merged plan changes untouched features"),), state.revision)
-            if not plan.operations:
-                self.journal.save_sync_snapshot(key, state.to_dict())
-                return ExecutionResult("verified", (), state.revision)
-            steps: list[StepOutcome] = []
-            for op in plan.operations:
-                precondition = _check_precondition(op, state)
-                if precondition:
-                    steps.append(StepOutcome(op.op_id, "rejected", precondition))
-                    return ExecutionResult("stopped", tuple(steps), state.revision)
-                if self.journal.get(op.op_id):
-                    steps.append(StepOutcome(op.op_id, "duplicate_intent", "operation ID is already journaled"))
-                    return ExecutionResult("stopped", tuple(steps), state.revision)
-                self.journal.prepare(op_id=op.op_id, target=key, expected_revision=state.revision,
-                                     action=op.action, logical_id=op.logical_id,
-                                     intent={"operation": op.to_dict(), "before_snapshot": state.to_dict()})
-                try:
-                    receipt = await self.backend.apply(op, plan.target, state.revision)
-                except Unsupported as exc:
-                    self.journal.transition(op.op_id, "rejected", error=str(exc))
-                    steps.append(StepOutcome(op.op_id, "rejected", str(exc)))
-                    return ExecutionResult("stopped", tuple(steps), state.revision)
-                except Exception as exc:
-                    # A failure after handoff may have committed remotely. No replay.
-                    self.journal.transition(op.op_id, "unknown", error=str(exc))
-                    steps.append(StepOutcome(op.op_id, "unknown", str(exc)))
-                    return ExecutionResult("stopped", tuple(steps), state.revision)
-                self.journal.transition(op.op_id, "sent", receipt={"native_id": receipt.native_id, "revision": receipt.revision,
-                                                                       "acknowledgement": receipt.acknowledgement})
-                try:
-                    observed = await self.backend.read(plan.target)
-                except Exception as exc:
-                    self.journal.transition(op.op_id, "unknown", error=f"readback failed: {exc}")
-                    steps.append(StepOutcome(op.op_id, "unknown", f"readback failed: {exc}", receipt))
-                    return ExecutionResult("stopped", tuple(steps), state.revision)
-                if not _same_target(observed.target, plan.target):
-                    ok, reason, evidence = False, "readback target differs", {}
-                else:
-                    ok, reason, evidence = _verified_feature(op, receipt, state, observed)
-                observed_ids = [f.logical_id for f in observed.features]
-                intended_seen = [f.logical_id for f in plan.merged.features if f.logical_id in set(observed_ids)]
-                if ok and observed_ids != intended_seen:
-                    ok, reason, evidence = False, "feature order differs from plan", {}
-                if not ok:
-                    self.journal.transition(op.op_id, "unknown", observation={"revision": observed.revision}, error=reason)
-                    steps.append(StepOutcome(op.op_id, "unknown", reason, receipt, evidence))
-                    return ExecutionResult("stopped", tuple(steps), observed.revision)
-                self.journal.transition(op.op_id, "observed", observation=evidence)
-                steps.append(StepOutcome(op.op_id, "verified", receipt=receipt, evidence=evidence))
-                state = observed
+            with self.journal.target_lock(key):
+                return await self._execute_locked(plan, experimental_isolated)
+
+    async def _execute_locked(self, plan: Plan, experimental_isolated: bool) -> ExecutionResult:
+        key = _target_key(plan.target)
+        if plan.conflicts:
+            return ExecutionResult("conflict", (), plan.expected_revision)
+        invalid = _validate_plan(plan)
+        if invalid:
+            return ExecutionResult("invalid_plan", (StepOutcome("", "rejected", invalid),), plan.expected_revision)
+        if self.journal.unresolved(key):
+            return ExecutionResult("unresolved_prior_write", (), plan.expected_revision)
+        caps = await self.backend.capabilities()
+        if not caps.atomic_revision and not experimental_isolated:
+            return ExecutionResult("atomic_revision_required", (), plan.expected_revision)
+        if any(op.action not in {"create", "update"} or op.after is None or op.after.kind not in caps.supported_kinds
+               for op in plan.operations):
+            return ExecutionResult("unsupported", (), plan.expected_revision)
+        state = await self.backend.read(plan.target)
+        if not _same_target(state.target, plan.target) or not state.complete:
+            return ExecutionResult("incomplete_baseline", (), state.revision)
+        if state.revision != plan.expected_revision:
+            return ExecutionResult("stale_plan", (), state.revision)
+        touched = {op.logical_id for op in plan.operations}
+        state_untouched = {f.logical_id: f for f in state.features if f.logical_id not in touched}
+        merged_untouched = {f.logical_id: f for f in plan.merged.features if f.logical_id not in touched}
+        if [f.logical_id for f in state.features if f.logical_id not in touched] != [
+                f.logical_id for f in plan.merged.features if f.logical_id not in touched]:
+            return ExecutionResult("invalid_plan", (StepOutcome("", "rejected", "merged plan reorders untouched features"),), state.revision)
+        if state_untouched.keys() != merged_untouched.keys() or any(
+                not _same_feature(f, merged_untouched[k]) for k, f in state_untouched.items()):
+            return ExecutionResult("invalid_plan", (StepOutcome("", "rejected", "merged plan changes untouched features"),), state.revision)
+        if not plan.operations:
             self.journal.save_sync_snapshot(key, state.to_dict())
-            return ExecutionResult("verified", tuple(steps), state.revision)
+            return ExecutionResult("verified", (), state.revision)
+        steps: list[StepOutcome] = []
+        for op in plan.operations:
+            precondition = _check_precondition(op, state)
+            if precondition:
+                steps.append(StepOutcome(op.op_id, "rejected", precondition))
+                return ExecutionResult("stopped", tuple(steps), state.revision)
+            if self.journal.get(op.op_id):
+                steps.append(StepOutcome(op.op_id, "duplicate_intent", "operation ID is already journaled"))
+                return ExecutionResult("stopped", tuple(steps), state.revision)
+            self.journal.prepare(op_id=op.op_id, target=key, expected_revision=state.revision,
+                                 action=op.action, logical_id=op.logical_id,
+                                 intent={"operation": op.to_dict(), "before_snapshot": state.to_dict()})
+            try:
+                receipt = await self.backend.apply(op, plan.target, state.revision)
+            except Unsupported as exc:
+                self.journal.transition(op.op_id, "rejected", error=str(exc))
+                steps.append(StepOutcome(op.op_id, "rejected", str(exc)))
+                return ExecutionResult("stopped", tuple(steps), state.revision)
+            except Exception as exc:
+                # A failure after handoff may have committed remotely. No replay.
+                self.journal.transition(op.op_id, "unknown", error=str(exc))
+                steps.append(StepOutcome(op.op_id, "unknown", str(exc)))
+                return ExecutionResult("stopped", tuple(steps), state.revision)
+            self.journal.transition(op.op_id, "sent", receipt={"native_id": receipt.native_id, "revision": receipt.revision,
+                                                                   "acknowledgement": receipt.acknowledgement})
+            try:
+                observed = await self.backend.read(plan.target)
+            except Exception as exc:
+                self.journal.transition(op.op_id, "unknown", error=f"readback failed: {exc}")
+                steps.append(StepOutcome(op.op_id, "unknown", f"readback failed: {exc}", receipt))
+                return ExecutionResult("stopped", tuple(steps), state.revision)
+            if not _same_target(observed.target, plan.target):
+                ok, reason, evidence = False, "readback target differs", {}
+            else:
+                ok, reason, evidence = _verified_feature(op, receipt, state, observed)
+            observed_ids = [f.logical_id for f in observed.features]
+            intended_seen = [f.logical_id for f in plan.merged.features if f.logical_id in set(observed_ids)]
+            if ok and observed_ids != intended_seen:
+                ok, reason, evidence = False, "feature order differs from plan", {}
+            if not ok:
+                self.journal.transition(op.op_id, "unknown", observation={"revision": observed.revision}, error=reason)
+                steps.append(StepOutcome(op.op_id, "unknown", reason, receipt, evidence))
+                return ExecutionResult("stopped", tuple(steps), observed.revision)
+            self.journal.transition(op.op_id, "observed", observation=evidence)
+            steps.append(StepOutcome(op.op_id, "verified", receipt=receipt, evidence=evidence))
+            state = observed
+        self.journal.save_sync_snapshot(key, state.to_dict())
+        return ExecutionResult("verified", tuple(steps), state.revision)
 
     async def reconcile(self, op_id: str) -> StepOutcome:
         """Read-only inspection of a persisted uncertain write; never resubmit it."""

@@ -181,3 +181,17 @@ async def test_reordered_human_features_rejected_preflight_and_readback(tmp_path
     result = await Executor(backend2, journal).execute(good)
     assert result.steps[0].status == "unknown" and "order" in result.steps[0].reason
     journal.close()
+
+
+def test_target_lock_excludes_second_journal_instance(tmp_path):
+    path = tmp_path / "journal.db"
+    first, second = Journal(path), Journal(path)
+    target = "/".join((T.did, T.wid, T.eid))
+    with first.target_lock(target):
+        with pytest.raises(RuntimeError, match="Another process"):
+            with second.target_lock(target):
+                pass
+    with second.target_lock(target):
+        pass
+    first.close()
+    second.close()

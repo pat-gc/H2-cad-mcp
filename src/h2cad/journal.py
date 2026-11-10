@@ -3,7 +3,9 @@
 from __future__ import annotations
 
 import json
+import hashlib
 import sqlite3
+from contextlib import contextmanager
 from pathlib import Path
 from threading import RLock
 from typing import Any
@@ -32,6 +34,41 @@ class Journal:
 
     def close(self) -> None:
         self._db.close()
+
+    @contextmanager
+    def target_lock(self, target: str):
+        """Hold an OS lock for a whole target plan, across awaits and processes."""
+        lock_path = self.path.parent / (self.path.name + "." + hashlib.sha256(target.encode()).hexdigest()[:24] + ".lock")
+        with lock_path.open("a+b") as stream:
+            stream.seek(0)
+            try:
+                if stream.read(1) == b"":
+                    stream.write(b"0")
+                    stream.flush()
+            except OSError as exc:
+                raise RuntimeError(f"Another process is executing target {target}") from exc
+            stream.seek(0)
+            if __import__("os").name == "nt":
+                import msvcrt
+                try:
+                    msvcrt.locking(stream.fileno(), msvcrt.LK_NBLCK, 1)
+                except OSError as exc:
+                    raise RuntimeError(f"Another process is executing target {target}") from exc
+                try:
+                    yield
+                finally:
+                    stream.seek(0)
+                    msvcrt.locking(stream.fileno(), msvcrt.LK_UNLCK, 1)
+            else:
+                import fcntl
+                try:
+                    fcntl.flock(stream.fileno(), fcntl.LOCK_EX | fcntl.LOCK_NB)
+                except OSError as exc:
+                    raise RuntimeError(f"Another process is executing target {target}") from exc
+                try:
+                    yield
+                finally:
+                    fcntl.flock(stream.fileno(), fcntl.LOCK_UN)
 
     def get(self, op_id: str) -> dict[str, Any] | None:
         self._db.row_factory = sqlite3.Row
