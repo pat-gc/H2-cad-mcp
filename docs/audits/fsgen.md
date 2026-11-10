@@ -34,7 +34,14 @@ uv pip install --python .venv/Scripts/python.exe -e . pytest
 .venv/Scripts/python.exe -m pytest -q
 ```
 
-The x64 install succeeded (82 packages, build123d 0.13.0, cadquery-ocp-novtk 8.0.1.1.0). Test result is pending below. `AGENTS.md` documents Unix `.venv/bin/fsgen`; use `.venv/Scripts/fsgen.exe` on Windows. `fsgen/cli.py::paste_command` calls macOS `pbcopy`, so automatic clipboard copying is unavailable on Windows though the paste file is written. Paths in outputs are otherwise built with `pathlib`; platform success is limited to the tested offline commands.
+The x64 install succeeded (82 packages, build123d 0.13.0, cadquery-ocp-novtk 8.0.1.1.0). The full `pytest -q` run reached about 80%, displayed one failure, then made no further output for several minutes during a heavy geometry test; it was interrupted, so the full-suite result and failure identity are **undetermined**. A focused second run including `test_native_local.py` also ran into a long geometry case and was interrupted. The bounded native serialization/document/budget tests completed:
+
+```text
+.venv/Scripts/python.exe -m pytest -q tests/test_native.py tests/test_document_target.py tests/test_api_cost.py
+25 passed in 5.07s
+```
+
+An independent local build of `examples/native/plate.fs` through the new integration wrapper returned `passed`, one part, `23244.3849 mm³`, with no warnings or partial flag. This agrees with the recorded Onshape volume in `tests/test_native_local.py` within its stated tolerance; it is still only a local OCC result. `AGENTS.md` documents Unix `.venv/bin/fsgen`; use `.venv/Scripts/fsgen.exe` on Windows. `fsgen/cli.py::paste_command` calls macOS `pbcopy`, so automatic clipboard copying is unavailable on Windows though the paste file is written. Paths in outputs are otherwise built with `pathlib`; platform success is limited to the tested offline commands.
 
 ## Integration recommendation
 

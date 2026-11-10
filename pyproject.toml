@@ -1,0 +1,20 @@
+[build-system]
+requires = ["setuptools>=61"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "h2cad"
+version = "0.1.0"
+description = "Semantic planning and guarded execution for editable Onshape CAD"
+requires-python = ">=3.11"
+dependencies = []
+
+[project.optional-dependencies]
+fsgen = ["fsgen @ git+https://github.com/Lucasfrit/onshape-fsgen.git@eabcc02ba104005da3de869e613cefe53042fd98"]
+test = ["pytest>=8"]
+
+[tool.setuptools.packages.find]
+where = ["src"]
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
