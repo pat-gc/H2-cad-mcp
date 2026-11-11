@@ -1,0 +1,15 @@
+# Exact-target native read-only probe — 2026-11-10
+
+Target: the user-authorized disposable Part Studio `f5a8353dc826a9ec52106138 / a3baadfcc7e36a50134951d6 / a2761fa52794bee99354ae96`. Its existing Edge tab was `941739356`. This probe made no CAD feature write, REST call, or UI edit.
+
+The local bridge health returned protocol 1, `extension_connected=true`, extension 0.4.3 with `native_modeling_v1`, `element_revision_v1`, `editor_tabs_v1`, and `chunked_response_v1`. The exact tab appeared in the bridge tab inventory.
+
+The first `native_state` returned document microversion `e4ec051e0160b0b4606728fd`, element microversion `9854fba753ed81e6f5a1cf3f`, `editingFeatureId=null`, and `connected=false`. The model tree was `bsedit.GBTMModel`, with one rollback child and only default Origin, Top, Front, and Right nodes. The fork's `h2Readback.complete` was `false`, `definitionKeys=[]`, and no geometry or regeneration status was present. `editor_tab(status)` then reported `ready=false`, `stale=true`, `reason=disconnected`.
+
+Live serializer `native_schema` calls succeeded for `ui.GBTUiAddFeatureCall`, `ui.GBTUiSpecifyFeature`, `ui.GBTUiCommit`, `ui.sketch.GBTUiSketchAddRectangleCall`, and `ui.GBTUiGetFeatureSettingsCall`. Defaults expose the outer message fields, including `newFeature=null` for AddFeature and `featureChange=null`, `featureNodeId=""`, `selectionMicroversion.theId=""`, `sequenceId=0` for SpecifyFeature. Rectangle defaults contain coordinates zero and empty entity/inference IDs. They do **not** allocate feature IDs, node IDs, insertion references, a plane reference, or a region selection. Raw responses are in ignored private files `upstream/onshape-native/.runtime/h2cad-schema-*.json`.
+
+`GBTUiGetFeatureSettingsCall` for `::newSketch` and `::extrude` was initially rejected because the captured sample's internal element ID differed from this target. Repeating each read with the exact target element ID was rejected before dispatch because the editor was disconnected. The two responses, saved privately as `.runtime/h2cad-settings-*.json`, contain only `error`, `outcome`, and `tab_id`. There is no live settings template or fresh ID evidence from these reads.
+
+A bridge `editor_tab(refresh, refresh=if_stale)` on that exact tab returned `ready=true`, `stale=false`, `reason=connected`, `refreshed=true`, and unchanged revisions. The immediate read-only `native_state` then timed out after about 45 seconds with `Command outcome unknown`. Later `editor_tab(status)` calls consistently returned `Previous command still running; inspect state before continuing.` Bridge health still reported the extension connected. No further native read or write was attempted while the extension was in flight.
+
+**Disposition:** Native sketch/extrusion replay remains blocked. A connected bridge and structural schema are insufficient: the editor must become idle, feature settings must be read live, fresh IDs and plane/region/insertion bindings must be established, and post-write feature/regeneration/geometry readback must be available before the controlled disposable test.
