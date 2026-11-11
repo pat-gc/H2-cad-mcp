@@ -50,6 +50,11 @@ def build_parser() -> argparse.ArgumentParser:
     _add_target(inspect_cmd)
     inspect_cmd.add_argument("--bridge-config", type=Path, required=True)
     inspect_cmd.add_argument("--tab-id", type=int)
+    probe_cmd = commands.add_parser("native-probe", help="read sketch/extrusion runtime schemas and settings only")
+    _add_target(probe_cmd)
+    probe_cmd.add_argument("--bridge-config", type=Path, required=True)
+    probe_cmd.add_argument("--tab-id", type=int)
+    probe_cmd.add_argument("--output", type=Path)
     reconcile_cmd = commands.add_parser("reconcile", help="read-only check of an uncertain journal operation")
     reconcile_cmd.add_argument("op_id")
     reconcile_cmd.add_argument("--journal", type=Path, required=True)
@@ -68,6 +73,8 @@ async def _bridge_action(args: argparse.Namespace) -> tuple[object, int]:
         backend = NativeBackend(bridge, tab_id=args.tab_id)
         if args.command == "inspect":
             return await backend.raw_state(_target(args)), 0
+        if args.command == "native-probe":
+            return await backend.modeling_probe(_target(args)), 0
         from .executor import Executor
         journal = Journal(args.journal)
         try:
@@ -101,6 +108,9 @@ def main(argv: list[str] | None = None) -> int:
                      "browser_write": "disabled until live native bindings and complete readback are proven"}
         else:
             value, status = asyncio.run(_bridge_action(args))
+            if getattr(args, "output", None):
+                args.output.parent.mkdir(parents=True, exist_ok=True)
+                args.output.write_text(json.dumps(value, indent=2, ensure_ascii=False, sort_keys=True) + "\n", encoding="utf-8")
             _print(value)
             return status
         if getattr(args, "output", None):

@@ -41,6 +41,37 @@ async def test_bridge_uses_only_native_command_channel_and_rejects_rest():
     await bridge.close()
 
 
+@pytest.mark.asyncio
+async def test_modeling_probe_reads_runtime_evidence_without_writes():
+    jobs = []
+
+    def handler(request):
+        if request.url.path == "/health":
+            return httpx.Response(200, json={"protocol": 1, "extension_connected": True,
+                                             "extension": {"capabilities": ["native_modeling_v1"]}})
+        assert request.url.path == "/command"
+        job = json.loads(request.content)
+        jobs.append(job)
+        if job["kind"] == "state":
+            return httpx.Response(200, json={"target": job["target"], "element_microversion": E,
+                                             "connected": True, "editingFeatureId": None,
+                                             "tree": {"$type": "bsedit.GBTMModel"},
+                                             "h2Readback": {"contract": "h2-readback-probe-v1", "complete": False}})
+        if job["kind"] == "schema":
+            return httpx.Response(200, json={"name": job["name"], "defaults": {"elementId": ""}})
+        assert job["command"] == "ui.GBTUiGetFeatureSettingsCall"
+        return httpx.Response(200, json={"result": {"featureKey": job["body"]["featureKey"]}})
+
+    bridge = NativeBridge("x" * 32, transport=httpx.MockTransport(handler))
+    probe = await NativeBackend(bridge).modeling_probe(T)
+    assert probe["write_ready"] is False
+    assert probe["tree_type"] == "bsedit.GBTMModel"
+    assert len(jobs) == 7
+    assert {job["kind"] for job in jobs} == {"state", "schema", "native"}
+    assert all(job.get("command") == "ui.GBTUiGetFeatureSettingsCall" for job in jobs if job["kind"] == "native")
+    await bridge.close()
+
+
 def test_rectangle_compiles_only_with_runtime_schema_and_live_bindings():
     feature = Feature("s", "sketch", {}, structure={"sketch": {"rectangle":
                       {"x0": 0.0, "y0": 0.0, "x1": .04, "y1": .02}}})

@@ -187,5 +187,33 @@ class NativeBackend:
             job["tab_id"] = self.tab_id
         return await self.bridge.command(job)
 
+    async def feature_settings(self, target: Target, feature_key: str) -> dict[str, Any]:
+        if feature_key not in {"::newSketch", "::extrude"}:
+            raise Unsupported("Only sketch and extrusion settings may be probed")
+        job: dict[str, Any] = {"kind": "native", "target": _target(target),
+                               "command": "ui.GBTUiGetFeatureSettingsCall", "body": {"featureKey": feature_key}}
+        if self.tab_id is not None:
+            job["tab_id"] = self.tab_id
+        return await self.bridge.command(job)
+
+    async def modeling_probe(self, target: Target) -> dict[str, Any]:
+        """Read-only evidence for a fresh editor build; never submits mutations."""
+        health = await self.bridge.health()
+        if not health.get("extension_connected"):
+            raise BackendError("Onshape Native extension is not connected")
+        state = await self.raw_state(target)
+        if state.get("connected") is not True or state.get("editingFeatureId") or state.get("h2Readback", {}).get("complete") is not False:
+            raise BackendError("Editor is busy or readback contract changed; inspect state manually")
+        names = ("ui.GBTUiAddFeatureCall", "ui.GBTUiSpecifyFeature", "ui.GBTUiCommit",
+                 "ui.sketch.GBTUiSketchAddRectangleCall")
+        schemas = {name: await self.schema(target, name) for name in names}
+        settings = {name: await self.feature_settings(target, name) for name in ("::newSketch", "::extrude")}
+        return {"target": _target(target), "element_microversion": state["element_microversion"],
+                "tree_type": state["tree"].get("$type"), "readback": state.get("h2Readback"),
+                "schemas": schemas, "feature_settings": settings,
+                "write_ready": False,
+                "missing": ["verified live ID allocation", "exact insertion and plane bindings",
+                            "full native feature/geometry regeneration readback"]}
+
     async def apply(self, operation: Operation, target: Target, expected_revision: str) -> Receipt:
         raise Unsupported("Native sketch/extrusion transaction lacks proven live ID allocation and complete readback")
