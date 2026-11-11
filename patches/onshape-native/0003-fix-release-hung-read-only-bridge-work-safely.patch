@@ -1,0 +1,117 @@
+From 4091e21d2460c393c639606cbd1f495c1999aefb Mon Sep 17 00:00:00 2001
+From: patcybermind <pato.gonzalezcabrera@gmail.com>
+Date: Tue, 10 Nov 2026 22:15:52 -0500
+Subject: [PATCH] fix: release hung read-only bridge work safely
+
+---
+ extension/connection.js   | 33 ++++++++++++++++++++++++++++++++-
+ tests/connection.test.mjs | 39 +++++++++++++++++++++++++++++++++++++++
+ 2 files changed, 71 insertions(+), 1 deletion(-)
+
+diff --git a/extension/connection.js b/extension/connection.js
+index 8db4e1e..48922a0 100644
+--- a/extension/connection.js
++++ b/extension/connection.js
+@@ -3,6 +3,33 @@ export function createConnection({browser, token, execute, Socket = WebSocket,
+   timers = globalThis, now = Date.now}) {
+   let socket = null, heartbeat = null, deadline = null, retry = null;
+   let enabled = false, connected = false, inFlight = false, error = '', delay = 1000;
++  const orphanedReads = new Set();
++  const readOnly = job => job && (
++    ['state', 'schema', 'tabs', 'ui_inspect'].includes(job.kind) ||
++    (job.kind === 'editor_tab' && job.action === 'status') ||
++    (job.kind === 'native' && ['ui.GBTUiGetFeatureSettingsCall',
++      'ui.sketch.GBTUiSketchGetConstraintGraphCall', 'ui.sketch.GBTUiSketchGetProjectionCall'].includes(job.command)));
++  const readKey = job => job.tab_id != null ? `tab:${job.tab_id}` :
++    job.target ? `target:${job.target.did}/${job.target.wid}/${job.target.eid}` : `kind:${job.kind}`;
++  async function boundedRead(job) {
++    const key = readKey(job);
++    const pending = Promise.resolve().then(() => execute(job));
++    const timeoutMs = job.kind === 'editor_tab' ? 10000 + Math.min(30, job.wait_seconds || 0) * 1000 : 10000;
++    let timer, timedOut = false, settled = false;
++    pending.then(() => { settled = true; if (timedOut) orphanedReads.delete(key); },
++      () => { settled = true; if (timedOut) orphanedReads.delete(key); });
++    try {
++      const outcome = await Promise.race([pending.then(value => ({value})),
++        new Promise(resolve => { timer = timers.setTimeout(() => resolve({timeout:true}), timeoutMs); })]);
++      if (outcome.timeout) {
++        timedOut = true;
++        if (!settled) orphanedReads.add(key);
++        return {error:'Read-only editor command timed out. The original page task may still be running; no command was replayed.',
++          outcome:'Use another exact tab for read-only inspection. Writes remain paused until the page task settles or the extension is reloaded.'};
++      }
++      return outcome.value;
++    } finally { timers.clearTimeout(timer); }
++  }
+   let queue = Promise.resolve();
+   const status = () => ({enabled, connected, connecting: !!socket && !connected, error});
+   const badge = text => { browser.action.setBadgeText({text}).catch(() => {}); };
+@@ -71,10 +98,14 @@ export function createConnection({browser, token, execute, Socket = WebSocket,
+       if (!connected || message.type !== 'command') return;
+       let result;
+       if (inFlight) result = {error: 'Previous command still running; inspect state before continuing.'};
++      else if (readOnly(message.job) && orphanedReads.has(readKey(message.job)))
++        result = {error:'A previous read-only command is still running in this editor; use a different exact tab or reload the extension.'};
++      else if (!readOnly(message.job) && orphanedReads.size)
++        result = {error:'A timed-out read-only editor task remains unresolved; writes are paused until it settles or the extension is reloaded.'};
+       else {
+         inFlight = true;
+         try {
+-          result = await execute(message.job);
++          result = readOnly(message.job) ? await boundedRead(message.job) : await execute(message.job);
+           if (JSON.stringify(result).length > 512 * 1024 * 1024)
+             result = {error: 'Result too large; inspect state and narrow the query.'};
+         } catch (failure) {
+diff --git a/tests/connection.test.mjs b/tests/connection.test.mjs
+index b33a03f..eae902d 100644
+--- a/tests/connection.test.mjs
++++ b/tests/connection.test.mjs
+@@ -136,6 +136,45 @@ test('in-flight work is never replayed or returned on a replacement socket', asy
+   assert(!current.sent.some(m => m.id === 'original'));
+   assert(!old.sent.some(m => m.type === 'result'));
+ });
++test('hung editor status times out and other read-only tabs remain inspectable', async () => {
++  let settle, writes = 0;
++  const f = fixture({execute: job => {
++    if (job.kind === 'editor_tab' && job.tab_id === 1)
++      return new Promise(resolve => {settle = resolve;});
++    if (job.kind === 'native') writes++;
++    return Promise.resolve({ok:true, tab_id:job.tab_id});
++  }}), s = await ready(f);
++  const pending = s.receive({type:'command', id:'status-1',
++    job:{kind:'editor_tab', action:'status', tab_id:1}});
++  await flush(); await f.advance(10000); await pending;
++  assert.match(s.sent.at(-1).result.error,/Read-only editor command timed out/);
++  await s.receive({type:'command', id:'state-2', job:{kind:'state', tab_id:2}});
++  assert.equal(s.sent.at(-1).result.ok,true);
++  await s.receive({type:'command', id:'state-1', job:{kind:'state', tab_id:1}});
++  assert.match(s.sent.at(-1).result.error,/previous read-only command/);
++  await s.receive({type:'command', id:'write-blocked', job:{kind:'native', command:'ui.GBTUiAddFeatureCall'}});
++  assert.match(s.sent.at(-1).result.error,/writes are paused/);
++  assert.equal(writes,0);
++  settle({ok:true}); await flush();
++  await s.receive({type:'command', id:'write-after-settle', job:{kind:'native', command:'ui.GBTUiAddFeatureCall'}});
++  assert.equal(s.sent.at(-1).result.ok,true);
++  assert.equal(writes,1);
++  assert.equal(s.sent.filter(x=>x.id==='status-1').length,1);
++});
++test('hung native state times out without unlocking a possibly committed write', async () => {
++  let writeCalls = 0;
++  const f = fixture({execute: job => {
++    if (job.kind === 'state') return new Promise(()=>{});
++    if (job.kind === 'native') {writeCalls++;return new Promise(()=>{});}
++    return Promise.resolve({ok:true});
++  }}), s = await ready(f);
++  const read = s.receive({type:'command', id:'state',job:{kind:'state',tab_id:5}});
++  await flush(); await f.advance(10000); await read;
++  assert.match(s.sent.at(-1).result.error,/Read-only editor command timed out/);
++  await s.receive({type:'command', id:'write',job:{kind:'native',command:'ui.GBTUiCommit'}});
++  assert.match(s.sent.at(-1).result.error,/writes are paused/);
++  assert.equal(writeCalls,0);
++});
+ test('disabled preference survives worker recreation', async () => {
+   const f = fixture({enabled: false}); await f.connection.resume();
+   assert.equal(f.sockets.length, 0); await f.connection.connect();
+-- 
+2.54.0.windows.1
+

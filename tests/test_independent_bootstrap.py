@@ -21,7 +21,8 @@ def test_bootstrap_refuses_unrecognized_native_descendant(tmp_path, extra):
                    cwd=checkout, check=True)
     patch_dir = Path(__file__).resolve().parents[1] / "patches" / "onshape-native"
     for name in ("0001-feat-add-fail-closed-H2-native-readback-probe.patch",
-                 "0002-fix-bound-native-state-readback-inspection.patch"):
+                 "0002-fix-bound-native-state-readback-inspection.patch",
+                 "0003-fix-release-hung-read-only-bridge-work-safely.patch"):
         subprocess.run(["git", "-c", "user.name=Verifier", "-c", "user.email=verifier@example.invalid",
                         "am", "--quiet", str(patch_dir / name)], cwd=checkout, check=True)
     if extra == "content":
