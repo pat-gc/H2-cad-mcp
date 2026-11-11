@@ -1,0 +1,126 @@
+From 5108cb0e2f46a60c5fed7befd5094cd363ec9179 Mon Sep 17 00:00:00 2001
+From: patcybermind <pato.gonzalezcabrera@gmail.com>
+Date: Tue, 10 Nov 2026 21:58:36 -0500
+Subject: [PATCH] fix: bound native state readback inspection
+
+---
+ extension/page-adapter.js | 40 ++++++++++++++++++++++++++++-----------
+ tests/adapter.test.mjs    | 17 +++++++++++++++++
+ 2 files changed, 46 insertions(+), 11 deletions(-)
+
+diff --git a/extension/page-adapter.js b/extension/page-adapter.js
+index 5919ed4..fea8be6 100644
+--- a/extension/page-adapter.js
++++ b/extension/page-adapter.js
+@@ -168,20 +168,22 @@ export async function pageCommand(job) {
+     try { constructors.set(value.prototype.getMessageName(), value); } catch { /* not a message */ }
+   }
+ 
+-  function plain(value, seen = new WeakSet(), depth = 0) {
++  function plain(value, seen = new WeakSet(), depth = 0, budget = null) {
++    if (budget && (--budget.remaining < 0 || Date.now() > budget.deadline))
++      throw new Error("Native tree exceeds inspection budget; narrow the editor state.");
+     if (depth > 40) throw new Error("Response nesting exceeds limit.");
+     if (value == null || typeof value !== "object") return value;
+     if (seen.has(value)) throw new Error("Cyclic response refused.");
+     seen.add(value);
+     let output;
+-    if (value instanceof Map) output = {$map: [...value.entries()].map(([k,v]) => [plain(k, seen, depth + 1), plain(v, seen, depth + 1)])};
+-    else if (Array.isArray(value)) output = value.map(v => plain(v, seen, depth + 1));
++    if (value instanceof Map) output = {$map: [...value.entries()].map(([k,v]) => [plain(k, seen, depth + 1, budget), plain(v, seen, depth + 1, budget)])};
++    else if (Array.isArray(value)) output = value.map(v => plain(v, seen, depth + 1, budget));
+     else if (ArrayBuffer.isView(value)) output = {typedArray: value.constructor.name, length: value.length};
+     else {
+       output = {};
+       if (typeof value.getMessageName === "function") output.$type = value.getMessageName();
+       for (const [key, item] of Object.entries(value)) {
+-        if (!key.startsWith("_") && typeof item !== "function") output[key] = plain(item, seen, depth + 1);
++        if (!key.startsWith("_") && typeof item !== "function") output[key] = plain(item, seen, depth + 1, budget);
+       }
+     }
+     seen.delete(value);
+@@ -219,9 +221,15 @@ export async function pageCommand(job) {
+     // Never report a verified semantic snapshot based on guessed property names.
+     const candidateNodes = [];
+     const visited = new WeakSet();
++    let visitedCount = 0, truncated = false;
++    const deadline = Date.now() + 50;
+     function walk(node, depth = 0) {
+-      if (!node || typeof node !== "object" || depth > 30 || candidateNodes.length >= 500 || visited.has(node)) return;
++      if (!node || typeof node !== "object" || visited.has(node)) return;
++      if (depth > 30 || candidateNodes.length >= 500 || visitedCount >= 2000 || Date.now() > deadline) {
++        truncated = true; return;
++      }
+       visited.add(node);
++      visitedCount++;
+       if (typeof node.featureId === "string" && node.featureId) {
+         candidateNodes.push({featureId:node.featureId,
+           nodeId:typeof node.nodeId === "string" ? node.nodeId : null,
+@@ -231,20 +239,30 @@ export async function pageCommand(job) {
+           hasParameters:Array.isArray(node.parameters), hasEntities:Array.isArray(node.entities),
+           hasConstraints:Array.isArray(node.constraints)});
+       }
+-      if (Array.isArray(node)) for (const value of node) walk(value, depth + 1);
+-      else if (node instanceof Map) for (const value of node.values()) walk(value, depth + 1);
+-      else for (const [key, value] of Object.entries(node)) {
+-        if (!key.startsWith("_") && typeof value !== "function") walk(value, depth + 1);
++      if (Array.isArray(node)) {
++        if (node.length > 100) truncated = true;
++        for (const value of node.slice(0, 100)) walk(value, depth + 1);
++      } else if (node instanceof Map) {
++        if (node.size > 100) truncated = true;
++        let count = 0;
++        for (const value of node.values()) { if (count++ >= 100) break; walk(value, depth + 1); }
++      } else {
++        const keys = Object.keys(node);
++        if (keys.length > 100) truncated = true;
++        for (const key of keys.slice(0, 100)) {
++          const value = node[key];
++          if (!key.startsWith("_") && typeof value !== "function") walk(value, depth + 1);
++        }
+       }
+     }
+     walk(root);
+     const h2Readback = {contract:"h2-readback-probe-v1", complete:false,
+       reason:"Editor tree feature definitions, status and geometry are not established as complete readback.",
+       definitionKeys:definition && typeof definition === "object" ? Object.keys(definition).filter(k=>!k.startsWith("_")).slice(0,100) : [],
+-      candidateNodes};
++      candidateNodes, visitedCount, truncated};
+     return bounded({target, microversion: getMicroversion(), element_microversion:getElementMicroversion(), connected:controller.connection?.isClosed?.() === false,
+       editingFeatureId: elementModel?.get("idEditingFeature") || null,
+-      tree: plain(root), h2Readback,
++      tree: plain(root, new WeakSet(), 0, {remaining:100000, deadline:Date.now()+1500}), h2Readback,
+       ...(definition?.assembly ? {assemblyTree: plain(definition.assemblyTree), computedData: plain(definition.computedData),
+         assemblyTreeValid: definition.assemblyTree?.isValid === true,
+         completeness: "Assembly definitions may be lazy. Use GBTUiAssemblyTreeItemDefinitionRequest or the full REST assembly for specific mate parameters."} : {}),
+diff --git a/tests/adapter.test.mjs b/tests/adapter.test.mjs
+index fdc11a7..8cf04bb 100644
+--- a/tests/adapter.test.mjs
++++ b/tests/adapter.test.mjs
+@@ -79,6 +79,23 @@ test('H2 readback probe identifies candidates but never claims complete semantic
+   assert.equal(sent.length,0);
+ });
+ 
++test('H2 readback probe bounds wide trees with no feature candidates',async()=>{
++  const root={children:Array.from({length:5000},(_,i)=>({nodeId:`node-${i}`}))};
++  setup(undefined,false,null,root);
++  const state=await pageCommand({kind:'state',target});
++  assert.equal(state.h2Readback.complete,false);
++  assert.equal(state.h2Readback.truncated,true);
++  assert.ok(state.h2Readback.visitedCount<=2000);
++  assert.equal(state.h2Readback.candidateNodes.length,0);
++});
++
++test('native state serialization fails closed when tree exceeds inspection budget',async()=>{
++  setup(undefined,false,null,{children:Array.from({length:100001},()=>0)});
++  const state=await pageCommand({kind:'state',target});
++  assert.match(state.error,/inspection budget/);
++  assert.equal(sent.length,0);
++});
++
+ test('assembly sidebar Map entries survive serialization with typed nodes',async()=>{
+   const node={displayName:'Folder',childrenCount:0,getMessageName(){return 'assembly.tree.GBTAssemblyTreeFolder'}};
+   setup({assembly:{nodeId:'root'},assemblyTree:{isValid:true,pathToNodes:new Map([['Ffolder',node]])}});
+-- 
+2.54.0.windows.1
+

@@ -19,9 +19,11 @@ def test_bootstrap_refuses_unrecognized_native_descendant(tmp_path, extra):
     subprocess.run(["git", "clone", "--quiet", "--local", str(upstream), str(checkout)], check=True)
     subprocess.run(["git", "checkout", "--quiet", "--detach", "f5304ed0aa49347dec40911af9c2018d81012604"],
                    cwd=checkout, check=True)
-    patch = Path(__file__).resolve().parents[1] / "patches" / "onshape-native" / "0001-feat-add-fail-closed-H2-native-readback-probe.patch"
-    subprocess.run(["git", "-c", "user.name=Verifier", "-c", "user.email=verifier@example.invalid",
-                    "am", "--quiet", str(patch)], cwd=checkout, check=True)
+    patch_dir = Path(__file__).resolve().parents[1] / "patches" / "onshape-native"
+    for name in ("0001-feat-add-fail-closed-H2-native-readback-probe.patch",
+                 "0002-fix-bound-native-state-readback-inspection.patch"):
+        subprocess.run(["git", "-c", "user.name=Verifier", "-c", "user.email=verifier@example.invalid",
+                        "am", "--quiet", str(patch_dir / name)], cwd=checkout, check=True)
     if extra == "content":
         (checkout / "unreviewed.txt").write_text("unexpected content\n", encoding="utf-8")
         subprocess.run(["git", "add", "unreviewed.txt"], cwd=checkout, check=True)

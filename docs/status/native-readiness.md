@@ -14,9 +14,9 @@ remote readback as a sync base.
 The CLI supports compile, validate, plan, doctor, inspect, and read-only
 reconcile. Bootstrap pins FSGen at
 `eabcc02ba104005da3de869e613cefe53042fd98` and Native at
-`f5304ed0aa49347dec40911af9c2018d81012604`, then applies the one reviewed
-Native patch. An existing Native checkout is accepted only at the base commit
-or at a direct child whose Git tree equals the reviewed patch tree. Extra clean
+`f5304ed0aa49347dec40911af9c2018d81012604`, then applies the reviewed
+two-commit Native patch stack. An existing Native checkout is accepted only at
+the base commit or an exact prefix of that stack with its reviewed Git tree. Extra clean
 commits and content are refused; dirty checkouts are never overwritten.
 
 ## Native modeling capability
