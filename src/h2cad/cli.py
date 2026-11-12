@@ -60,6 +60,14 @@ def build_parser() -> argparse.ArgumentParser:
     reconcile_cmd.add_argument("--journal", type=Path, required=True)
     reconcile_cmd.add_argument("--bridge-config", type=Path, required=True)
     reconcile_cmd.add_argument("--tab-id", type=int)
+    depth_cmd = commands.add_parser("experimental-depth-edit", help="edit one saved extrusion in the authorized disposable Part Studio")
+    _add_target(depth_cmd)
+    depth_cmd.add_argument("--bridge-config", type=Path, required=True)
+    depth_cmd.add_argument("--tab-id", type=int, required=True)
+    depth_cmd.add_argument("--journal", type=Path, required=True)
+    depth_cmd.add_argument("--feature-id", required=True)
+    depth_cmd.add_argument("--from-mm", type=float, required=True)
+    depth_cmd.add_argument("--to-mm", type=float, required=True)
     return parser
 
 
@@ -75,6 +83,14 @@ async def _bridge_action(args: argparse.Namespace) -> tuple[object, int]:
             return await backend.raw_state(_target(args)), 0
         if args.command == "native-probe":
             return await backend.modeling_probe(_target(args)), 0
+        if args.command == "experimental-depth-edit":
+            journal = Journal(args.journal)
+            try:
+                return await backend.edit_disposable_extrude_depth(
+                    _target(args), feature_id=args.feature_id,
+                    from_mm=args.from_mm, to_mm=args.to_mm, journal=journal), 0
+            finally:
+                journal.close()
         from .executor import Executor
         journal = Journal(args.journal)
         try:

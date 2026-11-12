@@ -3,10 +3,11 @@
 This local compatibility branch starts from upstream `godbrigero/onshape-native`
 commit `f5304ed0aa49347dec40911af9c2018d81012604` and preserves that Git
 history. Branch: `codex/h2-native-compat` in ignored `upstream/onshape-native`.
-Current fork commit: `4091e21d2460c393c639606cbd1f495c1999aefb`.
+Current fork commit: `7fb21e1a380095b5c5125847a4770774c5cdbdb9`.
 Reviewable patches: `patches/onshape-native/0001-feat-add-fail-closed-H2-native-readback-probe.patch`
-`patches/onshape-native/0002-fix-bound-native-state-readback-inspection.patch`, and
-`patches/onshape-native/0003-fix-release-hung-read-only-bridge-work-safely.patch`.
+`patches/onshape-native/0002-fix-bound-native-state-readback-inspection.patch`,
+`patches/onshape-native/0003-fix-release-hung-read-only-bridge-work-safely.patch`, and
+`patches/onshape-native/0004-feat-guard-isolated-Part-Studio-extrusion-depth-edit.patch`.
 
 The user reports that the upstream owner authorized integration. This note
 records the report, not an independently verified public license grant. Keep
@@ -26,6 +27,14 @@ extension worker. If a read hangs, its one request returns a timeout error;
 another exact tab can still be inspected. Writes stay paused while the original
 read task remains unresolved. Potentially committed writes retain the original
 no-timeout, no-replay fail-closed behavior.
+The fourth patch adds one experimental native editor transaction that edits the
+depth of a saved solid/new/blind extrusion. It is hard limited to the
+authorized disposable Part Studio. It checks live feature identity, element
+revision, parameter type and previous depth before using the editor's
+BeginEdit/SpecifyFeature/Commit lifecycle. It reports only definition readback.
+H2 independently rereads the entire tree before observing the journal intent.
+Live execution and geometry/editability verification remain with the testing
+agent; this patch does not create a sketch or extrusion.
 
 Reproduction from an upstream clone at the base commit:
 
@@ -33,10 +42,12 @@ Reproduction from an upstream clone at the base commit:
 git am patches/onshape-native/0001-feat-add-fail-closed-H2-native-readback-probe.patch
 git am patches/onshape-native/0002-fix-bound-native-state-readback-inspection.patch
 git am patches/onshape-native/0003-fix-release-hung-read-only-bridge-work-safely.patch
+git am patches/onshape-native/0004-feat-guard-isolated-Part-Studio-extrusion-depth-edit.patch
 node --test tests/adapter.test.mjs
 ```
 
-The full Node suite passed 87/87 on Windows after three patches. A live editor tree and feature
-definition response remain needed to establish a complete semantic readback
-contract; the current tests use synthetic local objects and do not prove live
-Onshape behavior.
+The full Node suite passed 90/90 and focused bridge tests 45/45 on Windows
+after four patches. H2 local tests passed 39/39. The new command has not been
+executed against Onshape; its tests use synthetic local objects. The earlier
+live editor tree supports a narrow preflight shape, not a complete semantic
+readback contract.

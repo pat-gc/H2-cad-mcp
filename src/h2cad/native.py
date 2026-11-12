@@ -7,18 +7,22 @@ replayed, and observed message shapes are not treated as proven capabilities.
 from __future__ import annotations
 
 from dataclasses import dataclass
+import copy
 import json
 import math
 from pathlib import Path
 import re
+from uuid import uuid4
 from typing import Any
 
 import httpx
 
 from .backend import BackendError, Capabilities, Receipt, Unsupported, UncertainWrite
 from .model import Feature, Operation, Snapshot, Target
+from .journal import Journal
 
 _ID = re.compile(r"[a-f0-9]{24}\Z")
+_DISPOSABLE = {"did": "f5a8353dc826a9ec52106138", "wid": "a3baadfcc7e36a50134951d6", "eid": "a2761fa52794bee99354ae96"}
 
 
 @dataclass(frozen=True)
@@ -61,7 +65,7 @@ class NativeBridge:
         return data
 
     async def command(self, job: dict[str, Any]) -> dict[str, Any]:
-        if job.get("kind") not in {"state", "schema", "native"}:
+        if job.get("kind") not in {"state", "schema", "native", "partstudio_depth_edit"}:
             raise Unsupported("Browser-mode adapter permits only native editor jobs")
         try:
             response = await self.http.post("/command", json=job)
@@ -71,6 +75,8 @@ class NativeBridge:
         if response.status_code != 200 or not isinstance(data, dict):
             raise BackendError(f"Native bridge rejected command (HTTP {response.status_code})")
         if data.get("error"):
+            if job.get("kind") == "partstudio_depth_edit":
+                raise UncertainWrite(str(data["error"]))
             raise BackendError(str(data["error"]))
         return data
 
@@ -217,3 +223,75 @@ class NativeBackend:
 
     async def apply(self, operation: Operation, target: Target, expected_revision: str) -> Receipt:
         raise Unsupported("Native sketch/extrusion transaction lacks proven live ID allocation and complete readback")
+
+    async def edit_disposable_extrude_depth(self, target: Target, *, feature_id: str,
+                                            from_mm: int | float, to_mm: int | float,
+                                            journal: Journal) -> dict[str, Any]:
+        """One experimental editor transaction; a new state is read independently.
+
+        This does not grant the generic planner a native write capability or prove
+        regeneration. An unknown outcome remains journaled and is never replayed.
+        """
+        if _target(target) != _DISPOSABLE:
+            raise Unsupported("Depth edit is limited to the authorized disposable Part Studio")
+        if not isinstance(feature_id, str) or not feature_id or len(feature_id) > 80:
+            raise ValueError("Expected one live feature ID")
+        if any(type(v) not in (int, float) or not math.isfinite(v) or not 0 < v <= 1000 for v in (from_mm, to_mm)) or from_mm == to_mm:
+            raise ValueError("Expected distinct positive bounded millimeter depths")
+        key = f"{target.did}/{target.wid}/{target.eid}"
+        with journal.target_lock(key):
+            if journal.unresolved(key):
+                raise UncertainWrite("Prior target write unresolved; inspect before mutation")
+            before = await self.raw_state(target)
+            if before.get("connected") is not True or before.get("editingFeatureId") is not None or before.get("h2Readback", {}).get("contract") != "h2-readback-probe-v1":
+                raise Unsupported("Editor state unavailable or busy")
+            expected_tree = _depth_expected_tree(before["tree"], feature_id, from_mm, to_mm)
+            op_id = "depth-" + uuid4().hex
+            journal.prepare(op_id=op_id, target=key, expected_revision=before["element_microversion"],
+                            action="experimental_depth_edit", logical_id=feature_id,
+                            intent={"before_state": before, "expected_tree": expected_tree, "to_mm": to_mm})
+            job: dict[str, Any] = {"kind": "partstudio_depth_edit", "target": _DISPOSABLE,
+                                   "expected_element_microversion": before["element_microversion"],
+                                   "depth_edit": {"feature_id": feature_id, "from_mm": from_mm, "to_mm": to_mm}}
+            if self.tab_id is not None:
+                job["tab_id"] = self.tab_id
+            try:
+                response = await self.bridge.command(job)
+            except Exception as exc:
+                journal.transition(op_id, "unknown", error=str(exc))
+                raise UncertainWrite(f"Depth edit outcome unknown; journal operation {op_id}") from exc
+            journal.transition(op_id, "sent", receipt=response)
+            try:
+                after = await self.raw_state(target)
+                if response.get("definition_verified") is not True or after["tree"] != expected_tree or after.get("element_microversion") == before["element_microversion"]:
+                    raise UncertainWrite("Independent tree readback or revision differs from expected edit")
+            except Exception as exc:
+                journal.transition(op_id, "unknown", error=str(exc))
+                raise UncertainWrite(f"Depth edit outcome unknown; journal operation {op_id}") from exc
+            evidence = {"op_id": op_id, "feature_id": feature_id, "from_mm": from_mm, "to_mm": to_mm,
+                        "revision_before": before["element_microversion"], "revision_after": after["element_microversion"],
+                        "definition_verified": True, "geometry_verified": False, "ui_editability_verified": False}
+            journal.transition(op_id, "observed", observation=evidence)
+            return evidence
+
+
+def _depth_expected_tree(tree: dict[str, Any], feature_id: str, from_mm: int | float, to_mm: int | float) -> dict[str, Any]:
+    if tree.get("$type") != "bsedit.GBTMModel" or not isinstance(tree.get("children"), list):
+        raise Unsupported("Expected a Part Studio model tree")
+    expected = copy.deepcopy(tree)
+    matches = [child for child in expected["children"] if isinstance(child, dict) and child.get("featureId") == feature_id]
+    if len(matches) != 1 or matches[0].get("featureType") != "extrude":
+        raise Unsupported("Extrusion identity absent or ambiguous")
+    params = matches[0].get("parameters")
+    if not isinstance(params, list):
+        raise Unsupported("Extrusion parameters unavailable")
+    depth = [p for p in params if p.get("parameterId") == "depth"]
+    modes = {p.get("parameterId"): p.get("value") for p in params}
+    if (len(depth) != 1 or depth[0].get("$type") != "bsedit.GBTMParameterQuantity"
+            or depth[0].get("expression") != f"{from_mm:g} mm" or depth[0].get("value") != from_mm
+            or depth[0].get("units") != "millimeter" or not depth[0].get("nodeId")
+            or any(modes.get(k) != v for k, v in (("bodyType", "SOLID"), ("operationType", "NEW"), ("endBound", "BLIND")))):
+        raise Unsupported("Live extrusion depth or mode differs from expected fixture")
+    depth[0]["expression"] = f"{to_mm:g} mm"
+    depth[0]["value"] = to_mm
+    return expected

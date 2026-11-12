@@ -1,0 +1,275 @@
+From 7fb21e1a380095b5c5125847a4770774c5cdbdb9 Mon Sep 17 00:00:00 2001
+From: patcybermind <pato.gonzalezcabrera@gmail.com>
+Date: Wed, 11 Nov 2026 21:58:24 -0500
+Subject: [PATCH] feat: guard isolated Part Studio extrusion depth edit
+
+---
+ extension/page-adapter.js | 87 +++++++++++++++++++++++++++++++++++++++
+ onshape_native/bridge.py  | 15 ++++++-
+ tests/adapter.test.mjs    | 66 +++++++++++++++++++++++++++--
+ tests/test_bridge.py      | 14 +++++++
+ 4 files changed, 176 insertions(+), 6 deletions(-)
+
+diff --git a/extension/page-adapter.js b/extension/page-adapter.js
+index fea8be6..56dbaad 100644
+--- a/extension/page-adapter.js
++++ b/extension/page-adapter.js
+@@ -305,6 +305,93 @@ export async function pageCommand(job) {
+     if (!Type) throw new Error("Unknown native message type.");
+     return bounded({name: job.name, defaults: plain(new Type()), classId: new Type().getClassId()});
+   }
++  if (job.kind === "partstudio_depth_edit") {
++    // Experimental isolated-target operation. Keep the whole native edit
++    // lifecycle inside one editor invocation so no bridge call can interleave.
++    const edit = job.depth_edit;
++    if (target.did !== "f5a8353dc826a9ec52106138" ||
++        target.wid !== "a3baadfcc7e36a50134951d6" ||
++        target.eid !== "a2761fa52794bee99354ae96")
++      throw new Error("Experimental depth edit is limited to the authorized disposable Part Studio.");
++    if (!edit || typeof edit.feature_id !== "string" || !edit.feature_id ||
++        !Number.isFinite(edit.from_mm) || !Number.isFinite(edit.to_mm) ||
++        edit.from_mm <= 0 || edit.to_mm <= 0 || edit.from_mm === edit.to_mm)
++      throw new Error("Expected a bounded extrusion depth edit with positive millimeters.");
++    if (!job.expected_element_microversion || getElementMicroversion() !== job.expected_element_microversion)
++      throw new Error("Native element revision changed. Read state again.");
++    if (controller.connection?.isClosed?.() !== false || controller.__onshapeNativeIncompleteFeatureEdit || elementModel?.get("idEditingFeature"))
++      throw new Error("Editor is disconnected, busy, or has an incomplete feature edit.");
++    const cache = controller.documentClientCache;
++    const root = () => cache?.getModelTreeState(target.eid)?.diffableModelTree?.getRoot();
++    const features = tree => {
++      const out = []; let count = 0; const deadline = Date.now() + 1500;
++      const seen = new WeakSet();
++      const walk = node => {
++        if (!node || typeof node !== "object" || seen.has(node)) return;
++        if (++count > 100000 || Date.now() > deadline) throw new Error("Model tree exceeds depth-edit inspection limit.");
++        seen.add(node);
++        if (typeof node.featureId === "string" && node.featureId && typeof node.featureType === "string") out.push(node);
++        for (const value of Object.values(node)) if (value && typeof value === "object") {
++          if (Array.isArray(value)) for (const item of value) walk(item);
++          else walk(value);
++        }
++      };
++      walk(tree);
++      return out;
++    };
++    const baseline = features(root());
++    const matches = baseline.filter(node => node.featureId === edit.feature_id && node.featureType === "extrude");
++    if (matches.length !== 1 || !matches[0].nodeId) throw new Error("Extrusion feature identity absent or ambiguous.");
++    const feature = matches[0];
++    const params = Array.isArray(feature.parameters) ? feature.parameters : [];
++    const depth = params.filter(p => p.parameterId === "depth" && p.getMessageName?.() === "bsedit.GBTMParameterQuantity");
++    if (depth.length !== 1 || !depth[0].nodeId || depth[0].units !== "millimeter" ||
++        depth[0].expression !== `${edit.from_mm} mm` || depth[0].value !== edit.from_mm)
++      throw new Error("Live extrusion depth differs from expected value or type.");
++    const mode = name => params.find(p => p.parameterId === name)?.value;
++    if (mode("bodyType") !== "SOLID" || mode("operationType") !== "NEW" || mode("endBound") !== "BLIND" ||
++        params.find(p => p.parameterId === "entities")?.queries?.length !== 1)
++      throw new Error("Extrusion is not one solid/new/blind sketch-region operation.");
++    const before = baseline.map(node => plain(node));
++    const expected = before.map(node => node.featureId === edit.feature_id ?
++      {...node, parameters:node.parameters.map(p => p.parameterId === "depth" ? {...p, expression:`${edit.to_mm} mm`, value:edit.to_mm} : p)} : node);
++    const make = (name, fields) => hydrate({$type:name, ...fields});
++    const change = make("diff.GBTTreeEditChange", {
++      oldNode:make("tree.GBTNodeReference", {nodeId:depth[0].nodeId}),
++      newNode:hydrate({...plain(depth[0]), expression:`${edit.to_mm} mm`, value:edit.to_mm})});
++    const messages = [
++      make("ui.GBTUiBeginEdit", {elementId:target.eid, nodeId:feature.nodeId, rollbackState:1}),
++      make("ui.GBTUiSpecifyFeature", {elementId:target.eid, featureNodeId:feature.nodeId,
++        featureChange:change, sequenceId:1, selectionMicroversion:null, inContextEntitiesToAdd:null,
++        editDescription:"Edit extrusion depth"}),
++      make("ui.GBTUiCommit", {elementId:target.eid, featureNodeId:feature.nodeId,
++        editDescription:"Edit extrusion depth"})];
++    const connection = controller.elementConnection;
++    if (typeof connection?.callAndPromise !== "function") throw new Error("Native editor connection unavailable.");
++    controller.__onshapeNativeIncompleteFeatureEdit = {node_id:feature.nodeId, stage:"prepared"};
++    for (const [index, message] of messages.entries()) {
++      if (controller.connection?.isClosed?.() !== false || controller.getActiveElementTabId() !== target.eid ||
++          location.pathname !== `/documents/${target.did}/w/${target.wid}/e/${target.eid}`)
++        throw new Error("Editor target or connection changed during depth edit; outcome unknown.");
++      controller.__onshapeNativeIncompleteFeatureEdit.stage = ["begin", "specify", "commit"][index];
++      const response = await connection.callAndPromise(message);
++      if (response?.error || response?.errorCode || response?.errorEnum)
++        throw new Error("Native depth edit rejected; inspect state before any retry.");
++    }
++    for (let attempt = 0; attempt < 10; attempt++) {
++      const after = features(root()).map(node => plain(node));
++      if (JSON.stringify(after) === JSON.stringify(expected)) {
++        delete controller.__onshapeNativeIncompleteFeatureEdit;
++        return {definition_verified:true, feature_id:edit.feature_id, feature_node_id:feature.nodeId,
++          depth_before_mm:edit.from_mm, depth_after_mm:edit.to_mm,
++          element_microversion_before:job.expected_element_microversion,
++          element_microversion_after:getElementMicroversion(),
++          verification:"native feature definition only; inspect solid regeneration and editability separately"};
++      }
++      await new Promise(resolve => setTimeout(resolve, 100));
++    }
++    throw new Error("Native edit acknowledged but complete feature definition readback differs; outcome unknown.");
++  }
+   if (job.kind !== "native") throw new Error("Unknown page command.");
+   // A second allowlist travels in the extension bundle, never supplied by HTTP callers.
+   const allowed = new Set([
+diff --git a/onshape_native/bridge.py b/onshape_native/bridge.py
+index f2df4b3..1d5b7f8 100644
+--- a/onshape_native/bridge.py
++++ b/onshape_native/bridge.py
+@@ -33,7 +33,7 @@ def validate_job(job):
+     if not isinstance(job, dict):
+         raise BridgeError("Expected a JSON object.")
+     kind = job.get("kind")
+-    if not isinstance(kind, str) or kind not in {"rest", "native", "state", "schema", "tabs", "open", "editor_tab", "ui_inspect", "ui_action", "display", "viewer_mesh"}:
++    if not isinstance(kind, str) or kind not in {"rest", "native", "state", "schema", "tabs", "open", "editor_tab", "ui_inspect", "ui_action", "display", "viewer_mesh", "partstudio_depth_edit"}:
+         raise BridgeError("Unknown command kind.")
+     if kind == "rest":
+         path = job.get("path", "")
+@@ -78,7 +78,7 @@ def validate_job(job):
+         if args["action"] == "read" and any(not isinstance(args.get(k), str) for k in
+                 ("expected_microversion", "full_element_id", "occurrence_path", "body_id")):
+             raise BridgeError("Viewer mesh read requires exact part reference and revision.")
+-    if kind in {"native", "state", "schema", "open", "editor_tab", "ui_inspect", "ui_action", "display", "viewer_mesh"}:
++    if kind in {"native", "state", "schema", "open", "editor_tab", "ui_inspect", "ui_action", "display", "viewer_mesh", "partstudio_depth_edit"}:
+         target = job.get("target", {})
+         if not isinstance(target, dict) or set(target) != {"did", "wid", "eid"} or any(not isinstance(x, str) or not re.fullmatch(r"[a-f0-9]{24}", x) for x in target.values()):
+             raise BridgeError("Native commands require exact did, wid, eid target IDs.")
+@@ -128,6 +128,17 @@ def validate_job(job):
+             raise BridgeError("Invalid expected_element_microversion.")
+         if name not in READS and not re.fullmatch(r"[a-f0-9]{24}", str(job.get("expected_element_microversion") or job.get("expected_microversion", ""))):
+             raise BridgeError("Native writes require expected_microversion from native_state (preflight check, not an atomic lock).")
++    if kind == "partstudio_depth_edit":
++        if target != {"did": "f5a8353dc826a9ec52106138", "wid": "a3baadfcc7e36a50134951d6", "eid": "a2761fa52794bee99354ae96"}:
++            raise BridgeError("Experimental depth edit is limited to the authorized disposable Part Studio.")
++        if not re.fullmatch(r"[a-f0-9]{24}", str(job.get("expected_element_microversion", ""))):
++            raise BridgeError("Depth edit requires an exact fresh element revision.")
++        edit = job.get("depth_edit")
++        if (not isinstance(edit, dict) or set(edit) != {"feature_id", "from_mm", "to_mm"}
++                or not isinstance(edit["feature_id"], str) or not 1 <= len(edit["feature_id"]) <= 80
++                or any(type(edit[key]) not in (int, float) or not __import__("math").isfinite(edit[key]) or not 0 < edit[key] <= 1000 for key in ("from_mm", "to_mm"))
++                or edit["from_mm"] == edit["to_mm"]):
++            raise BridgeError("Depth edit requires one exact feature ID and positive bounded millimeter values.")
+     return job
+ 
+ 
+diff --git a/tests/adapter.test.mjs b/tests/adapter.test.mjs
+index 8cf04bb..771dd48 100644
+--- a/tests/adapter.test.mjs
++++ b/tests/adapter.test.mjs
+@@ -5,7 +5,7 @@ import {readFileSync} from 'node:fs';
+ import {displayCommand} from '../extension/display-adapter.js';
+ import {pageCommand} from '../extension/page-adapter.js';
+ 
+-const target = {did:'a'.repeat(24),wid:'b'.repeat(24),eid:'c'.repeat(24)};
++const target = {did:'f5a8353dc826a9ec52106138',wid:'a3baadfcc7e36a50134951d6',eid:'a2761fa52794bee99354ae96'};
+ const micro = 'd'.repeat(24);
+ test('UI export jobs refuse public API paths in both browser transports', async () => {
+   const {restGet} = await import('../extension/rest-get.js');
+@@ -28,15 +28,17 @@ class Location {
+   getMessageName(){return 'tree.GBTInsertionLocation';}
+ }
+ let sent=[];
+-function setup(definition, current=false, elementMicro=null, root={children:[]}){
++function setup(definition, current=false, elementMicro=null, root={children:[]}, extraTypes={}, onCall=null){
+   globalThis.crypto ||= webcrypto;
+   globalThis.location = {origin:'https://cad.onshape.com',pathname:`/documents/${target.did}/w/${target.wid}/e/${target.eid}`};
+   sent=[];
+   const controller = {getActiveElementTabId:()=>target.eid,
++    connection:{isClosed:()=>false},
+     documentModel:{get:k=>k==='microversionId'?{theId:micro}:{get:k=>k==='microversionId'?elementMicro:null,definition}},
+     documentClientCache:{getModelTreeState:()=>({diffableModelTree:{getRoot:()=>root}})},
+-    elementConnection:{callAndPromise:async m=>{sent.push(m);return {errorEnum:0};}}};
+-  const modules = {27940:{CJP:()=>{},D0n:()=>{},Folder,Location},3392:{GI:{getOpenDocumentController:()=>controller}}};
++    elementConnection:{callAndPromise:async m=>{sent.push(m);return onCall ? onCall(m,controller) : {errorEnum:0};}}};
++  const modules = {27940:{CJP:()=>{},D0n:()=>{},Folder,Location,...extraTypes},3392:{GI:{getOpenDocumentController:()=>controller}}};
++  modules.__controller=controller;
+   if (current === '1.223') {
+     modules[58519]=modules[27940]; modules[94403]=modules[3392];
+     modules[17722]={E15:{Location}}; delete modules[58519].Location;
+@@ -66,6 +68,62 @@ test('state returns the native tree and microversion without HTTP',async()=>{
+   setup();const state=await pageCommand({kind:'state',target});assert.equal(state.microversion,micro);assert.deepEqual(state.tree,{children:[]});assert.equal(sent.length,0);
+ });
+ 
++test('isolated native extrusion depth edit preserves exact feature identities and definition',async()=>{
++  const Type=(name,defaults)=>class {
++    constructor(){Object.assign(this,defaults);}
++    getMessageName(){return name;}
++    getClassId(){return 1;}
++  };
++  const Quantity=Type('bsedit.GBTMParameterQuantity',{nodeId:'depth-node',parameterId:'depth',
++    units:'millimeter',expression:'25 mm',value:25});
++  const Begin=Type('ui.GBTUiBeginEdit',{elementId:'',messageId:'',nodeId:'',rollbackState:0});
++  const Specify=Type('ui.GBTUiSpecifyFeature',{elementId:'',messageId:'',featureNodeId:'',featureChange:null,
++    sequenceId:0,selectionMicroversion:null,inContextEntitiesToAdd:null,editDescription:''});
++  const Commit=Type('ui.GBTUiCommit',{elementId:'',messageId:'',featureNodeId:'',editDescription:''});
++  const Change=Type('diff.GBTTreeEditChange',{oldNode:null,newNode:null});
++  const Reference=Type('tree.GBTNodeReference',{nodeId:''});
++  const depth=new Quantity();
++  const feature={featureId:'live-extrude',featureType:'extrude',nodeId:'feature-node',name:'Extrude 1',
++    parameters:[{parameterId:'bodyType',value:'SOLID'},{parameterId:'operationType',value:'NEW'},
++      {parameterId:'endBound',value:'BLIND'},{parameterId:'entities',queries:[{deterministicIds:['opaque']} ]},depth],
++    getMessageName(){return 'bsedit.GBTMFeature';}};
++  const sibling={featureId:'live-sketch',featureType:'newSketch',nodeId:'sketch-node',name:'Sketch 1',parameters:[]};
++  const root={children:[sibling,feature]};
++  const types={Quantity,Begin,Specify,Commit,Change,Reference};
++  setup(undefined,false,'e'.repeat(24),root,types,m=>{
++    if(m.getMessageName()==='ui.GBTUiCommit') {depth.expression='5 mm';depth.value=5;}
++    return {errorEnum:0};
++  });
++  const job={kind:'partstudio_depth_edit',target,expected_element_microversion:'e'.repeat(24),
++    depth_edit:{feature_id:'live-extrude',from_mm:25,to_mm:5}};
++  const result=await pageCommand(job);
++  assert.equal(result.definition_verified,true,JSON.stringify(result));
++  assert.equal(result.depth_after_mm,5);
++  assert.deepEqual(sent.map(m=>m.getMessageName()),['ui.GBTUiBeginEdit','ui.GBTUiSpecifyFeature','ui.GBTUiCommit']);
++  assert.equal(sent[1].featureChange.newNode.parameterId,'depth');
++  assert.equal(sent[1].featureChange.newNode.nodeId,'depth-node');
++  assert.equal(sent[1].featureChange.newNode.expression,'5 mm');
++  assert.equal(root.children[0].featureId,'live-sketch');
++});
++
++test('native extrusion depth edit rejects stale revision before sending',async()=>{
++  setup(undefined,false,'e'.repeat(24));
++  const result=await pageCommand({kind:'partstudio_depth_edit',target,expected_element_microversion:'f'.repeat(24),
++    depth_edit:{feature_id:'live-extrude',from_mm:25,to_mm:5}});
++  assert.match(result.error,/revision changed/);
++  assert.equal(sent.length,0);
++});
++
++test('experimental depth edit refuses another target before any editor call',async()=>{
++  setup(undefined,false,'e'.repeat(24));
++  const result=await pageCommand({kind:'partstudio_depth_edit',
++    target:{did:'a'.repeat(24),wid:'b'.repeat(24),eid:'c'.repeat(24)},
++    expected_element_microversion:'e'.repeat(24),
++    depth_edit:{feature_id:'live-extrude',from_mm:25,to_mm:5}});
++  assert.match(result.error,/navigated|authorized disposable/);
++  assert.equal(sent.length,0);
++});
++
+ test('H2 readback probe identifies candidates but never claims complete semantics',async()=>{
+   const root={children:[{featureId:'fresh-feature',nodeId:'fresh-node',featureType:'extrude',
+     name:'Extrude 1',parameters:[{parameterId:'depth',expression:'5 mm'}]}]};
+diff --git a/tests/test_bridge.py b/tests/test_bridge.py
+index 191e404..abcd70d 100644
+--- a/tests/test_bridge.py
++++ b/tests/test_bridge.py
+@@ -7,6 +7,20 @@ from starlette.testclient import TestClient
+ from starlette.websockets import WebSocketDisconnect
+ 
+ from onshape_native.bridge import Broker, BridgeError, create_app, validate_job
++
++
++def test_disposable_depth_edit_validation_is_exact_and_finite():
++    target = {"did": "f5a8353dc826a9ec52106138", "wid": "a3baadfcc7e36a50134951d6", "eid": "a2761fa52794bee99354ae96"}
++    job = {"kind": "partstudio_depth_edit", "target": target,
++           "expected_element_microversion": "a" * 24,
++           "depth_edit": {"feature_id": "saved-extrude", "from_mm": 25, "to_mm": 5}}
++    assert validate_job(job) == job
++    for bad in ({**job, "target": TARGET},
++                {**job, "expected_element_microversion": "old"},
++                {**job, "depth_edit": {**job["depth_edit"], "to_mm": float("nan")}},
++                {**job, "depth_edit": {**job["depth_edit"], "to_mm": True}}):
++        with pytest.raises(BridgeError):
++            validate_job(bad)
+ from onshape_native.native_catalog import catalog
+ 
+ CONFIG = {"host": "127.0.0.1", "port": 8766, "token": "test-" * 10}
+-- 
+2.54.0.windows.1
+
