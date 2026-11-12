@@ -103,7 +103,9 @@ def test_extrusion_stage_reports_missing_runtime_bindings():
 
 
 @pytest.mark.asyncio
-async def test_disposable_depth_edit_journals_and_verifies_exact_tree(tmp_path):
+@pytest.mark.parametrize("after_connected,after_editing,verified", [
+    (True, None, True), (False, None, False), (True, "extrude-id", False)])
+async def test_disposable_depth_edit_journals_and_verifies_exact_tree(tmp_path, after_connected, after_editing, verified):
     target = Target("f5a8353dc826a9ec52106138", "a3baadfcc7e36a50134951d6", "a2761fa52794bee99354ae96")
     tree = {"$type": "bsedit.GBTMModel", "children": [
         {"featureId": "sketch-id", "featureType": "newSketch", "nodeId": "sketch-node", "name": "Sketch 1"},
@@ -119,12 +121,19 @@ async def test_disposable_depth_edit_journals_and_verifies_exact_tree(tmp_path):
     jobs = []
 
     def handler(request):
+        if request.url.path == "/health":
+            return httpx.Response(200, json={"protocol": 1, "extension_connected": True,
+                "capabilities": ["h2_depth_edit_server_v1"],
+                "extension": {"capabilities": ["h2_depth_edit_page_v1"]}})
         job = json.loads(request.content)
         jobs.append(job)
         if job["kind"] == "state":
             return httpx.Response(200, json={"target": target.to_dict(), "tree": copy.deepcopy(current),
-                "connected": True, "editingFeatureId": None, "element_microversion": "b" * 24 if len(jobs) > 2 else "a" * 24,
-                "h2Readback": {"contract": "h2-readback-probe-v1", "complete": False}})
+                "connected": after_connected if len(jobs) > 2 else True,
+                "editingFeatureId": after_editing if len(jobs) > 2 else None,
+                "element_microversion": "b" * 24 if len(jobs) > 2 else "a" * 24,
+                "h2Readback": {"contract": "h2-readback-probe-v1", "complete": False},
+                "h2DepthEdit": {"contract": "h2-depth-edit-page-v1", "supported": True}})
         assert job["kind"] == "partstudio_depth_edit"
         assert job["expected_element_microversion"] == "a" * 24
         assert job["depth_edit"] == {"feature_id": "extrude-id", "from_mm": 25, "to_mm": 5}
@@ -133,12 +142,17 @@ async def test_disposable_depth_edit_journals_and_verifies_exact_tree(tmp_path):
 
     bridge = NativeBridge("x" * 32, transport=httpx.MockTransport(handler))
     journal = Journal(tmp_path / "journal.sqlite")
-    result = await NativeBackend(bridge, tab_id=7).edit_disposable_extrude_depth(
-        target, feature_id="extrude-id", from_mm=25, to_mm=5, journal=journal)
-    assert result["definition_verified"] and not result["geometry_verified"]
+    if verified:
+        result = await NativeBackend(bridge, tab_id=7).edit_disposable_extrude_depth(
+            target, feature_id="extrude-id", from_mm=25, to_mm=5, journal=journal)
+        assert result["definition_verified"] and not result["geometry_verified"]
+    else:
+        with pytest.raises(UncertainWrite, match="outcome unknown"):
+            await NativeBackend(bridge, tab_id=7).edit_disposable_extrude_depth(
+                target, feature_id="extrude-id", from_mm=25, to_mm=5, journal=journal)
     assert len(jobs) == 3 and all(job["tab_id"] == 7 for job in jobs)
     rows = journal._db.execute("SELECT state FROM writes").fetchall()
-    assert [row[0] for row in rows] == ["observed"]
+    assert [row[0] for row in rows] == ["observed" if verified else "unknown"]
     journal.close()
     await bridge.close()
 
@@ -156,6 +170,10 @@ async def test_depth_edit_marks_unrelated_change_unknown_and_never_retries(tmp_p
     calls = []
 
     def handler(request):
+        if request.url.path == "/health":
+            return httpx.Response(200, json={"protocol": 1, "extension_connected": True,
+                "capabilities": ["h2_depth_edit_server_v1"],
+                "extension": {"capabilities": ["h2_depth_edit_page_v1"]}})
         job = json.loads(request.content)
         calls.append(job["kind"])
         if job["kind"] == "partstudio_depth_edit":
@@ -165,7 +183,8 @@ async def test_depth_edit_marks_unrelated_change_unknown_and_never_retries(tmp_p
         return httpx.Response(200, json={"target": target.to_dict(), "tree": tree,
             "connected": True, "editingFeatureId": None,
             "element_microversion": ("b" if len(calls) > 2 else "a") * 24,
-            "h2Readback": {"contract": "h2-readback-probe-v1"}})
+            "h2Readback": {"contract": "h2-readback-probe-v1"},
+            "h2DepthEdit": {"contract": "h2-depth-edit-page-v1", "supported": True}})
 
     bridge = NativeBridge("x" * 32, transport=httpx.MockTransport(handler))
     journal = Journal(tmp_path / "journal.sqlite")
@@ -176,5 +195,61 @@ async def test_depth_edit_marks_unrelated_change_unknown_and_never_retries(tmp_p
     with pytest.raises(UncertainWrite, match="Prior target write unresolved"):
         await backend.edit_disposable_extrude_depth(target, feature_id="extrude-id", from_mm=25, to_mm=5, journal=journal)
     assert calls == ["state", "partstudio_depth_edit", "state"]
+    journal.close()
+    await bridge.close()
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("missing", ["server", "extension", "page"])
+async def test_depth_edit_requires_both_loaded_capabilities_before_journal(tmp_path, missing):
+    target = Target("f5a8353dc826a9ec52106138", "a3baadfcc7e36a50134951d6", "a2761fa52794bee99354ae96")
+    calls = []
+
+    def handler(request):
+        calls.append(request.url.path)
+        if request.url.path == "/health":
+            return httpx.Response(200, json={"protocol": 1, "extension_connected": True,
+                "capabilities": [] if missing == "server" else ["h2_depth_edit_server_v1"],
+                "extension": {"capabilities": [] if missing == "extension" else ["h2_depth_edit_page_v1"]}})
+        assert missing == "page"
+        return httpx.Response(200, json={"target": target.to_dict(), "element_microversion": "a" * 24,
+            "connected": True, "editingFeatureId": None, "tree": {"$type": "bsedit.GBTMModel", "children": []},
+            "h2Readback": {"contract": "h2-readback-probe-v1"}})
+
+    bridge = NativeBridge("x" * 32, transport=httpx.MockTransport(handler))
+    journal = Journal(tmp_path / "journal.sqlite")
+    with pytest.raises(Unsupported, match="support|busy"):
+        await NativeBackend(bridge).edit_disposable_extrude_depth(target, feature_id="saved-extrude",
+            from_mm=25, to_mm=5, journal=journal)
+    assert calls == (["/health", "/command"] if missing == "page" else ["/health"])
+    assert journal._db.execute("SELECT count(*) FROM writes").fetchone()[0] == 0
+    journal.close()
+    await bridge.close()
+
+
+@pytest.mark.asyncio
+async def test_experimental_reconcile_is_read_only_and_exact(tmp_path):
+    target = Target("f5a8353dc826a9ec52106138", "a3baadfcc7e36a50134951d6", "a2761fa52794bee99354ae96")
+    key = f"{target.did}/{target.wid}/{target.eid}"
+    expected_tree = {"$type": "bsedit.GBTMModel", "children": [{"featureId": "saved-extrude", "depth": "5 mm"}]}
+    journal = Journal(tmp_path / "journal.sqlite")
+    journal.prepare(op_id="depth-recovery", target=key, expected_revision="a" * 24,
+                    action="experimental_depth_edit", logical_id="saved-extrude",
+                    intent={"before_state": {"element_microversion": "a" * 24}, "expected_tree": expected_tree, "to_mm": 5})
+    journal.transition("depth-recovery", "unknown", error="bridge response unavailable")
+    calls = []
+
+    def handler(request):
+        calls.append(request.url.path)
+        assert request.url.path == "/command"
+        assert json.loads(request.content)["kind"] == "state"
+        return httpx.Response(200, json={"target": target.to_dict(), "element_microversion": "b" * 24,
+            "connected": True, "editingFeatureId": None, "tree": expected_tree})
+
+    bridge = NativeBridge("x" * 32, transport=httpx.MockTransport(handler))
+    result = await NativeBackend(bridge).reconcile_disposable_extrude_depth("depth-recovery", journal)
+    assert result["status"] == "verified" and result["evidence"]["reconciled_read_only"]
+    assert calls == ["/command"]
+    assert journal.get("depth-recovery")["state"] == "observed"
     journal.close()
     await bridge.close()

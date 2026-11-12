@@ -6,17 +6,25 @@ Studio. It does not create features or establish full native geometry status.
 
 ## Before the one write
 
-1. Install the reviewed four-patch Native fork with `scripts/bootstrap.py` or
-   confirm its fourth tree is `0c96b1bf06273de1ee8043bc45a867d07cf44a89`.
-   Reload the extension through its normal controls so the running build matches.
-2. Use one exact editor tab for
+1. Install the reviewed five-patch Native fork with `scripts/bootstrap.py` or
+   confirm its fifth tree is `0f89502a9661f2191a712756775403cbadde06df`.
+   Stop the existing local bridge process through its normal control and start
+   the installed fork's bridge process. Reload the installed extension through
+   the browser extension manager, then select Connect in its popup. Do not
+   print, copy, or share the pairing token.
+2. Check authenticated bridge `/health` read-only. Require server capability
+   `h2_depth_edit_server_v1`, `extension_connected=true`, and connected
+   extension capability `h2_depth_edit_page_v1`. The H2 command checks these
+   again before creating any journal intent. Native state must also report
+   `h2DepthEdit.contract=h2-depth-edit-page-v1` and `supported=true`.
+3. Use one exact editor tab for
    `f5a8353dc826a9ec52106138/a3baadfcc7e36a50134951d6/a2761fa52794bee99354ae96`.
    Confirm connected and idle. Read native state afresh. Check `Extrude 1` is
    still the saved solid/new/blind feature with depth `25 mm`, the sketch and
    unrelated features are present, and `editingFeatureId` is null. The old
    feature ID and revisions in private fixture files are observations, not
    reusable bindings.
-3. Use a persistent local journal path (for example,
+4. Use a persistent local journal path (for example,
    `upstream/onshape-native/.runtime/h2cad-depth.sqlite`). Ensure it has no
    unresolved intent for this target. Do not use a temporary path that will be
    discarded after the test.
@@ -46,6 +54,10 @@ revision advanced. It reports `geometry_verified=false` and
 If it reports an unknown outcome, inspect the editor and the journal. Do not
 rerun the command or undo/redo automatically. If the browser or bridge times
 out, the original write may still be running.
+Use `h2cad reconcile <op_id> --journal <same-path> --bridge-config <same-config>
+--tab-id <fresh-exact-tab-id>` for a read-only check of an uncertain
+experimental intent. It observes the intent only when the current connected,
+idle tree exactly matches the journaled expected tree at a changed revision.
 
 ## Independent UI verification
 

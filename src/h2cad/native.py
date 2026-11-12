@@ -242,8 +242,15 @@ class NativeBackend:
         with journal.target_lock(key):
             if journal.unresolved(key):
                 raise UncertainWrite("Prior target write unresolved; inspect before mutation")
+            health = await self.bridge.health()
+            if (health.get("extension_connected") is not True
+                    or "h2_depth_edit_server_v1" not in (health.get("capabilities") or [])
+                    or "h2_depth_edit_page_v1" not in ((health.get("extension") or {}).get("capabilities") or [])):
+                raise Unsupported("Installed bridge and loaded extension must both advertise depth-edit support")
             before = await self.raw_state(target)
-            if before.get("connected") is not True or before.get("editingFeatureId") is not None or before.get("h2Readback", {}).get("contract") != "h2-readback-probe-v1":
+            if (before.get("connected") is not True or before.get("editingFeatureId") is not None
+                    or before.get("h2Readback", {}).get("contract") != "h2-readback-probe-v1"
+                    or before.get("h2DepthEdit") != {"contract": "h2-depth-edit-page-v1", "supported": True}):
                 raise Unsupported("Editor state unavailable or busy")
             expected_tree = _depth_expected_tree(before["tree"], feature_id, from_mm, to_mm)
             op_id = "depth-" + uuid4().hex
@@ -263,7 +270,9 @@ class NativeBackend:
             journal.transition(op_id, "sent", receipt=response)
             try:
                 after = await self.raw_state(target)
-                if response.get("definition_verified") is not True or after["tree"] != expected_tree or after.get("element_microversion") == before["element_microversion"]:
+                if (response.get("definition_verified") is not True or after["tree"] != expected_tree
+                        or after.get("connected") is not True or after.get("editingFeatureId") is not None
+                        or after.get("element_microversion") == before["element_microversion"]):
                     raise UncertainWrite("Independent tree readback or revision differs from expected edit")
             except Exception as exc:
                 journal.transition(op_id, "unknown", error=str(exc))
@@ -273,6 +282,43 @@ class NativeBackend:
                         "definition_verified": True, "geometry_verified": False, "ui_editability_verified": False}
             journal.transition(op_id, "observed", observation=evidence)
             return evidence
+
+    async def reconcile_disposable_extrude_depth(self, op_id: str, journal: Journal) -> dict[str, Any]:
+        """Read-only recovery for one prior experimental depth intent."""
+        row = journal.get(op_id)
+        if row is None:
+            raise ValueError(f"Unknown journal operation {op_id}")
+        if row["action"] != "experimental_depth_edit":
+            raise Unsupported("Journal operation is not an experimental depth edit")
+        if row["state"] == "observed":
+            return {"op_id": op_id, "status": "verified", "evidence": json.loads(row["observation"] or "{}")}
+        if row["state"] == "rejected":
+            return {"op_id": op_id, "status": "rejected", "reason": row["error"]}
+        fields = row["target"].split("/")
+        if len(fields) != 3 or dict(zip(("did", "wid", "eid"), fields)) != _DISPOSABLE:
+            raise Unsupported("Experimental journal target differs from the authorized disposable Part Studio")
+        intent = json.loads(row["intent"])
+        before = intent.get("before_state")
+        expected = intent.get("expected_tree")
+        if not isinstance(before, dict) or not isinstance(expected, dict) or before.get("element_microversion") != row["expected_revision"]:
+            raise Unsupported("Experimental journal intent is incomplete")
+        target = Target(*fields)
+        with journal.target_lock(row["target"]):
+            try:
+                after = await self.raw_state(target)
+            except Exception as exc:
+                return {"op_id": op_id, "status": "unknown", "reason": f"Read-only inspection failed: {exc}"}
+            if (after.get("connected") is not True or after.get("editingFeatureId") is not None
+                    or after.get("element_microversion") == row["expected_revision"] or after.get("tree") != expected):
+                return {"op_id": op_id, "status": "unknown", "reason": "Current editor state does not exactly match the journaled depth edit"}
+            evidence = {"op_id": op_id, "feature_id": row["logical_id"],
+                        "revision_before": row["expected_revision"], "revision_after": after["element_microversion"],
+                        "definition_verified": True, "geometry_verified": False, "ui_editability_verified": False,
+                        "reconciled_read_only": True}
+            if row["state"] == "prepared":
+                journal.transition(op_id, "unknown", error="Prepared intent recovered; submission status unknown")
+            journal.transition(op_id, "observed", observation=evidence)
+            return {"op_id": op_id, "status": "verified", "evidence": evidence}
 
 
 def _depth_expected_tree(tree: dict[str, Any], feature_id: str, from_mm: int | float, to_mm: int | float) -> dict[str, Any]:

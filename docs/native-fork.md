@@ -3,11 +3,12 @@
 This local compatibility branch starts from upstream `godbrigero/onshape-native`
 commit `f5304ed0aa49347dec40911af9c2018d81012604` and preserves that Git
 history. Branch: `codex/h2-native-compat` in ignored `upstream/onshape-native`.
-Current fork commit: `7fb21e1a380095b5c5125847a4770774c5cdbdb9`.
+Current fork commit: `6a4e157f2aa8cb781b8ba84552bd76c180374336`.
 Reviewable patches: `patches/onshape-native/0001-feat-add-fail-closed-H2-native-readback-probe.patch`
 `patches/onshape-native/0002-fix-bound-native-state-readback-inspection.patch`,
 `patches/onshape-native/0003-fix-release-hung-read-only-bridge-work-safely.patch`, and
-`patches/onshape-native/0004-feat-guard-isolated-Part-Studio-extrusion-depth-edit.patch`.
+`patches/onshape-native/0004-feat-guard-isolated-Part-Studio-extrusion-depth-edit.patch`, and
+`patches/onshape-native/0005-feat-advertise-loaded-depth-edit-capability.patch`.
 
 The user reports that the upstream owner authorized integration. This note
 records the report, not an independently verified public license grant. Keep
@@ -35,6 +36,10 @@ BeginEdit/SpecifyFeature/Commit lifecycle. It reports only definition readback.
 H2 independently rereads the entire tree before observing the journal intent.
 Live execution and geometry/editability verification remain with the testing
 agent; this patch does not create a sketch or extrusion.
+The fifth patch advertises separate read-only capability markers in the bridge
+health response, extension handshake, and page state. H2 checks all three
+before journaling or submitting an edit. An old loaded build refuses the edit
+without leaving an unresolved journal intent.
 
 Reproduction from an upstream clone at the base commit:
 
@@ -43,11 +48,13 @@ git am patches/onshape-native/0001-feat-add-fail-closed-H2-native-readback-probe
 git am patches/onshape-native/0002-fix-bound-native-state-readback-inspection.patch
 git am patches/onshape-native/0003-fix-release-hung-read-only-bridge-work-safely.patch
 git am patches/onshape-native/0004-feat-guard-isolated-Part-Studio-extrusion-depth-edit.patch
+git am patches/onshape-native/0005-feat-advertise-loaded-depth-edit-capability.patch
 node --test tests/adapter.test.mjs
 ```
 
-The full Node suite passed 90/90 and focused bridge tests 45/45 on Windows
-after four patches. H2 local tests passed 39/39. The new command has not been
+The full Node suite passed 90/90 and focused bridge tests 47/47 on Windows
+after five patches. H2 local tests passed 39/39 before the fifth-patch
+integration and 45/45 afterward. The new command has not been
 executed against Onshape; its tests use synthetic local objects. The earlier
 live editor tree supports a narrow preflight shape, not a complete semantic
 readback contract.

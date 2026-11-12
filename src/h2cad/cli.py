@@ -94,6 +94,10 @@ async def _bridge_action(args: argparse.Namespace) -> tuple[object, int]:
         from .executor import Executor
         journal = Journal(args.journal)
         try:
+            row = journal.get(args.op_id)
+            if row and row["action"] == "experimental_depth_edit":
+                outcome = await backend.reconcile_disposable_extrude_depth(args.op_id, journal)
+                return outcome, 0 if outcome["status"] == "verified" else 2
             outcome = await Executor(backend, journal).reconcile(args.op_id)
             return {"op_id": outcome.op_id, "status": outcome.status, "reason": outcome.reason,
                     "evidence": outcome.evidence}, 0 if outcome.status == "verified" else 2

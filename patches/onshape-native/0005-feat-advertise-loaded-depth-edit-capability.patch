@@ -1,0 +1,109 @@
+From 6a4e157f2aa8cb781b8ba84552bd76c180374336 Mon Sep 17 00:00:00 2001
+From: patcybermind <pato.gonzalezcabrera@gmail.com>
+Date: Thu, 12 Nov 2026 12:45:22 -0500
+Subject: [PATCH] feat: advertise loaded depth edit capability
+
+---
+ extension/connection.js   |  2 +-
+ extension/page-adapter.js |  1 +
+ onshape_native/bridge.py  |  4 +++-
+ tests/adapter.test.mjs    |  1 +
+ tests/test_bridge.py      | 23 +++++++++++++++++++++++
+ 5 files changed, 29 insertions(+), 2 deletions(-)
+
+diff --git a/extension/connection.js b/extension/connection.js
+index 48922a0..c7eeb15 100644
+--- a/extension/connection.js
++++ b/extension/connection.js
+@@ -71,7 +71,7 @@ export function createConnection({browser, token, execute, Socket = WebSocket,
+     current.onopen = () => {
+       if (socket !== current) return;
+       current.send(JSON.stringify({type: 'hello', token, version: browser.runtime.getManifest().version,
+-        capabilities: ['tab_context_v1', 'assembly_sidebar_map_v1', 'display_v1', 'native_modeling_v1', 'element_revision_v1', 'editor_tabs_v1', 'ui_exports_v1', 'chunked_upload_v1', 'chunked_response_v1', 'viewer_mesh_v1']}));
++        capabilities: ['tab_context_v1', 'assembly_sidebar_map_v1', 'display_v1', 'native_modeling_v1', 'element_revision_v1', 'editor_tabs_v1', 'ui_exports_v1', 'chunked_upload_v1', 'chunked_response_v1', 'viewer_mesh_v1', 'h2_depth_edit_page_v1']}));
+     };
+     let lastPong = now(), chunkedResponses = false;
+     current.onmessage = async event => {
+diff --git a/extension/page-adapter.js b/extension/page-adapter.js
+index 56dbaad..0c92c93 100644
+--- a/extension/page-adapter.js
++++ b/extension/page-adapter.js
+@@ -262,6 +262,7 @@ export async function pageCommand(job) {
+       candidateNodes, visitedCount, truncated};
+     return bounded({target, microversion: getMicroversion(), element_microversion:getElementMicroversion(), connected:controller.connection?.isClosed?.() === false,
+       editingFeatureId: elementModel?.get("idEditingFeature") || null,
++      h2DepthEdit:{contract:"h2-depth-edit-page-v1", supported:true},
+       tree: plain(root, new WeakSet(), 0, {remaining:100000, deadline:Date.now()+1500}), h2Readback,
+       ...(definition?.assembly ? {assemblyTree: plain(definition.assemblyTree), computedData: plain(definition.computedData),
+         assemblyTreeValid: definition.assemblyTree?.isValid === true,
+diff --git a/onshape_native/bridge.py b/onshape_native/bridge.py
+index 1d5b7f8..a2933b6 100644
+--- a/onshape_native/bridge.py
++++ b/onshape_native/bridge.py
+@@ -162,6 +162,8 @@ class Broker:
+             if job.get("kind") == "display" and "display_v1" not in (self.extension_info or {}).get("capabilities", []):
+                 raise BridgeError("Loaded extension lacks display_v1. Update/reload version 0.4.0; check bridge_status.")
+             capabilities = (self.extension_info or {}).get("capabilities", [])
++            if job.get("kind") == "partstudio_depth_edit" and "h2_depth_edit_page_v1" not in capabilities:
++                raise BridgeError("Loaded extension lacks h2_depth_edit_page_v1; reload and reconnect before editing.")
+             if job.get("kind") == "viewer_mesh" and "viewer_mesh_v1" not in capabilities:
+                 raise BridgeError("Reload the updated extension: viewer_mesh_v1 is required.")
+             if job.get("upload_phase") and "chunked_upload_v1" not in capabilities:
+@@ -315,7 +317,7 @@ def create_app(config=None):
+             return denied
+         return JSONResponse({"protocol": 1, "extension_connected": broker.extension is not None,
+                              "extension": broker.extension_info, "pending": len(broker.pending),
+-                             "capabilities": ["ui_exports_v1", "chunked_upload_v1", "chunked_response_v1", "artifact_download_v1", "viewer_mesh_v1"]})
++                             "capabilities": ["ui_exports_v1", "chunked_upload_v1", "chunked_response_v1", "artifact_download_v1", "viewer_mesh_v1", "h2_depth_edit_server_v1"]})
+ 
+     async def artifact_download(request):
+         denied = await auth(request)
+diff --git a/tests/adapter.test.mjs b/tests/adapter.test.mjs
+index 771dd48..104e5fc 100644
+--- a/tests/adapter.test.mjs
++++ b/tests/adapter.test.mjs
+@@ -66,6 +66,7 @@ test('schema drift and prototype fields fail before sending',async()=>{
+ });
+ test('state returns the native tree and microversion without HTTP',async()=>{
+   setup();const state=await pageCommand({kind:'state',target});assert.equal(state.microversion,micro);assert.deepEqual(state.tree,{children:[]});assert.equal(sent.length,0);
++  assert.deepEqual(state.h2DepthEdit,{contract:'h2-depth-edit-page-v1',supported:true});
+ });
+ 
+ test('isolated native extrusion depth edit preserves exact feature identities and definition',async()=>{
+diff --git a/tests/test_bridge.py b/tests/test_bridge.py
+index abcd70d..a35d353 100644
+--- a/tests/test_bridge.py
++++ b/tests/test_bridge.py
+@@ -21,6 +21,29 @@ def test_disposable_depth_edit_validation_is_exact_and_finite():
+                 {**job, "depth_edit": {**job["depth_edit"], "to_mm": True}}):
+         with pytest.raises(BridgeError):
+             validate_job(bad)
++
++
++@pytest.mark.asyncio
++async def test_depth_edit_broker_rejects_old_loaded_extension_without_sending():
++    broker = Broker({"token": "x" * 32})
++    class Connection:
++        sent = []
++        async def send_json(self, data): self.sent.append(data)
++    broker.extension = Connection()
++    broker.extension_info = {"capabilities": ["element_revision_v1"]}
++    job = {"kind": "partstudio_depth_edit",
++           "target": {"did": "f5a8353dc826a9ec52106138", "wid": "a3baadfcc7e36a50134951d6", "eid": "a2761fa52794bee99354ae96"},
++           "expected_element_microversion": "a" * 24,
++           "depth_edit": {"feature_id": "saved-extrude", "from_mm": 25, "to_mm": 5}}
++    with pytest.raises(BridgeError, match="h2_depth_edit_page_v1"):
++        await broker.dispatch(job)
++    assert not broker.extension.sent and not broker.pending
++
++
++def test_bridge_health_advertises_depth_edit_server_support():
++    with TestClient(create_app(CONFIG), base_url="http://127.0.0.1:8766") as client:
++        health = client.get("/health", headers=AUTH).json()
++        assert "h2_depth_edit_server_v1" in health["capabilities"]
+ from onshape_native.native_catalog import catalog
+ 
+ CONFIG = {"host": "127.0.0.1", "port": 8766, "token": "test-" * 10}
+-- 
+2.54.0.windows.1
+
