@@ -358,6 +358,23 @@ async def test_manual_source_completion_client_uses_one_authenticated_local_endp
                      {"op_id": "sketch-" + "a" * 32, "tab_id": 17})]
 
 
+@pytest.mark.asyncio
+async def test_saved_source_extrude_client_uses_one_authenticated_read_only_endpoint():
+    seen = []
+    def reply(request):
+        seen.append((request.method, request.url.path, request.headers.get("authorization"), json.loads(request.content)))
+        return httpx.Response(200, json={"status": "observed_delayed_source_extrusion",
+                                         "op_id": "extrude-" + "a" * 32})
+    bridge = NativeBridge("x" * 32, transport=httpx.MockTransport(reply))
+    try:
+        result = await bridge.reconcile_saved_source_extrude("extrude-" + "a" * 32, 17)
+    finally:
+        await bridge.close()
+    assert result["status"] == "observed_delayed_source_extrusion"
+    assert seen == [("POST", "/local/reconcile_saved_source_extrude", "Bearer " + "x" * 32,
+                     {"op_id": "extrude-" + "a" * 32, "tab_id": 17})]
+
+
 def _prior_sketch_intent(journal):
     key = f"{TARGET.did}/{TARGET.wid}/{TARGET.eid}"
     journal.prepare(op_id="sketch-prior", target=key, expected_revision="a" * 24,

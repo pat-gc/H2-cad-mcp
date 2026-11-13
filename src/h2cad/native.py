@@ -444,6 +444,18 @@ class NativeBridge:
             raise BackendError(str(data.get("reason", "Source sketch reconciliation refused")))
         return data
 
+    async def reconcile_saved_source_extrude(self, op_id: str, tab_id: int) -> dict[str, Any]:
+        """Verify an eventually saved source extrusion without replaying it."""
+        try:
+            response = await self.http.post("/local/reconcile_saved_source_extrude",
+                                            json={"op_id": op_id, "tab_id": tab_id}, timeout=30)
+            data = response.json()
+        except (httpx.HTTPError, ValueError) as exc:
+            raise BackendError("Source extrusion reconciliation unavailable; safety barrier remains") from exc
+        if response.status_code != 200 or data.get("status") != "observed_delayed_source_extrusion":
+            raise BackendError(str(data.get("reason", "Source extrusion reconciliation refused")))
+        return data
+
     async def finalize_known_invalid_sketch_cancel(self, op_id: str, tab_id: int) -> dict[str, Any]:
         """Verify UI rollback of the one applied-invalid sketch and release its guard."""
         try:

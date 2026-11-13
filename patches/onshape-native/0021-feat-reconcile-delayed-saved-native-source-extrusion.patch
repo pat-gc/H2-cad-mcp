@@ -1,0 +1,319 @@
+From b4edb7a68f04557e68647c358fc55f984fc6be59 Mon Sep 17 00:00:00 2001
+From: patcybermind <pato.gonzalezcabrera@gmail.com>
+Date: Fri, 13 Nov 2026 15:11:13 -0500
+Subject: [PATCH] feat: reconcile delayed saved native source extrusion
+
+---
+ onshape_native/bridge.py | 179 ++++++++++++++++++++++++++++++++++++++-
+ tests/test_bridge.py     |  84 +++++++++++++++++-
+ 2 files changed, 261 insertions(+), 2 deletions(-)
+
+diff --git a/onshape_native/bridge.py b/onshape_native/bridge.py
+index da772db..24ef4c4 100644
+--- a/onshape_native/bridge.py
++++ b/onshape_native/bridge.py
+@@ -247,6 +247,88 @@ def verify_completed_source_sketch(before, after, query_response, target, featur
+             "solid_geometry_verified": False, "unrelated_tree_preserved": True}
+ 
+ 
++def verify_saved_source_extrude(before, expected_tree, after, query_response,
++                                target, sketch_id, source_depth_mm):
++    """Verify delayed saved native definition against one durable source intent."""
++    if (not isinstance(before, dict) or not isinstance(after, dict)
++            or before.get("target") != target or after.get("target") != target
++            or before.get("connected") is not True or after.get("connected") is not True
++            or not isinstance(before.get("editingFeatureId"), str)
++            or after.get("editingFeatureId") is not None
++            or not before.get("element_microversion")
++            or after.get("element_microversion") == before["element_microversion"]
++            or not isinstance(expected_tree, dict) or after.get("tree") != expected_tree):
++        raise ValueError("Saved extrusion differs from exact journaled target or expected tree")
++    prior = before.get("tree")
++    if (not isinstance(prior, dict) or prior.get("$type") != "bsedit.GBTMModel"
++            or expected_tree.get("$type") != "bsedit.GBTMModel"):
++        raise ValueError("Native extrusion history unavailable")
++    previous = prior.get("children")
++    current = expected_tree.get("children")
++    feature_id = before["editingFeatureId"]
++    if (not isinstance(previous, list) or not isinstance(current, list)
++            or len(previous) != len(current)
++            or any(a != b for a, b in zip(previous, current) if a.get("featureId") != feature_id)
++            or {k: v for k, v in prior.items() if k != "children"}
++               != {k: v for k, v in expected_tree.items() if k != "children"}):
++        raise ValueError("Extrusion changed unrelated feature history or metadata")
++    old = [node for node in previous if node.get("featureId") == feature_id]
++    new = [node for node in current if node.get("featureId") == feature_id]
++    sketch = [node for node in current if node.get("featureId") == sketch_id]
++    if (len(old) != 1 or len(new) != 1 or len(sketch) != 1
++            or old[0].get("featureType") != "extrude" or new[0].get("featureType") != "extrude"
++            or old[0].get("nodeId") != new[0].get("nodeId")
++            or sketch[0].get("featureType") != "newSketch"):
++        raise ValueError("Extrusion or source sketch identity differs")
++    old_params = old[0].get("parameters")
++    new_params = new[0].get("parameters")
++    if (not isinstance(old_params, list) or not isinstance(new_params, list)
++            or len(old_params) != len(new_params)):
++        raise ValueError("Extrusion parameter set unavailable")
++    old_depth = [p for p in old_params if p.get("parameterId") == "depth"]
++    new_depth = [p for p in new_params if p.get("parameterId") == "depth"]
++    if (len(old_depth) != 1 or len(new_depth) != 1
++            or new_depth[0].get("$type") != "bsedit.GBTMParameterQuantity"
++            or type(source_depth_mm) not in (int, float) or not math.isfinite(source_depth_mm)
++            or source_depth_mm <= 0 or source_depth_mm > 1000
++            or new_depth[0].get("value") != source_depth_mm
++            or new_depth[0].get("units") != "millimeter"
++            or new_depth[0].get("expression") != f"{source_depth_mm:g} mm"):
++        raise ValueError("Saved extrusion does not have exact source depth")
++    restored = json.loads(json.dumps(new[0]))
++    restored["parameters"] = [old_depth[0] if p.get("parameterId") == "depth" else p
++                              for p in restored["parameters"]]
++    if restored != old[0]:
++        raise ValueError("Extrusion changed fields other than source depth")
++    params = {p.get("parameterId"): p for p in new_params}
++    if (len(params) != len(new_params)
++            or any(params.get(key, {}).get("value") != value for key, value in
++                   (("bodyType", "SOLID"), ("operationType", "NEW"), ("endBound", "BLIND")))):
++        raise ValueError("Extrusion mode differs from source plan")
++    regions = params.get("entities", {}).get("queries")
++    if (not isinstance(regions, list) or len(regions) != 1
++            or not regions[0].get("deterministicIds")):
++        raise ValueError("Extrusion region query unavailable")
++    result = query_response.get("result") if isinstance(query_response, dict) else None
++    data = result.get("queryData") if isinstance(result, dict) else None
++    if (not isinstance(data, list) or len(data) != 1 or not isinstance(data[0], dict)
++            or data[0].get("deterministicIds") != regions[0]["deterministicIds"]
++            or data[0].get("featureId") != sketch_id
++            or data[0].get("selectionName") != "Face"
++            or data[0].get("evaluationDetails", {}).get("fullOperationId") != f"{sketch_id}.imprint"
++            or data[0]["evaluationDetails"].get("entityType") != 2
++            or data[0]["evaluationDetails"].get("status") != 0
++            or data[0].get("hasErrorEntity") is not False):
++        raise ValueError("Saved extrusion region does not resolve to source sketch")
++    return {"feature_id": feature_id, "sketch_feature_id": sketch_id,
++            "revision_before": before["element_microversion"],
++            "revision_after": after["element_microversion"],
++            "depth_mm": source_depth_mm, "definition_observed": True,
++            "region_source_verified": True, "unrelated_tree_preserved": True,
++            "completion_timing": "saved_idle_observed_after_page_final_poll_timeout",
++            "solid_geometry_verified": False, "ui_editability_verified": False}
++
++
+ def shared_journal_clear(config):
+     """Read the configured H2 intent ledger without creating or altering it."""
+     path = config.get("h2cad_journal")
+@@ -958,6 +1040,101 @@ def create_app(config=None):
+             return JSONResponse({"status": "observed_manual_source_completion", "op_id": body["op_id"],
+                                  "evidence": evidence})
+ 
++    async def reconcile_saved_source_extrude(request):
++        """Confirm an eventually saved extrusion without replaying editor commands."""
++        denied = await auth(request)
++        if denied is not None:
++            return denied
++        try:
++            body = await read_body(request)
++        except (ValueError, BridgeError):
++            return JSONResponse({"status": "blocked", "reason": "Invalid extrusion reconciliation request"}, 400)
++        target = {"did": "4e078dec822b4e509616b1cb", "wid": "af0627de07264acf086e646a", "eid": "9a062f0eef8bb961f8c84f8e"}
++        if (not isinstance(body, dict) or set(body) != {"op_id", "tab_id"}
++                or not isinstance(body["op_id"], str)
++                or not re.fullmatch(r"extrude-[a-f0-9]{32}", body["op_id"])
++                or type(body["tab_id"]) is not int or body["tab_id"] < 0):
++            return JSONResponse({"status": "blocked", "reason": "Invalid extrusion operation or exact tab"}, 400)
++        if (not broker.unknown_write or broker.guard_invalid or broker.pending or broker.extension is None
++                or "h2_native_extrude_recheck_page_v1" not in (broker.extension_info or {}).get("capabilities", [])):
++            return JSONResponse({"status": "blocked", "reason": "Versioned bridge safety state differs"}, 409)
++        path = config.get("h2cad_journal")
++        if not isinstance(path, str) or not Path(path).is_absolute():
++            return JSONResponse({"status": "blocked", "reason": "Pinned journal unavailable"}, 409)
++        try:
++            first = await broker.dispatch({"kind": "state", "target": target, "tab_id": body["tab_id"]})
++            extrudes = [node for node in first["tree"]["children"] if node.get("featureType") == "extrude"]
++            if len(extrudes) != 1:
++                raise ValueError("Expected one saved source extrusion")
++            entities = [item for item in extrudes[0]["parameters"] if item.get("parameterId") == "entities"]
++            if len(entities) != 1 or len(entities[0].get("queries", [])) != 1:
++                raise ValueError("Saved source region query unavailable")
++            resolved = await broker.dispatch({"kind": "native", "target": target, "tab_id": body["tab_id"],
++                                              "command": "ui.GBTUiGetQueryDataCall",
++                                              "body": {"elementId": target["eid"],
++                                                       "queries": entities[0]["queries"], "qFunction": "",
++                                                       "additionalArguments": [],
++                                                       "queryNodeIdToInContextNodeId": {}}})
++            live = await broker.dispatch({"kind": "state", "target": target, "tab_id": body["tab_id"]})
++            if (first.get("element_microversion") != live.get("element_microversion")
++                    or first.get("editingFeatureId") != live.get("editingFeatureId")
++                    or first.get("tree") != live.get("tree")):
++                raise ValueError("Editor changed during read-only extrusion reconciliation")
++        except (BridgeError, ValueError, KeyError, TypeError, AttributeError, IndexError) as error:
++            return JSONResponse({"status": "blocked", "reason": f"Read-only extrusion state unavailable: {error}"}, 409)
++        async with broker.command_lock:
++            if (not broker.unknown_write or broker.guard_invalid or broker.pending or broker.extension is None
++                    or "h2_native_extrude_recheck_page_v1" not in (broker.extension_info or {}).get("capabilities", [])):
++                return JSONResponse({"status": "blocked", "reason": "Bridge safety state changed"}, 409)
++            try:
++                with sqlite3.connect(path, timeout=2, isolation_level=None) as db:
++                    db.execute("PRAGMA synchronous=FULL")
++                    db.execute("BEGIN IMMEDIATE")
++                    db.row_factory = sqlite3.Row
++                    rows = db.execute("SELECT * FROM writes WHERE state IN ('prepared','sent','unknown')").fetchall()
++                    row = db.execute("SELECT * FROM writes WHERE op_id=?", (body["op_id"],)).fetchone()
++                    if row is None or (row["state"] == "unknown" and (len(rows) != 1 or rows[0]["op_id"] != body["op_id"])):
++                        raise ValueError("Journal has another unresolved operation")
++                    intent = json.loads(row["intent"])
++                    before = intent.get("before_state")
++                    source_row = db.execute("SELECT * FROM writes WHERE op_id=?", (intent.get("sketch_op_id"),)).fetchone()
++                    source_intent = json.loads(source_row["intent"]) if source_row is not None else {}
++                    source_observation = json.loads(source_row["observation"] or "{}") if source_row is not None else {}
++                    if (row["action"] != "experimental_extrude_populate"
++                            or row["state"] not in {"unknown", "observed"}
++                            or row["target"] != "/".join(target.values())
++                            or row["error"] != "Extrusion command acknowledged but saved definition/idle state is unconfirmed; outcome unknown."
++                            or row["receipt"] is not None or not isinstance(before, dict)
++                            or before.get("element_microversion") != row["expected_revision"]
++                            or source_row is None or source_row["state"] != "observed"
++                            or source_row["action"] != "experimental_sketch_populate"
++                            or source_row["target"] != row["target"]
++                            or source_observation.get("feature_id") != intent.get("sketch_feature_id")
++                            or source_observation.get("origin_verified") is not True
++                            or source_observation.get("constraint_graph_verified") is not True):
++                        raise ValueError("Journal intent is not this unresolved source extrusion")
++                    blueprint = source_intent.get("blueprint")
++                    depth = blueprint.get("depth_mm") if isinstance(blueprint, dict) else None
++                    evidence = verify_saved_source_extrude(before, intent.get("expected_tree"), live,
++                                                           resolved, target, intent.get("sketch_feature_id"), depth)
++                    evidence["op_id"] = body["op_id"]
++                    if row["state"] == "unknown":
++                        db.execute("UPDATE writes SET state='observed', observation=?, updated_at=CURRENT_TIMESTAMP WHERE op_id=? AND state='unknown'",
++                                   (json.dumps(evidence, sort_keys=True), body["op_id"]))
++                    elif rows or json.loads(row["observation"] or "{}") != evidence:
++                        raise ValueError("Previously observed extrusion or another journal write differs")
++                    db.execute("COMMIT")
++            except (OSError, sqlite3.Error, ValueError, KeyError, TypeError, AttributeError) as error:
++                return JSONResponse({"status": "blocked", "reason": str(error)}, 409)
++            broker.unknown_write = False
++            try:
++                broker.save_guard()
++            except BridgeError as error:
++                broker.unknown_write = True
++                return JSONResponse({"status": "blocked", "reason": str(error)}, 409)
++            return JSONResponse({"status": "observed_delayed_source_extrusion", "op_id": body["op_id"],
++                                 "evidence": evidence})
++
+     async def reconcile_known_sketch_rejection(request):
+         """Resolve exactly the reviewed patch-10 pre-RPC constructor failure.
+ 
+@@ -1295,7 +1472,7 @@ def create_app(config=None):
+         except (BridgeError, ValueError) as error:
+             return JSONResponse({"message": str(error)}, 502)
+ 
+-    app = Starlette(routes=[Route("/health", health), Route("/local/reconcile_completed_source_sketch", reconcile_completed_source_sketch, methods=["POST"]), Route("/local/reconcile_completed_top_begin", reconcile_completed_top_begin, methods=["POST"]), Route("/local/reconcile_known_sketch_rejection", reconcile_known_sketch_rejection, methods=["POST"]), Route("/local/finalize_known_invalid_sketch_cancel", finalize_known_invalid_sketch_cancel, methods=["POST"]), Route("/artifacts/{handle}", artifact_download),
++    app = Starlette(routes=[Route("/health", health), Route("/local/reconcile_saved_source_extrude", reconcile_saved_source_extrude, methods=["POST"]), Route("/local/reconcile_completed_source_sketch", reconcile_completed_source_sketch, methods=["POST"]), Route("/local/reconcile_completed_top_begin", reconcile_completed_top_begin, methods=["POST"]), Route("/local/reconcile_known_sketch_rejection", reconcile_known_sketch_rejection, methods=["POST"]), Route("/local/finalize_known_invalid_sketch_cancel", finalize_known_invalid_sketch_cancel, methods=["POST"]), Route("/artifacts/{handle}", artifact_download),
+                            Route("/local/extension_reload", extension_reload, methods=["POST"]),
+                            Route("/command", command, methods=["POST"]),
+                            Route("/local/{tool}", local_tool, methods=["POST"]),
+diff --git a/tests/test_bridge.py b/tests/test_bridge.py
+index 3853518..23f6ab3 100644
+--- a/tests/test_bridge.py
++++ b/tests/test_bridge.py
+@@ -7,7 +7,7 @@ import pytest
+ from starlette.testclient import TestClient
+ from starlette.websockets import WebSocketDisconnect
+ 
+-from onshape_native.bridge import Broker, BridgeError, create_app, validate_job
++from onshape_native.bridge import Broker, BridgeError, create_app, validate_job, verify_saved_source_extrude
+ from onshape_native.bridge import is_cad_read
+ 
+ 
+@@ -305,6 +305,88 @@ async def test_saved_source_sketch_reconciliation_requires_exact_intent_and_defi
+         assert response.json()["evidence"]["constraint_graph_evidence"].startswith("inferred_")
+ 
+ 
++def source_extrude_states():
++    target = {"did": "4e078dec822b4e509616b1cb", "wid": "af0627de07264acf086e646a", "eid": "9a062f0eef8bb961f8c84f8e"}
++    sketch = {"featureId": "source_0", "featureType": "newSketch", "nodeId": "sketch-node"}
++    region = {"$type": "bsedit.GBTMParameterQueryList", "parameterId": "entities",
++              "queries": [{"$type": "bsedit.GBTMIndividualQuery", "deterministicIds": ["live-region"]}]}
++    depth = {"$type": "bsedit.GBTMParameterQuantity", "parameterId": "depth",
++             "value": 25, "units": "millimeter", "expression": "25 mm", "nodeId": "depth-node"}
++    extrusion = {"featureId": "extrude_0", "featureType": "extrude", "nodeId": "extrude-node",
++                 "parameters": [{"parameterId": "bodyType", "value": "SOLID"},
++                                {"parameterId": "operationType", "value": "NEW"},
++                                {"parameterId": "endBound", "value": "BLIND"}, region, depth]}
++    rollback = {"$type": "bsedit.GBTMRollback", "nodeId": "rollback"}
++    before = {"target": target, "connected": True, "editingFeatureId": "extrude_0",
++              "element_microversion": "a" * 24,
++              "tree": {"$type": "bsedit.GBTMModel", "children": [sketch, extrusion, rollback]}}
++    expected = json.loads(json.dumps(before["tree"]))
++    expected_depth = expected["children"][1]["parameters"][-1]
++    expected_depth["value"] = 5
++    expected_depth["expression"] = "5 mm"
++    after = {"target": target, "connected": True, "editingFeatureId": None,
++             "element_microversion": "b" * 24, "tree": json.loads(json.dumps(expected))}
++    query = {"result": {"$type": "ui.GBTUiGetQueryDataResponse", "queryData": [
++        {"deterministicIds": ["live-region"], "featureId": "source_0", "selectionName": "Face",
++         "evaluationDetails": {"fullOperationId": "source_0.imprint", "entityType": 2, "status": 0},
++         "hasErrorEntity": False}]}}
++    return target, before, expected, after, query
++
++
++@pytest.mark.parametrize("fault", [None, "active", "wrong_region", "wrong_depth", "unrelated", "same_revision"])
++def test_saved_source_extrusion_verifier_preserves_exact_tree_and_region(fault):
++    target, before, expected, after, query = source_extrude_states()
++    if fault == "active": after["editingFeatureId"] = "extrude_0"
++    if fault == "wrong_region": query["result"]["queryData"][0]["featureId"] = "other_0"
++    if fault == "wrong_depth": after["tree"]["children"][1]["parameters"][-1]["value"] = 6
++    if fault == "unrelated": after["tree"]["children"][0]["nodeId"] = "changed"
++    if fault == "same_revision": after["element_microversion"] = before["element_microversion"]
++    if fault is None:
++        evidence = verify_saved_source_extrude(before, expected, after, query, target, "source_0", 5)
++        assert evidence["definition_observed"] and evidence["region_source_verified"]
++        assert evidence["solid_geometry_verified"] is False
++    else:
++        with pytest.raises(ValueError):
++            verify_saved_source_extrude(before, expected, after, query, target, "source_0", 5)
++
++
++@pytest.mark.asyncio
++async def test_delayed_saved_extrusion_reconciles_one_journaled_intent(tmp_path):
++    target, before, expected, after, query = source_extrude_states()
++    source_op, extrude_op = "sketch-" + "1" * 32, "extrude-" + "2" * 32
++    journal = tmp_path / "intent.sqlite"
++    with sqlite3.connect(journal) as db:
++        db.execute("CREATE TABLE writes(op_id TEXT,target TEXT,expected_revision TEXT,action TEXT,logical_id TEXT,intent TEXT,state TEXT,receipt TEXT,observation TEXT,error TEXT,updated_at TEXT)")
++        db.execute("INSERT INTO writes(op_id,target,expected_revision,action,logical_id,intent,state,observation) VALUES(?,?,?,?,?,?,?,?)",
++                   (source_op, "/".join(target.values()), "c" * 24, "experimental_sketch_populate", "Outline",
++                    json.dumps({"blueprint": {"depth_mm": 5}}), "observed",
++                    json.dumps({"feature_id": "source_0", "origin_verified": True, "constraint_graph_verified": True})))
++        db.execute("INSERT INTO writes(op_id,target,expected_revision,action,logical_id,intent,state,error) VALUES(?,?,?,?,?,?,?,?)",
++                   (extrude_op, "/".join(target.values()), before["element_microversion"],
++                    "experimental_extrude_populate", "Solid",
++                    json.dumps({"before_state": before, "expected_tree": expected, "sketch_op_id": source_op,
++                                "sketch_feature_id": "source_0"}), "unknown",
++                    "Extrusion command acknowledged but saved definition/idle state is unconfirmed; outcome unknown."))
++    app = create_app({**CONFIG, "h2cad_journal": str(journal)})
++    broker = app.state.broker
++    broker.unknown_write = True
++    broker.save_guard()
++    broker.extension = object()
++    broker.extension_info = {"capabilities": ["h2_native_extrude_recheck_page_v1"]}
++    async def dispatch(job):
++        if job["kind"] == "state": return json.loads(json.dumps(after))
++        assert job["kind"] == "native" and job["body"]["queries"] == expected["children"][1]["parameters"][-2]["queries"]
++        return query
++    broker.dispatch = dispatch
++    async with httpx.AsyncClient(transport=httpx.ASGITransport(app), base_url="http://127.0.0.1:8766", headers=AUTH) as client:
++        response = await client.post("/local/reconcile_saved_source_extrude", json={"op_id": extrude_op, "tab_id": 17})
++    assert response.status_code == 200, response.text
++    assert response.json()["evidence"]["completion_timing"] == "saved_idle_observed_after_page_final_poll_timeout"
++    with sqlite3.connect(journal) as db:
++        state = db.execute("SELECT state FROM writes WHERE op_id=?", (extrude_op,)).fetchone()[0]
++    assert state == "observed" and broker.unknown_write is False
++
++
+ @pytest.mark.asyncio
+ @pytest.mark.parametrize("changed", [False, True])
+ async def test_applied_invalid_sketch_guard_releases_only_after_exact_rollback(tmp_path, changed):
+-- 
+2.54.0.windows.1
+
