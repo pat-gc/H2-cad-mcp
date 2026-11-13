@@ -186,7 +186,8 @@ async def _bridge_action(args: argparse.Namespace) -> tuple[object, int]:
         if args.command == "experimental-reconcile-known-sketch-rejection":
             return await bridge.reconcile_known_sketch_rejection(args.op_id, args.tab_id), 0
         if args.command == "experimental-reconcile-completed-top-begin":
-            return await bridge.reconcile_completed_top_begin(args.op_id, args.tab_id), 0
+            result = await bridge.reconcile_completed_top_begin(args.op_id, args.tab_id)
+            return result, 2 if result.get("status") == "observed_partial_top_begin" else 0
         if args.command == "experimental-reconcile-completed-source-sketch":
             return await bridge.reconcile_completed_source_sketch(args.op_id, args.tab_id), 0
         if args.command == "experimental-reconcile-saved-source-extrude":

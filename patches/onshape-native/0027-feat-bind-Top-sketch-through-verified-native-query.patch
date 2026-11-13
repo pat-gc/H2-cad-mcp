@@ -1,4 +1,4 @@
-From 229a74a65ca214ccf89afead7c6a6f6bda783717 Mon Sep 17 00:00:00 2001
+From 150600a1b4e82af871c37af831172854558934fc Mon Sep 17 00:00:00 2001
 From: patcybermind <pato.gonzalezcabrera@gmail.com>
 Date: Fri, 13 Nov 2026 17:14:01 -0500
 Subject: [PATCH] feat: bind Top sketch through verified native query
@@ -6,10 +6,10 @@ Subject: [PATCH] feat: bind Top sketch through verified native query
 ---
  extension/connection.js   |  2 +-
  extension/page-adapter.js | 94 ++++++++++++++++++++++++++++++---------
- onshape_native/bridge.py  |  4 +-
- tests/adapter.test.mjs    | 77 +++++++++++++++++++++++++++-----
- tests/test_bridge.py      |  4 ++
- 5 files changed, 147 insertions(+), 34 deletions(-)
+ onshape_native/bridge.py  | 77 ++++++++++++++++++++++++++------
+ tests/adapter.test.mjs    | 81 ++++++++++++++++++++++++++++-----
+ tests/test_bridge.py      | 65 +++++++++++++++++++++++++++
+ 5 files changed, 272 insertions(+), 47 deletions(-)
 
 diff --git a/extension/connection.js b/extension/connection.js
 index bb19f03..d67d5a0 100644
@@ -25,7 +25,7 @@ index bb19f03..d67d5a0 100644
      let lastPong = now(), chunkedResponses = false;
      current.onmessage = async event => {
 diff --git a/extension/page-adapter.js b/extension/page-adapter.js
-index 779c431..9f5292d 100644
+index 779c431..a46951f 100644
 --- a/extension/page-adapter.js
 +++ b/extension/page-adapter.js
 @@ -343,6 +343,72 @@ export async function pageCommand(job) {
@@ -41,7 +41,7 @@ index 779c431..9f5292d 100644
 +        plane[0].getMessageName?.()!=="bsedit.GBTMParameterQueryList" ||
 +        !plane[0].nodeId || plane[0].queries?.length!==0)
 +      throw new Error("The active sketch lacks one empty plane field or exact default Top feature.");
-+    const make = (name, fields={}) => hydrate({$type:name,...fields});
++    const make = (name, fields={}) => hydrate({$type:name,...plain(fields)});
 +    // JDC is a candidate observed for default Top, never a captured node ID.
 +    // Resolve it in this exact current editor before it may enter a write.
 +    const query = make("bsedit.GBTMIndividualQuery",{deterministicIds:["JDC"]});
@@ -137,10 +137,59 @@ index 779c431..9f5292d 100644
    if (job.kind === "partstudio_begin_source_extrude") {
      const sketchId = job.sketch_feature_id;
 diff --git a/onshape_native/bridge.py b/onshape_native/bridge.py
-index 3226327..baf8219 100644
+index 3226327..2a21bc8 100644
 --- a/onshape_native/bridge.py
 +++ b/onshape_native/bridge.py
-@@ -646,6 +646,8 @@ class Broker:
+@@ -136,6 +136,48 @@ def verify_completed_top_begin(before, after, query_response, target):
+             "top_query_semantically_resolved": True}
+ 
+ 
++def verify_partial_top_begin(before, after, target):
++    """Resolve a journaled toolbar action that saved only a blank, unbound sketch."""
++    if (not isinstance(before, dict) or not isinstance(after, dict)
++            or before.get("target") != target or after.get("target") != target
++            or before.get("connected") is not True or after.get("connected") is not True
++            or before.get("editingFeatureId") is not None or after.get("editingFeatureId") is not None
++            or not before.get("element_microversion")
++            or before["element_microversion"] == after.get("element_microversion")):
++        raise ValueError("Partial Top begin target, connection, lifecycle or revision differs")
++    prior, current = before.get("tree"), after.get("tree")
++    if (not isinstance(prior, dict) or not isinstance(current, dict)
++            or prior.get("$type") != "bsedit.GBTMModel"
++            or current.get("$type") != "bsedit.GBTMModel"):
++        raise ValueError("Partial Top begin model tree unavailable")
++    old, new = prior.get("children"), current.get("children")
++    if (not isinstance(old, list) or len(old) != 1
++            or old[0].get("$type") != "bsedit.GBTMRollback"
++            or not isinstance(new, list) or len(new) != 2 or new[1] != old[0]):
++        raise ValueError("Partial Top begin changed default or unrelated history")
++    sketch = new[0]
++    if (not isinstance(sketch, dict) or sketch.get("$type") != "bsedit.GBTMSketch"
++            or sketch.get("featureType") != "newSketch"
++            or not isinstance(sketch.get("featureId"), str) or not sketch["featureId"]
++            or not isinstance(sketch.get("nodeId"), str) or not sketch["nodeId"]
++            or sketch.get("entities") != [] or sketch.get("constraints") != []
++            or sketch.get("suppressed") is not False):
++        raise ValueError("Partial Top begin is not one saved blank sketch")
++    plane = [p for p in sketch.get("parameters", []) if isinstance(p, dict)
++             and p.get("parameterId") == "sketchPlane"]
++    if (len(plane) != 1 or plane[0].get("$type") != "bsedit.GBTMParameterQueryList"
++            or plane[0].get("queries") != []):
++        raise ValueError("Partial Top begin plane was bound or changed")
++    if _tab_tolerance_node_normalized({k: v for k, v in prior.items() if k != "children"}) != \
++            _tab_tolerance_node_normalized({k: v for k, v in current.items() if k != "children"}):
++        raise ValueError("Partial Top begin changed unrelated model metadata")
++    return {"outcome": "partial_failed", "feature_id": sketch["featureId"],
++            "feature_node_id": sketch["nodeId"], "revision_before": before["element_microversion"],
++            "revision_after": after["element_microversion"], "blank_sketch_observed": True,
++            "top_query_semantically_resolved": False, "source_geometry_created": False,
++            "unrelated_tree_preserved": True}
++
++
+ def verify_completed_source_sketch(before, after, query_response, target, feature_id, blueprint, prefix):
+     """Check the saved source rectangle and all unrelated native history."""
+     if (not isinstance(before, dict) or not isinstance(after, dict)
+@@ -646,6 +688,8 @@ class Broker:
                  raise BridgeError("Loaded extension lacks h2_native_begin_top_sketch_page_v1; reload and reconnect before editing.")
              if job.get("kind") == "partstudio_begin_top_sketch" and "h2_native_begin_top_ready_page_v1" not in capabilities:
                  raise BridgeError("Loaded extension lacks h2_native_begin_top_ready_page_v1; reload and reconnect before editing.")
@@ -149,7 +198,7 @@ index 3226327..baf8219 100644
              if job.get("kind") == "partstudio_begin_source_extrude" and "h2_native_begin_source_extrude_page_v1" not in capabilities:
                  raise BridgeError("Loaded extension lacks h2_native_begin_source_extrude_page_v1; reload and reconnect before editing.")
              if job.get("kind") == "partstudio_populate_sketch" and "h2_native_sketch_populate_page_v1" not in capabilities:
-@@ -952,7 +954,7 @@ def create_app(config=None):
+@@ -952,10 +996,10 @@ def create_app(config=None):
          return JSONResponse({"protocol": 1, "extension_connected": broker.extension is not None,
                               "extension": broker.extension_info, "pending": len(broker.pending),
                               "reload": broker.reload_record,
@@ -157,12 +206,66 @@ index 3226327..baf8219 100644
 +                             "capabilities": ["ui_exports_v1", "chunked_upload_v1", "chunked_response_v1", "artifact_download_v1", "viewer_mesh_v1", "h2_depth_edit_server_v1", "h2_native_begin_top_sketch_server_v1", "h2_native_typed_top_plane_server_v1", "h2_native_begin_source_extrude_server_v1", "h2_native_sketch_populate_server_v1", "h2_native_extrude_populate_server_v1", "h2_native_completion_receipt_server_v1", "h2_extension_reload_server_v1"]})
  
      async def reconcile_completed_top_begin(request):
-         """Confirm a manually completed, journaled Top selection without replaying it."""
+-        """Confirm a manually completed, journaled Top selection without replaying it."""
++        """Resolve a journaled Top begin from exact saved or active readback."""
+         denied = await auth(request)
+         if denied is not None:
+             return denied
+@@ -976,16 +1020,19 @@ def create_app(config=None):
+             return JSONResponse({"status": "blocked", "reason": "Pinned journal unavailable"}, 409)
+         try:
+             first = await broker.dispatch({"kind": "state", "target": target, "tab_id": body["tab_id"]})
+-            sketch = next(node for node in first["tree"]["children"]
+-                          if node.get("featureId") == first.get("editingFeatureId")
+-                          and node.get("featureType") == "newSketch")
+-            plane = next(item for item in sketch["parameters"] if item.get("parameterId") == "sketchPlane")
+-            query = plane["queries"][0]
+-            resolved = await broker.dispatch({"kind": "native", "target": target, "tab_id": body["tab_id"],
+-                                              "command": "ui.GBTUiGetQueryDataCall",
+-                                              "body": {"elementId": target["eid"], "queries": [query],
+-                                                       "qFunction": "", "additionalArguments": [],
+-                                                       "queryNodeIdToInContextNodeId": {}}})
++            partial = first.get("editingFeatureId") is None
++            resolved = None
++            if not partial:
++                sketch = next(node for node in first["tree"]["children"]
++                              if node.get("featureId") == first.get("editingFeatureId")
++                              and node.get("featureType") == "newSketch")
++                plane = next(item for item in sketch["parameters"] if item.get("parameterId") == "sketchPlane")
++                query = plane["queries"][0]
++                resolved = await broker.dispatch({"kind": "native", "target": target, "tab_id": body["tab_id"],
++                                                  "command": "ui.GBTUiGetQueryDataCall",
++                                                  "body": {"elementId": target["eid"], "queries": [query],
++                                                           "qFunction": "", "additionalArguments": [],
++                                                           "queryNodeIdToInContextNodeId": {}}})
+             live = await broker.dispatch({"kind": "state", "target": target, "tab_id": body["tab_id"]})
+             if (first.get("element_microversion") != live.get("element_microversion")
+                     or first.get("editingFeatureId") != live.get("editingFeatureId")
+@@ -1011,7 +1058,8 @@ def create_app(config=None):
+                             or not isinstance(before, dict)
+                             or before.get("element_microversion") != row["expected_revision"]):
+                         raise ValueError("Journal intent is not this unresolved Top begin")
+-                    evidence = verify_completed_top_begin(before, live, resolved, target)
++                    evidence = (verify_partial_top_begin(before, live, target) if partial else
++                                verify_completed_top_begin(before, live, resolved, target))
+                     if row["state"] == "unknown":
+                         db.execute("UPDATE writes SET state='observed', observation=?, updated_at=CURRENT_TIMESTAMP WHERE op_id=? AND state='unknown'",
+                                    (json.dumps(evidence, sort_keys=True), body["op_id"]))
+@@ -1026,7 +1074,8 @@ def create_app(config=None):
+             except BridgeError as error:
+                 broker.unknown_write = True
+                 return JSONResponse({"status": "blocked", "reason": str(error)}, 409)
+-            return JSONResponse({"status": "observed_manual_top_completion", "op_id": body["op_id"],
++            return JSONResponse({"status": "observed_partial_top_begin" if partial else "observed_manual_top_completion",
++                                 "op_id": body["op_id"],
+                                  "evidence": evidence})
+ 
+     async def reconcile_completed_source_sketch(request):
 diff --git a/tests/adapter.test.mjs b/tests/adapter.test.mjs
-index 4f0eae2..66cbfc0 100644
+index 4f0eae2..8af9325 100644
 --- a/tests/adapter.test.mjs
 +++ b/tests/adapter.test.mjs
-@@ -204,32 +204,87 @@ test('source rectangle populates an editor allocated blank sketch with typed nat
+@@ -204,32 +204,91 @@ test('source rectangle populates an editor allocated blank sketch with typed nat
      'ui.sketch.GBTUiSketchGetConstraintGraphCall']);
  });
  
@@ -170,7 +273,7 @@ index 4f0eae2..66cbfc0 100644
 +test('normal Sketch allocation binds Top through a freshly resolved typed query',async()=>{
    const temp={did:'4e078dec822b4e509616b1cb',wid:'af0627de07264acf086e646a',eid:'9a062f0eef8bb961f8c84f8e'};
 -  const root={children:[{featureId:'Top',featureType:'defaultPlane',nodeId:'existing-top'}]};
-+  const Type=(name,defaults)=>class {constructor(){Object.assign(this,defaults);}
++  const Type=(name,defaults)=>class {constructor(){Object.assign(this,{_runtimePrivate:'serializer-owned',...defaults});}
 +    getMessageName(){return name;} getClassId(){return 1;}};
 +  const Query=Type('bsedit.GBTMIndividualQuery',{nodeId:'new-query-node',deterministicIds:[],
 +    hasUserCode:false,queryString:'',sourceParseTreeNodes:{}});
@@ -225,6 +328,10 @@ index 4f0eae2..66cbfc0 100644
 +  assert.equal(result.plane_query_node_id,'new-query-node');
 +  assert.equal(topClicks,0);
 +  assert.deepEqual(sent.map(m=>m.getMessageName()),['ui.GBTUiGetQueryDataCall','ui.GBTUiSpecifyFeature']);
++  assert.ok(sent[0].queries[0] instanceof Query);
++  assert.ok(sent[1].featureChange instanceof Change);
++  assert.ok(sent[1].featureChange.newNode instanceof Sketch);
++  assert.ok(sent[1].featureChange.newNode.parameters[0].queries[0] instanceof Query);
 +});
 +
 +test('typed Top binding rejects a wrong-plane query before SpecifyFeature',async()=>{
@@ -262,7 +369,7 @@ index 4f0eae2..66cbfc0 100644
  
  test('selected sole source sketch starts a NEW solid extrusion with editor-bound region',async()=>{
 diff --git a/tests/test_bridge.py b/tests/test_bridge.py
-index e7be6a6..79bbb0f 100644
+index e7be6a6..bcc8a6c 100644
 --- a/tests/test_bridge.py
 +++ b/tests/test_bridge.py
 @@ -153,6 +153,10 @@ async def test_begin_top_rejects_old_loaded_page_before_editor_action():
@@ -276,6 +383,74 @@ index e7be6a6..79bbb0f 100644
      assert not broker.extension.sent and not broker.pending
  
  
+@@ -280,6 +284,67 @@ async def test_manual_top_begin_reconciliation_requires_exact_semantic_readback(
+         assert response.json()["evidence"]["manual_top_completion"] is True
+ 
+ 
++@pytest.mark.asyncio
++@pytest.mark.parametrize("fault", [None, "geometry", "plane", "unrelated", "other_op", "wrong_target"])
++async def test_saved_blank_top_begin_is_terminal_partial_only_on_exact_journaled_effect(tmp_path, fault):
++    target = {"did": "4e078dec822b4e509616b1cb", "wid": "af0627de07264acf086e646a",
++              "eid": "1926791d173990d5d45f70ef"}
++    op_id = "begin-sketch-" + "a" * 32
++    rollback = {"$type": "bsedit.GBTMRollback", "nodeId": "rollback"}
++    metadata = {"$type": "bsedit.GBTMModel", "name": "Test", "modelAnnotations":
++                {"toleranceSchemaForParts": {"nodeId": "old-tab", "items": []}}}
++    before = {"target": target, "connected": True, "editingFeatureId": None,
++              "element_microversion": "a" * 24,
++              "tree": {**metadata, "children": [rollback]}}
++    sketch = {"$type": "bsedit.GBTMSketch", "featureType": "newSketch", "featureId": "fresh_0",
++              "nodeId": "fresh-node", "suppressed": False, "entities": [], "constraints": [],
++              "parameters": [{"$type": "bsedit.GBTMParameterQueryList", "parameterId": "sketchPlane",
++                              "queries": []}, {"parameterId": "disableImprinting", "value": False}]}
++    live = {"target": target, "connected": True, "editingFeatureId": None,
++            "element_microversion": "b" * 24,
++            "tree": {**metadata, "modelAnnotations": {"toleranceSchemaForParts":
++                       {"nodeId": "new-tab", "items": []}}, "children": [sketch, rollback]}}
++    if fault == "geometry": sketch["entities"] = [{"entityId": "human-line"}]
++    if fault == "plane": sketch["parameters"][0]["queries"] = [{"deterministicIds": ["JDC"]}]
++    if fault == "unrelated": live["tree"]["name"] = "changed"
++    if fault == "wrong_target": live["target"] = {**target, "eid": "a" * 24}
++    journal = tmp_path / "intent.sqlite"
++    with sqlite3.connect(journal) as db:
++        db.execute("CREATE TABLE writes(op_id TEXT,target TEXT,expected_revision TEXT,action TEXT,logical_id TEXT,intent TEXT,state TEXT,receipt TEXT,observation TEXT,error TEXT,updated_at TEXT)")
++        db.execute("INSERT INTO writes(op_id,target,expected_revision,action,logical_id,intent,state,error) VALUES(?,?,?,?,?,?,?,?)",
++                   (op_id, "/".join(target.values()), before["element_microversion"],
++                    "experimental_begin_top_sketch", "Top", json.dumps({"before_state": before}),
++                    "unknown", "Top sketch action may have changed the editor but its bound plane is unconfirmed; outcome unknown."))
++        if fault == "other_op":
++            db.execute("INSERT INTO writes(op_id,target,expected_revision,action,logical_id,intent,state,error) VALUES(?,?,?,?,?,?,?,?)",
++                       ("other", "/".join(target.values()), "a" * 24, "other", "Other", "{}", "unknown", "unknown"))
++    app = create_app({**CONFIG, "h2cad_create_target": target, "h2cad_journal": str(journal)})
++    broker = app.state.broker
++    broker.unknown_write = True
++    broker.save_guard()
++    broker.extension = object()
++    calls = []
++    async def dispatch(job):
++        calls.append(job["kind"])
++        assert job["kind"] == "state"
++        return json.loads(json.dumps(live))
++    broker.dispatch = dispatch
++    async with httpx.AsyncClient(transport=httpx.ASGITransport(app),
++                                 base_url="http://127.0.0.1:8766", headers=AUTH) as client:
++        response = await client.post("/local/reconcile_completed_top_begin",
++                                     json={"op_id": op_id, "tab_id": 17})
++    assert response.status_code == (200 if fault is None else 409)
++    with sqlite3.connect(journal) as db:
++        state = db.execute("SELECT state FROM writes WHERE op_id=?", (op_id,)).fetchone()[0]
++    assert state == ("observed" if fault is None else "unknown")
++    assert broker.unknown_write is (fault is not None)
++    assert calls == ["state", "state"]
++    if fault is None:
++        assert response.json()["status"] == "observed_partial_top_begin"
++        assert response.json()["evidence"]["outcome"] == "partial_failed"
++        assert response.json()["evidence"]["top_query_semantically_resolved"] is False
++
++
+ @pytest.mark.asyncio
+ @pytest.mark.parametrize("fault,pending_receipt", [(None, False), (None, True), ("active", False),
+     ("wrong_plane", False), ("wrong_fix", False), ("wrong_depth", False),
 -- 
 2.54.0.windows.1
 

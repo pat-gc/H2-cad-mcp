@@ -368,6 +368,24 @@ async def test_manual_top_completion_client_uses_one_authenticated_local_endpoin
 
 
 @pytest.mark.asyncio
+async def test_partial_top_begin_client_reports_failure_without_another_modeling_send():
+    seen = []
+    def reply(request):
+        seen.append((request.method, request.url.path, json.loads(request.content)))
+        return httpx.Response(200, json={"status": "observed_partial_top_begin",
+                                         "evidence": {"outcome": "partial_failed",
+                                                      "top_query_semantically_resolved": False}})
+    bridge = NativeBridge("x" * 32, transport=httpx.MockTransport(reply))
+    try:
+        result = await bridge.reconcile_completed_top_begin("begin-sketch-" + "a" * 32, 17)
+    finally:
+        await bridge.close()
+    assert result["evidence"]["outcome"] == "partial_failed"
+    assert seen == [("POST", "/local/reconcile_completed_top_begin",
+                     {"op_id": "begin-sketch-" + "a" * 32, "tab_id": 17})]
+
+
+@pytest.mark.asyncio
 async def test_manual_source_completion_client_uses_one_authenticated_local_endpoint():
     seen = []
     def reply(request):
