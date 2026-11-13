@@ -368,23 +368,34 @@ def _prior_sketch_intent(journal):
 
 
 class ExtrudeBridge:
-    def __init__(self, *, change_unrelated=False):
+    def __init__(self, *, change_unrelated=False, wrong_region=False, old_page=False):
         self.calls = []
         self.change_unrelated = change_unrelated
+        self.wrong_region = wrong_region
+        self.old_page = old_page
 
     async def health(self):
         return {"extension_connected": True,
                 "capabilities": ["h2_native_extrude_populate_server_v1"],
-                "extension": {"capabilities": ["h2_native_extrude_populate_page_v1"]}}
+                "extension": {"capabilities": ["h2_native_extrude_populate_page_v1"] +
+                              ([] if self.old_page else ["h2_native_source_region_page_v1"])}}
 
     async def command(self, job):
         self.calls.append(copy.deepcopy(job))
         if job["kind"] == "partstudio_populate_extrude":
             assert job["extrude_edit"] == {"feature_id": "freshExtrude_0", "sketch_feature_id": "editorAllocated_0",
                                             "from_mm": 25, "to_mm": 5}
-            return {"definition_candidate": True}
+            return {"definition_candidate": True, "region_source_verified": True}
+        if job["kind"] == "native":
+            assert job["command"] == "ui.GBTUiGetQueryDataCall"
+            assert job["body"]["queries"][0]["deterministicIds"] == ["fresh-region"]
+            sketch_id = "wrongSketch_0" if self.wrong_region else "editorAllocated_0"
+            return {"result": {"$type": "ui.GBTUiGetQueryDataResponse", "queryData": [{
+                "deterministicIds": ["fresh-region"], "featureId": sketch_id, "selectionName": "Face",
+                "evaluationDetails": {"fullOperationId": f"{sketch_id}.imprint", "entityType": 2, "status": 0},
+                "hasErrorEntity": False}]}}
         assert job["kind"] == "state"
-        after = len(self.calls) > 1
+        after = sum(call["kind"] == "state" for call in self.calls) > 2
         result = state(populated=True, unrelated_changed=after and self.change_unrelated)
         result["editingFeatureId"] = None if after else "freshExtrude_0"
         result["element_microversion"] = ("d" if after else "c") * 24
@@ -409,7 +420,7 @@ async def test_source_extrusion_journals_one_typed_depth_edit(tmp_path):
     evidence = await NativeBackend(bridge, tab_id=17).populate_test_extrude(
         TARGET, SOURCE, sketch_op_id="sketch-prior", journal=journal)
     assert evidence["definition_observed"] is True and evidence["solid_geometry_verified"] is False
-    assert [x["kind"] for x in bridge.calls] == ["state", "partstudio_populate_extrude", "state"]
+    assert [x["kind"] for x in bridge.calls] == ["state", "native", "state", "partstudio_populate_extrude", "state"]
     assert journal.get(evidence["op_id"])["state"] == "observed"
     journal.close()
 
@@ -422,6 +433,31 @@ async def test_source_extrusion_preserves_unrelated_feature_or_stays_unknown(tmp
     with pytest.raises(UncertainWrite, match="outcome unknown"):
         await NativeBackend(bridge, tab_id=17).populate_test_extrude(
             TARGET, SOURCE, sketch_op_id="sketch-prior", journal=journal)
-    assert [x["kind"] for x in bridge.calls] == ["state", "partstudio_populate_extrude", "state"]
+    assert [x["kind"] for x in bridge.calls] == ["state", "native", "state", "partstudio_populate_extrude", "state"]
     assert journal.has_unresolved()
+    journal.close()
+
+
+@pytest.mark.asyncio
+async def test_wrong_extrusion_region_stops_before_intent_and_write(tmp_path):
+    journal = Journal(tmp_path / "intent.sqlite")
+    _prior_sketch_intent(journal)
+    bridge = ExtrudeBridge(wrong_region=True)
+    with pytest.raises(Unsupported, match="does not resolve to the source sketch"):
+        await NativeBackend(bridge, tab_id=17).populate_test_extrude(
+            TARGET, SOURCE, sketch_op_id="sketch-prior", journal=journal)
+    assert [x["kind"] for x in bridge.calls] == ["state", "native"]
+    assert not journal.has_unresolved()
+    journal.close()
+
+
+@pytest.mark.asyncio
+async def test_old_loaded_extrusion_page_stops_before_intent(tmp_path):
+    journal = Journal(tmp_path / "intent.sqlite")
+    _prior_sketch_intent(journal)
+    bridge = ExtrudeBridge(old_page=True)
+    with pytest.raises(Unsupported, match="both advertise"):
+        await NativeBackend(bridge, tab_id=17).populate_test_extrude(
+            TARGET, SOURCE, sketch_op_id="sketch-prior", journal=journal)
+    assert bridge.calls == [] and not journal.has_unresolved()
     journal.close()

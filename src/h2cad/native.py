@@ -340,6 +340,22 @@ def _verify_rectangle_graph(payload: dict[str, Any], prefix: str) -> None:
         raise Unsupported("Native rectangle start is not solved at the origin")
 
 
+def _verify_source_region_query(payload: dict[str, Any], query: dict[str, Any], sketch_id: str) -> None:
+    """Resolve the editor-selected face to the saved source sketch."""
+    result = payload.get("result")
+    data = result.get("queryData") if isinstance(result, dict) else None
+    if (not isinstance(result, dict) or result.get("$type") != "ui.GBTUiGetQueryDataResponse"
+            or not isinstance(data, list) or len(data) != 1 or not isinstance(data[0], dict)
+            or data[0].get("deterministicIds") != query.get("deterministicIds")
+            or data[0].get("featureId") != sketch_id
+            or data[0].get("selectionName") != "Face"
+            or data[0].get("evaluationDetails", {}).get("fullOperationId") != f"{sketch_id}.imprint"
+            or data[0]["evaluationDetails"].get("entityType") != 2
+            or data[0]["evaluationDetails"].get("status") != 0
+            or data[0].get("hasErrorEntity") is not False):
+        raise Unsupported("Extrusion region does not resolve to the source sketch face")
+
+
 def _native_model_metadata(tree: dict[str, Any]) -> dict[str, Any]:
     """Compare CAD model metadata while ignoring one observed per-tab schema ID."""
     metadata = copy.deepcopy({key: value for key, value in tree.items() if key != "children"})
@@ -882,7 +898,8 @@ class NativeBackend:
             health = await self.bridge.health()
             if (health.get("extension_connected") is not True
                     or "h2_native_extrude_populate_server_v1" not in (health.get("capabilities") or [])
-                    or "h2_native_extrude_populate_page_v1" not in ((health.get("extension") or {}).get("capabilities") or [])):
+                    or "h2_native_extrude_populate_page_v1" not in ((health.get("extension") or {}).get("capabilities") or [])
+                    or "h2_native_source_region_page_v1" not in ((health.get("extension") or {}).get("capabilities") or [])):
                 raise Unsupported("Installed bridge and loaded extension must both advertise native extrusion support")
             before = await self.raw_state(target)
             tree = before["tree"]
@@ -915,12 +932,26 @@ class NativeBackend:
             if (type(from_mm) not in (int, float) or not math.isfinite(from_mm) or not 0 < from_mm <= 1000
                     or depth[0].get("expression") != f"{from_mm:g} mm" or from_mm == blueprint.depth_mm):
                 raise Unsupported("Expected a distinct positive literal editor depth before source update")
+            selected_query = region[0]["queries"][0]
+            resolved = await self.bridge.command({"kind": "native", "target": _NATIVE_CREATE_TEST,
+                                                  "tab_id": self.tab_id,
+                                                  "command": "ui.GBTUiGetQueryDataCall",
+                                                  "body": {"elementId": target.eid, "queries": [selected_query],
+                                                           "qFunction": "", "additionalArguments": [],
+                                                           "queryNodeIdToInContextNodeId": {}}})
+            _verify_source_region_query(resolved, selected_query, sketch_id)
+            confirm = await self.raw_state(target)
+            if (confirm.get("connected") is not True or confirm.get("editingFeatureId") != feature_id
+                    or confirm.get("element_microversion") != before["element_microversion"]
+                    or confirm.get("tree") != tree):
+                raise Unsupported("Extrusion editor changed during source-region resolution")
             expected_tree = _depth_expected_tree(tree, feature_id, from_mm, blueprint.depth_mm)
             op_id = "extrude-" + uuid4().hex
             journal.prepare(op_id=op_id, target=key, expected_revision=before["element_microversion"],
                             action="experimental_extrude_populate", logical_id=blueprint.extrusion_logical_id,
                             intent={"before_state": before, "expected_tree": expected_tree,
-                                    "sketch_op_id": sketch_op_id, "sketch_feature_id": sketch_id})
+                                    "sketch_op_id": sketch_op_id, "sketch_feature_id": sketch_id,
+                                    "region_query_evidence": resolved})
             job = {"kind": "partstudio_populate_extrude", "target": _NATIVE_CREATE_TEST,
                    "tab_id": self.tab_id, "expected_element_microversion": before["element_microversion"],
                    "extrude_edit": {"feature_id": feature_id, "sketch_feature_id": sketch_id,
@@ -936,7 +967,8 @@ class NativeBackend:
             journal.transition(op_id, "sent", receipt=response)
             try:
                 after = await self.raw_state(target)
-                if (response.get("definition_candidate") is not True or after.get("connected") is not True
+                if (response.get("definition_candidate") is not True
+                        or response.get("region_source_verified") is not True or after.get("connected") is not True
                         or after.get("editingFeatureId") is not None
                         or after["element_microversion"] == before["element_microversion"]
                         or after["tree"] != expected_tree):
@@ -948,7 +980,7 @@ class NativeBackend:
                         "revision_before": before["element_microversion"], "revision_after": after["element_microversion"],
                         "depth_mm": blueprint.depth_mm, "definition_observed": True,
                         "solid_geometry_verified": False, "ui_editability_verified": False,
-                        "region_source_verified": False}
+                        "region_source_verified": True}
             journal.transition(op_id, "observed", observation=evidence)
             return evidence
 
