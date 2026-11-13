@@ -612,7 +612,8 @@ class NativeBackend:
             health = await self.bridge.health()
             if (health.get("extension_connected") is not True
                     or "h2_native_begin_top_sketch_server_v1" not in (health.get("capabilities") or [])
-                    or "h2_native_begin_top_sketch_page_v1" not in ((health.get("extension") or {}).get("capabilities") or [])):
+                    or "h2_native_begin_top_sketch_page_v1" not in ((health.get("extension") or {}).get("capabilities") or [])
+                    or "h2_native_begin_top_ready_page_v1" not in ((health.get("extension") or {}).get("capabilities") or [])):
                 raise Unsupported("Installed bridge and loaded extension must both advertise Top-sketch initiation")
             before = await self.raw_state(target)
             children = before["tree"].get("children")

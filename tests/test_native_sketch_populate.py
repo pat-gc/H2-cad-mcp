@@ -250,13 +250,15 @@ async def test_known_applied_invalid_sketch_is_recorded_but_remains_blocking(tmp
 
 
 class BeginBridge:
-    def __init__(self, *, altered=False):
+    def __init__(self, *, altered=False, old_page=False):
         self.calls = []
         self.altered = altered
+        self.old_page = old_page
 
     async def health(self):
         return {"extension_connected": True, "capabilities": ["h2_native_begin_top_sketch_server_v1"],
-                "extension": {"capabilities": ["h2_native_begin_top_sketch_page_v1"]}}
+                "extension": {"capabilities": ["h2_native_begin_top_sketch_page_v1"] +
+                              ([] if self.old_page else ["h2_native_begin_top_ready_page_v1"])}}
 
     async def command(self, job):
         self.calls.append(copy.deepcopy(job))
@@ -295,6 +297,16 @@ async def test_top_sketch_initiation_unrelated_tree_change_stays_unknown(tmp_pat
     with pytest.raises(UncertainWrite, match="outcome unknown"):
         await NativeBackend(bridge, tab_id=17).begin_test_top_sketch(TARGET, journal)
     assert journal.has_unresolved()
+    journal.close()
+
+
+@pytest.mark.asyncio
+async def test_old_loaded_page_cannot_start_top_sketch(tmp_path):
+    bridge = BeginBridge(old_page=True)
+    journal = Journal(tmp_path / "intent.sqlite")
+    with pytest.raises(Unsupported, match="both advertise"):
+        await NativeBackend(bridge, tab_id=17).begin_test_top_sketch(TARGET, journal)
+    assert bridge.calls == [] and not journal.has_unresolved()
     journal.close()
 
 

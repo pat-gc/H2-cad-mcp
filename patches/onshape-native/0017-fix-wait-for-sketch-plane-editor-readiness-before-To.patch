@@ -1,0 +1,121 @@
+From 234d640d4bc8c92b9b3851aeb197d8fa30ece9e1 Mon Sep 17 00:00:00 2001
+From: patcybermind <pato.gonzalezcabrera@gmail.com>
+Date: Fri, 13 Nov 2026 14:28:22 -0500
+Subject: [PATCH] fix: wait for sketch plane editor readiness before Top
+ selection
+
+---
+ extension/connection.js   |  2 +-
+ extension/page-adapter.js |  9 +++++++--
+ onshape_native/bridge.py  |  2 ++
+ tests/adapter.test.mjs    | 11 ++++++++---
+ tests/test_bridge.py      | 15 +++++++++++++++
+ 5 files changed, 33 insertions(+), 6 deletions(-)
+
+diff --git a/extension/connection.js b/extension/connection.js
+index b8c6a46..4572f56 100644
+--- a/extension/connection.js
++++ b/extension/connection.js
+@@ -74,7 +74,7 @@ export function createConnection({browser, token, execute, Socket = WebSocket,
+       if (socket !== current) return;
+       current.send(JSON.stringify({type: 'hello', token, version: browser.runtime.getManifest().version,
+         runtime_id: browser.runtime.id, instance_id: instanceId, build: 'h2-extension-reload-v1',
+-        capabilities: ['tab_context_v1', 'assembly_sidebar_map_v1', 'display_v1', 'native_modeling_v1', 'element_revision_v1', 'editor_tabs_v1', 'ui_exports_v1', 'chunked_upload_v1', 'chunked_response_v1', 'viewer_mesh_v1', 'h2_depth_edit_page_v1', 'h2_native_begin_top_sketch_page_v1', 'h2_native_sketch_populate_page_v1', 'h2_native_fixed_origin_page_v1', 'h2_native_extrude_populate_page_v1', 'h2_extension_reload_v1']}));
++        capabilities: ['tab_context_v1', 'assembly_sidebar_map_v1', 'display_v1', 'native_modeling_v1', 'element_revision_v1', 'editor_tabs_v1', 'ui_exports_v1', 'chunked_upload_v1', 'chunked_response_v1', 'viewer_mesh_v1', 'h2_depth_edit_page_v1', 'h2_native_begin_top_sketch_page_v1', 'h2_native_begin_top_ready_page_v1', 'h2_native_sketch_populate_page_v1', 'h2_native_fixed_origin_page_v1', 'h2_native_extrude_populate_page_v1', 'h2_extension_reload_v1']}));
+     };
+     let lastPong = now(), chunkedResponses = false;
+     current.onmessage = async event => {
+diff --git a/extension/page-adapter.js b/extension/page-adapter.js
+index 0767c66..84ef706 100644
+--- a/extension/page-adapter.js
++++ b/extension/page-adapter.js
+@@ -356,10 +356,15 @@ export async function pageCommand(job) {
+     for (let attempt=0;attempt<50;attempt++) {
+       const editing = elementModel?.get("idEditingFeature");
+       const matches = root()?.children?.filter(node=>node?.featureId===editing && node?.featureType==="newSketch");
+-      if (editing && matches?.length===1 && matches[0].nodeId) { sketch=matches[0]; break; }
++      const plane = matches?.[0]?.parameters?.filter(p=>p?.parameterId==="sketchPlane");
++      if (editing && matches?.length===1 && matches[0].nodeId &&
++          getElementMicroversion()!==job.expected_element_microversion &&
++          plane?.length===1 && Array.isArray(plane[0].queries) && plane[0].queries.length===0) {
++        sketch=matches[0]; break;
++      }
+       await new Promise(resolve=>setTimeout(resolve,100));
+     }
+-    if (!sketch) throw new Error("Sketch toolbar action did not expose a unique active feature; outcome unknown.");
++    if (!sketch) throw new Error("Sketch toolbar action did not expose a ready blank plane selection; outcome unknown.");
+     if (controller.connection?.isClosed?.() !== false || controller.getActiveElementTabId() !== target.eid ||
+         location.pathname !== `/documents/${target.did}/w/${target.wid}/e/${target.eid}`)
+       throw new Error("Sketch editor target changed before Top selection; outcome unknown.");
+diff --git a/onshape_native/bridge.py b/onshape_native/bridge.py
+index 2bbf929..987a311 100644
+--- a/onshape_native/bridge.py
++++ b/onshape_native/bridge.py
+@@ -366,6 +366,8 @@ class Broker:
+             capabilities = (self.extension_info or {}).get("capabilities", [])
+             if job.get("kind") == "partstudio_begin_top_sketch" and "h2_native_begin_top_sketch_page_v1" not in capabilities:
+                 raise BridgeError("Loaded extension lacks h2_native_begin_top_sketch_page_v1; reload and reconnect before editing.")
++            if job.get("kind") == "partstudio_begin_top_sketch" and "h2_native_begin_top_ready_page_v1" not in capabilities:
++                raise BridgeError("Loaded extension lacks h2_native_begin_top_ready_page_v1; reload and reconnect before editing.")
+             if job.get("kind") == "partstudio_populate_sketch" and "h2_native_sketch_populate_page_v1" not in capabilities:
+                 raise BridgeError("Loaded extension lacks h2_native_sketch_populate_page_v1; reload and reconnect before editing.")
+             if job.get("kind") == "partstudio_populate_sketch" and "h2_native_fixed_origin_page_v1" not in capabilities:
+diff --git a/tests/adapter.test.mjs b/tests/adapter.test.mjs
+index f0ab351..6ca255c 100644
+--- a/tests/adapter.test.mjs
++++ b/tests/adapter.test.mjs
+@@ -178,10 +178,14 @@ test('normal Sketch and Top controls allocate a fresh blank native feature',asyn
+     {get:x=>x==='microversionId'?revision:x==='idEditingFeature'?editing:null};
+   const control=click=>({getClientRects:()=>[1],getAttribute:()=>null,
+     classList:{contains:()=>false},click});
++  let planeReady=false, topClicks=0;
+   const toolbar=control(()=>{editing='allocatedSketch_0';root.children.push({featureId:editing,
+-    featureType:'newSketch',nodeId:'fresh-node',entities:[],constraints:[],parameters:[]});});
+-  const top=control(()=>{root.children[1].parameters=[{parameterId:'sketchPlane',queries:[{deterministicIds:['bound-top']}]}];
+-    revision='b'.repeat(24);});
++    featureType:'newSketch',nodeId:'fresh-node',entities:[],constraints:[],parameters:[]});
++    setTimeout(()=>{root.children[1].parameters=[{parameterId:'sketchPlane',queries:[]}];
++      revision='b'.repeat(24);planeReady=true;},20);});
++  const top=control(()=>{topClicks++;if(!planeReady) throw Error('Top selected before sketch dialog is ready');
++    root.children[1].parameters=[{parameterId:'sketchPlane',queries:[{deterministicIds:['bound-top']}]}];
++    revision='c'.repeat(24);});
+   globalThis.document={querySelectorAll:selector=>selector==='div.tool[command-id="newSketch"]'?[toolbar]:
+     selector==='div.os-list-item[feature-id="Top"][feature-type="defaultPlane"]'?[top]:[]};
+   const result=await pageCommand({kind:'partstudio_begin_top_sketch',target:temp,
+@@ -189,6 +193,7 @@ test('normal Sketch and Top controls allocate a fresh blank native feature',asyn
+   assert.equal(result.initiation_candidate,true,JSON.stringify(result));
+   assert.equal(result.feature_id,'allocatedSketch_0');
+   assert.deepEqual(result.plane_query_ids,['bound-top']);
++  assert.equal(topClicks,1);
+   assert.equal(sent.length,0);
+ });
+ 
+diff --git a/tests/test_bridge.py b/tests/test_bridge.py
+index 4682179..68fd28c 100644
+--- a/tests/test_bridge.py
++++ b/tests/test_bridge.py
+@@ -75,6 +75,21 @@ async def test_trusted_pre_dispatch_sketch_rejection_clears_broker_unknown_write
+     assert broker.unknown_write is False and not broker.pending
+ 
+ 
++@pytest.mark.asyncio
++async def test_begin_top_rejects_old_loaded_page_before_editor_action():
++    broker = Broker({"token": "x" * 32})
++    class Connection:
++        sent = []
++        async def send_json(self, data): self.sent.append(data)
++    broker.extension = Connection()
++    broker.extension_info = {"capabilities": ["h2_native_begin_top_sketch_page_v1", "element_revision_v1"]}
++    target = {"did": "4e078dec822b4e509616b1cb", "wid": "af0627de07264acf086e646a", "eid": "9a062f0eef8bb961f8c84f8e"}
++    with pytest.raises(BridgeError, match="h2_native_begin_top_ready_page_v1"):
++        await broker.dispatch({"kind": "partstudio_begin_top_sketch", "target": target,
++                               "expected_element_microversion": "a" * 24})
++    assert not broker.extension.sent and not broker.pending
++
++
+ def test_source_extrusion_requires_exact_bound_target_and_finite_depth():
+     target = {"did": "4e078dec822b4e509616b1cb", "wid": "af0627de07264acf086e646a", "eid": "9a062f0eef8bb961f8c84f8e"}
+     job = {"kind": "partstudio_populate_extrude", "target": target,
+-- 
+2.54.0.windows.1
+
