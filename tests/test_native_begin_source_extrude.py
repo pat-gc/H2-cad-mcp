@@ -12,7 +12,9 @@ from h2cad.native import NativeBackend
 from h2cad.cli import build_parser
 
 
-ROOT = Path(__file__).resolve().parents[3]
+ROOT = next((parent for parent in Path(__file__).resolve().parents
+             if (parent / "artifacts/native-fixed-origin-trial/patch16-post-ui-save.json").is_file()), None)
+assert ROOT is not None, "Committed native evidence fixture is missing"
 SOURCE = Path(__file__).resolve().parents[1] / "fixtures/native/minimal_plate.fs"
 TARGET = Target("4e078dec822b4e509616b1cb", "af0627de07264acf086e646a",
                 "1926791d173990d5d45f70ef")
