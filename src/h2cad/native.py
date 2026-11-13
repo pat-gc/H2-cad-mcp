@@ -513,7 +513,7 @@ class NativeBridge:
         return data
 
     async def command(self, job: dict[str, Any]) -> dict[str, Any]:
-        if job.get("kind") not in {"state", "schema", "creation_probe", "native", "partstudio_depth_edit", "partstudio_begin_top_sketch", "partstudio_populate_sketch", "partstudio_populate_extrude"}:
+        if job.get("kind") not in {"state", "schema", "creation_probe", "native", "partstudio_depth_edit", "partstudio_begin_top_sketch", "partstudio_begin_source_extrude", "partstudio_populate_sketch", "partstudio_populate_extrude"}:
             raise Unsupported("Browser-mode adapter permits only native editor jobs")
         try:
             response = await self.http.post("/command", json=job)
@@ -521,10 +521,10 @@ class NativeBridge:
         except (httpx.HTTPError, ValueError) as exc:
             raise UncertainWrite("Native bridge response unavailable; inspect before further mutation") from exc
         if isinstance(data, dict) and data.get("error"):
-            if (job.get("kind") in {"partstudio_begin_top_sketch", "partstudio_populate_sketch", "partstudio_populate_extrude"}
+            if (job.get("kind") in {"partstudio_begin_top_sketch", "partstudio_begin_source_extrude", "partstudio_populate_sketch", "partstudio_populate_extrude"}
                     and data.get("write_stage") == "pre_dispatch"):
                 raise PreDispatchRejected(str(data["error"]))
-            if job.get("kind") in {"partstudio_depth_edit", "partstudio_begin_top_sketch", "partstudio_populate_sketch", "partstudio_populate_extrude"}:
+            if job.get("kind") in {"partstudio_depth_edit", "partstudio_begin_top_sketch", "partstudio_begin_source_extrude", "partstudio_populate_sketch", "partstudio_populate_extrude"}:
                 raise UncertainWrite(str(data["error"]))
             raise BackendError(str(data["error"]))
         if response.status_code != 200 or not isinstance(data, dict):
