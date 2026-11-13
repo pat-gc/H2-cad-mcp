@@ -1,0 +1,426 @@
+{
+  "microversion_after": "1e6c99efaecba90a6d446e90",
+  "microversion_before": "1e6c99efaecba90a6d446e90",
+  "next": "Read native_state and check regeneration; an acknowledgement alone does not prove correct geometry.",
+  "result": {
+    "$type": "ui.sketch.GBTUiSketchGetConstraintGraphResponse",
+    "constraints": {
+      "box.corner0": {
+        "$type": "inferencing.GBTSketchConstraintNode",
+        "displayStatus": 1,
+        "driven": false,
+        "id": "box.corner0",
+        "index": 1,
+        "isExternal": false,
+        "name": "",
+        "referenceIds": [
+          "box.bottom.start",
+          "box.left.start"
+        ],
+        "status": 4,
+        "type": 1
+      },
+      "box.corner1": {
+        "$type": "inferencing.GBTSketchConstraintNode",
+        "displayStatus": 1,
+        "driven": false,
+        "id": "box.corner1",
+        "index": 2,
+        "isExternal": false,
+        "name": "",
+        "referenceIds": [
+          "box.bottom.end",
+          "box.right.start"
+        ],
+        "status": 4,
+        "type": 1
+      },
+      "box.corner2": {
+        "$type": "inferencing.GBTSketchConstraintNode",
+        "displayStatus": 1,
+        "driven": false,
+        "id": "box.corner2",
+        "index": 3,
+        "isExternal": false,
+        "name": "",
+        "referenceIds": [
+          "box.top.start",
+          "box.left.end"
+        ],
+        "status": 4,
+        "type": 1
+      },
+      "box.corner3": {
+        "$type": "inferencing.GBTSketchConstraintNode",
+        "displayStatus": 1,
+        "driven": false,
+        "id": "box.corner3",
+        "index": 4,
+        "isExternal": false,
+        "name": "",
+        "referenceIds": [
+          "box.top.end",
+          "box.right.end"
+        ],
+        "status": 4,
+        "type": 1
+      },
+      "box.fixedOrigin": {
+        "$type": "inferencing.GBTSketchConstraintNode",
+        "displayStatus": 1,
+        "driven": false,
+        "id": "box.fixedOrigin",
+        "index": 1,
+        "isExternal": false,
+        "name": "",
+        "referenceIds": [
+          "box.bottom.start"
+        ],
+        "status": 4,
+        "type": 16
+      },
+      "box.height": {
+        "$type": "inferencing.GBTSketchConstraintNode",
+        "displayStatus": 1,
+        "driven": false,
+        "id": "box.height",
+        "index": 2,
+        "isExternal": false,
+        "name": "",
+        "referenceIds": [
+          "box.right"
+        ],
+        "status": 4,
+        "type": 11
+      },
+      "box.horizontal": {
+        "$type": "inferencing.GBTSketchConstraintNode",
+        "displayStatus": 1,
+        "driven": false,
+        "id": "box.horizontal",
+        "index": 1,
+        "isExternal": false,
+        "name": "",
+        "referenceIds": [
+          "box.top"
+        ],
+        "status": 4,
+        "type": 4
+      },
+      "box.parallel.1": {
+        "$type": "inferencing.GBTSketchConstraintNode",
+        "displayStatus": 1,
+        "driven": false,
+        "id": "box.parallel.1",
+        "index": 1,
+        "isExternal": false,
+        "name": "",
+        "referenceIds": [
+          "box.bottom",
+          "box.top"
+        ],
+        "status": 4,
+        "type": 2
+      },
+      "box.parallel.2": {
+        "$type": "inferencing.GBTSketchConstraintNode",
+        "displayStatus": 1,
+        "driven": false,
+        "id": "box.parallel.2",
+        "index": 2,
+        "isExternal": false,
+        "name": "",
+        "referenceIds": [
+          "box.left",
+          "box.right"
+        ],
+        "status": 4,
+        "type": 2
+      },
+      "box.perpendicular": {
+        "$type": "inferencing.GBTSketchConstraintNode",
+        "displayStatus": 1,
+        "driven": false,
+        "id": "box.perpendicular",
+        "index": 1,
+        "isExternal": false,
+        "name": "",
+        "referenceIds": [
+          "box.top",
+          "box.left"
+        ],
+        "status": 4,
+        "type": 5
+      },
+      "box.width": {
+        "$type": "inferencing.GBTSketchConstraintNode",
+        "displayStatus": 1,
+        "driven": false,
+        "id": "box.width",
+        "index": 1,
+        "isExternal": false,
+        "name": "",
+        "referenceIds": [
+          "box.top"
+        ],
+        "status": 4,
+        "type": 11
+      }
+    },
+    "editDescription": "",
+    "elementId": "",
+    "messageId": "",
+    "references": {
+      "box.bottom": {
+        "$type": "inferencing.GBTSketchConstraintReferenceNode",
+        "anchorReference": "",
+        "anchorX": 0.02,
+        "anchorY": 0,
+        "anchorZ": 0,
+        "constraintIds": [
+          "box.parallel.1"
+        ],
+        "constraintVisibilities": [
+          true
+        ],
+        "directionX": 1,
+        "directionY": 0,
+        "directionZ": 0,
+        "id": "box.bottom",
+        "isSketchEntity": true,
+        "worstSolveStatus": 1
+      },
+      "box.bottom.end": {
+        "$type": "inferencing.GBTSketchConstraintReferenceNode",
+        "anchorReference": "",
+        "anchorX": 0.04,
+        "anchorY": 0,
+        "anchorZ": 0,
+        "constraintIds": [
+          "box.corner1"
+        ],
+        "constraintVisibilities": [
+          true
+        ],
+        "directionX": 0,
+        "directionY": 0,
+        "directionZ": 0,
+        "id": "box.bottom.end",
+        "isSketchEntity": true,
+        "worstSolveStatus": 1
+      },
+      "box.bottom.start": {
+        "$type": "inferencing.GBTSketchConstraintReferenceNode",
+        "anchorReference": "",
+        "anchorX": 0,
+        "anchorY": 0,
+        "anchorZ": 0,
+        "constraintIds": [
+          "box.fixedOrigin",
+          "box.corner0"
+        ],
+        "constraintVisibilities": [
+          true,
+          true
+        ],
+        "directionX": 0,
+        "directionY": 0,
+        "directionZ": 0,
+        "id": "box.bottom.start",
+        "isSketchEntity": true,
+        "worstSolveStatus": 1
+      },
+      "box.left": {
+        "$type": "inferencing.GBTSketchConstraintReferenceNode",
+        "anchorReference": "",
+        "anchorX": 0,
+        "anchorY": 0.01,
+        "anchorZ": 0,
+        "constraintIds": [
+          "box.perpendicular",
+          "box.parallel.2"
+        ],
+        "constraintVisibilities": [
+          false,
+          true
+        ],
+        "directionX": 0,
+        "directionY": 1,
+        "directionZ": 0,
+        "id": "box.left",
+        "isSketchEntity": true,
+        "worstSolveStatus": 1
+      },
+      "box.left.end": {
+        "$type": "inferencing.GBTSketchConstraintReferenceNode",
+        "anchorReference": "",
+        "anchorX": 0,
+        "anchorY": 0.02,
+        "anchorZ": 0,
+        "constraintIds": [
+          "box.corner2"
+        ],
+        "constraintVisibilities": [
+          false
+        ],
+        "directionX": 0,
+        "directionY": 0,
+        "directionZ": 0,
+        "id": "box.left.end",
+        "isSketchEntity": true,
+        "worstSolveStatus": 1
+      },
+      "box.left.start": {
+        "$type": "inferencing.GBTSketchConstraintReferenceNode",
+        "anchorReference": "",
+        "anchorX": 0,
+        "anchorY": 0,
+        "anchorZ": 0,
+        "constraintIds": [
+          "box.corner0"
+        ],
+        "constraintVisibilities": [
+          false
+        ],
+        "directionX": 0,
+        "directionY": 0,
+        "directionZ": 0,
+        "id": "box.left.start",
+        "isSketchEntity": true,
+        "worstSolveStatus": 1
+      },
+      "box.right": {
+        "$type": "inferencing.GBTSketchConstraintReferenceNode",
+        "anchorReference": "",
+        "anchorX": 0.04,
+        "anchorY": 0.01,
+        "anchorZ": 0,
+        "constraintIds": [
+          "box.parallel.2",
+          "box.height"
+        ],
+        "constraintVisibilities": [
+          false,
+          false
+        ],
+        "directionX": 0,
+        "directionY": 1,
+        "directionZ": 0,
+        "id": "box.right",
+        "isSketchEntity": true,
+        "worstSolveStatus": 1
+      },
+      "box.right.end": {
+        "$type": "inferencing.GBTSketchConstraintReferenceNode",
+        "anchorReference": "",
+        "anchorX": 0.04,
+        "anchorY": 0.02,
+        "anchorZ": 0,
+        "constraintIds": [
+          "box.corner3"
+        ],
+        "constraintVisibilities": [
+          false
+        ],
+        "directionX": 0,
+        "directionY": 0,
+        "directionZ": 0,
+        "id": "box.right.end",
+        "isSketchEntity": true,
+        "worstSolveStatus": 1
+      },
+      "box.right.start": {
+        "$type": "inferencing.GBTSketchConstraintReferenceNode",
+        "anchorReference": "",
+        "anchorX": 0.04,
+        "anchorY": 0,
+        "anchorZ": 0,
+        "constraintIds": [
+          "box.corner1"
+        ],
+        "constraintVisibilities": [
+          false
+        ],
+        "directionX": 0,
+        "directionY": 0,
+        "directionZ": 0,
+        "id": "box.right.start",
+        "isSketchEntity": true,
+        "worstSolveStatus": 1
+      },
+      "box.top": {
+        "$type": "inferencing.GBTSketchConstraintReferenceNode",
+        "anchorReference": "",
+        "anchorX": 0.02,
+        "anchorY": 0.02,
+        "anchorZ": 0,
+        "constraintIds": [
+          "box.perpendicular",
+          "box.parallel.1",
+          "box.horizontal",
+          "box.width"
+        ],
+        "constraintVisibilities": [
+          true,
+          false,
+          true,
+          false
+        ],
+        "directionX": 1,
+        "directionY": 0,
+        "directionZ": 0,
+        "id": "box.top",
+        "isSketchEntity": true,
+        "worstSolveStatus": 1
+      },
+      "box.top.end": {
+        "$type": "inferencing.GBTSketchConstraintReferenceNode",
+        "anchorReference": "",
+        "anchorX": 0.04,
+        "anchorY": 0.02,
+        "anchorZ": 0,
+        "constraintIds": [
+          "box.corner3"
+        ],
+        "constraintVisibilities": [
+          true
+        ],
+        "directionX": 0,
+        "directionY": 0,
+        "directionZ": 0,
+        "id": "box.top.end",
+        "isSketchEntity": true,
+        "worstSolveStatus": 1
+      },
+      "box.top.start": {
+        "$type": "inferencing.GBTSketchConstraintReferenceNode",
+        "anchorReference": "",
+        "anchorX": 0,
+        "anchorY": 0.02,
+        "anchorZ": 0,
+        "constraintIds": [
+          "box.corner2"
+        ],
+        "constraintVisibilities": [
+          true
+        ],
+        "directionX": 0,
+        "directionY": 0,
+        "directionZ": 0,
+        "id": "box.top.start",
+        "isSketchEntity": true,
+        "worstSolveStatus": 1
+      }
+    },
+    "sketchError": {
+      "$type": "display.GBTNodeStatus",
+      "faultyParameters": [],
+      "statusEnum": 0,
+      "statusMsg": "",
+      "statusType": 0,
+      "suppressed": false
+    },
+    "worstSolveStatus": 1
+  },
+  "tab_id": 941740752
+}

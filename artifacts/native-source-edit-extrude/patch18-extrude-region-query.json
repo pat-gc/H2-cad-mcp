@@ -1,0 +1,33 @@
+{
+  "microversion_after": "40de30fad830f798d7e65ec2",
+  "microversion_before": "40de30fad830f798d7e65ec2",
+  "next": "Read native_state and check regeneration; an acknowledgement alone does not prove correct geometry.",
+  "result": {
+    "$type": "ui.GBTUiGetQueryDataResponse",
+    "queryData": [
+      {
+        "$type": "display.GBTQueryData",
+        "deterministicIds": [
+          "JGC"
+        ],
+        "evaluationDetails": {
+          "$type": "display.GBTQueryEvaluationDetails",
+          "candidates": [],
+          "entityType": 2,
+          "fidelity": 1,
+          "fullOperationId": "FDwrlDX9Oobgytk_0.imprint",
+          "outsideExactDependencies": false,
+          "status": 0
+        },
+        "featureId": "FDwrlDX9Oobgytk_0",
+        "hasErrorEntity": false,
+        "isTemporaryFakeDataForSelection": false,
+        "nodeId": "",
+        "queryVariableName": "",
+        "selectionName": "Face",
+        "specializedPurpose": 0
+      }
+    ]
+  },
+  "tab_id": 941740752
+}
