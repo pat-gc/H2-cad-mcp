@@ -804,7 +804,7 @@ class NativeBackend:
             previous = before["tree"].get("children")
             current = after["tree"].get("children")
             prior_feature = next((x for x in previous if isinstance(x, dict) and x.get("featureId") == feature_id), None) if isinstance(previous, list) else None
-            if (after.get("connected") is not True or after.get("editingFeatureId") != feature_id
+            if (after.get("connected") is not True or after.get("editingFeatureId") not in (None, feature_id)
                     or after.get("element_microversion") != "97955554c86d659d57a74a68"
                     or not isinstance(previous, list) or not isinstance(current, list)
                     or len(previous) != len(current)
@@ -827,6 +827,7 @@ class NativeBackend:
             evidence = {"classification": "applied_invalid", "op_id": op_id,
                         "feature_id": feature_id, "revision_before": row["expected_revision"],
                         "revision_invalid": after["element_microversion"],
+                        "saved_invalid_feature": after.get("editingFeatureId") is None,
                         "definition_present": True, "constraint_graph_empty": True,
                         "unrelated_tree_preserved": True}
             journal.annotate_unknown(op_id, evidence)

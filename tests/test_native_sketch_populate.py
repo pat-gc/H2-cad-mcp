@@ -191,14 +191,15 @@ def test_cli_exposes_explicit_temp_sketch_command():
 
 
 @pytest.mark.asyncio
-async def test_known_applied_invalid_sketch_is_recorded_but_remains_blocking(tmp_path):
+@pytest.mark.parametrize("editing", ["editorAllocated_0", None, "otherFeature"])
+async def test_known_applied_invalid_sketch_is_recorded_but_remains_blocking(tmp_path, editing):
     from h2cad.fsgen import compile_fsgen
     from h2cad.native import stage_minimal_pair
     before = state()
     before["element_microversion"] = "c" * 24
     after = state(populated=True)
     after["element_microversion"] = "97955554c86d659d57a74a68"
-    after["editingFeatureId"] = "editorAllocated_0"
+    after["editingFeatureId"] = editing
     class InvalidBridge:
         def __init__(self): self.calls = []
         async def command(self, job):
@@ -216,11 +217,20 @@ async def test_known_applied_invalid_sketch_is_recorded_but_remains_blocking(tmp
                             "blueprint": blueprint.to_dict(), "entity_prefix": "box"})
     journal.transition(op_id, "unknown", error="Sketch command acknowledged but saved definition/idle state is unconfirmed; outcome unknown.")
     bridge = InvalidBridge()
-    outcome = await NativeBackend(bridge, tab_id=17).classify_known_invalid_sketch(op_id, journal)
-    assert outcome["status"] == "applied_invalid_unresolved"
+    if editing == "otherFeature":
+        with pytest.raises(Unsupported, match="Current failed sketch"):
+            await NativeBackend(bridge, tab_id=17).classify_known_invalid_sketch(op_id, journal)
+    else:
+        outcome = await NativeBackend(bridge, tab_id=17).classify_known_invalid_sketch(op_id, journal)
+        assert outcome["status"] == "applied_invalid_unresolved"
+        assert outcome["evidence"]["saved_invalid_feature"] is (editing is None)
     assert journal.has_unresolved() and journal.get(op_id)["state"] == "unknown"
-    assert json.loads(journal.get(op_id)["observation"])["classification"] == "applied_invalid"
-    assert bridge.calls == ["state", "native"]
+    if editing != "otherFeature":
+        assert json.loads(journal.get(op_id)["observation"])["classification"] == "applied_invalid"
+        assert bridge.calls == ["state", "native"]
+    else:
+        assert journal.get(op_id)["observation"] is None
+        assert bridge.calls == ["state"]
     journal.close()
 
 
