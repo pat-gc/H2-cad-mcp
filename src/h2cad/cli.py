@@ -101,6 +101,12 @@ def build_parser() -> argparse.ArgumentParser:
     recover_cmd.add_argument("--bridge-config", type=Path, required=True)
     recover_cmd.add_argument("--tab-id", type=int, required=True)
     recover_cmd.add_argument("--journal", type=Path, required=True)
+    recover_begin_cmd = commands.add_parser("experimental-reconcile-completed-top-begin",
+                                            help="verify a manually completed Top selection for one unknown begin intent")
+    recover_begin_cmd.add_argument("op_id")
+    recover_begin_cmd.add_argument("--bridge-config", type=Path, required=True)
+    recover_begin_cmd.add_argument("--tab-id", type=int, required=True)
+    recover_begin_cmd.add_argument("--journal", type=Path, required=True)
     classify_cmd = commands.add_parser("experimental-classify-known-invalid-sketch",
                                        help="read-only classify the one applied-invalid temporary sketch")
     classify_cmd.add_argument("op_id")
@@ -125,6 +131,7 @@ async def _bridge_action(args: argparse.Namespace) -> tuple[object, int]:
                         "experimental-extrude-populate",
                         "experimental-classify-known-invalid-sketch",
                         "experimental-finalize-known-invalid-sketch-cancel",
+                        "experimental-reconcile-completed-top-begin",
                         "experimental-reconcile-known-sketch-rejection"}:
         config = json.loads(args.bridge_config.read_text(encoding="utf-8"))
         pinned = config.get("h2cad_journal")
@@ -148,6 +155,8 @@ async def _bridge_action(args: argparse.Namespace) -> tuple[object, int]:
             return result, 0 if result.get("status") == "reconnected" else 2
         if args.command == "experimental-reconcile-known-sketch-rejection":
             return await bridge.reconcile_known_sketch_rejection(args.op_id, args.tab_id), 0
+        if args.command == "experimental-reconcile-completed-top-begin":
+            return await bridge.reconcile_completed_top_begin(args.op_id, args.tab_id), 0
         if args.command == "experimental-finalize-known-invalid-sketch-cancel":
             return await bridge.finalize_known_invalid_sketch_cancel(args.op_id, args.tab_id), 0
         if args.command == "doctor":

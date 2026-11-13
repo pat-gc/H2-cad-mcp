@@ -1,0 +1,251 @@
+From 09016a8cb007d52dd83c0eb556f3e7464cdff50c Mon Sep 17 00:00:00 2001
+From: patcybermind <pato.gonzalezcabrera@gmail.com>
+Date: Fri, 13 Nov 2026 14:23:44 -0500
+Subject: [PATCH] feat: reconcile manually completed Top sketch begin from
+ exact readback
+
+---
+ onshape_native/bridge.py | 146 ++++++++++++++++++++++++++++++++++++++-
+ tests/test_bridge.py     |  55 +++++++++++++++
+ 2 files changed, 200 insertions(+), 1 deletion(-)
+
+diff --git a/onshape_native/bridge.py b/onshape_native/bridge.py
+index e91f966..2bbf929 100644
+--- a/onshape_native/bridge.py
++++ b/onshape_native/bridge.py
+@@ -46,6 +46,75 @@ def is_cad_read(job):
+             or kind == "editor_tab" and job.get("action") == "status")
+ 
+ 
++def verify_completed_top_begin(before, after, query_response, target):
++    """Verify one manually completed Top selection for a journaled begin intent."""
++    if (not isinstance(before, dict) or not isinstance(after, dict)
++            or before.get("target") != target or after.get("target") != target
++            or before.get("connected") is not True or after.get("connected") is not True
++            or not before.get("element_microversion")
++            or after.get("element_microversion") == before["element_microversion"]
++            or before.get("editingFeatureId") is not None):
++        raise ValueError("Begin target, connection, edit state or revision differs")
++    prior = before.get("tree")
++    current = after.get("tree")
++    if (not isinstance(prior, dict) or not isinstance(current, dict)
++            or prior.get("$type") != "bsedit.GBTMModel"
++            or current.get("$type") != "bsedit.GBTMModel"):
++        raise ValueError("Native Part Studio tree unavailable")
++    old_children = prior.get("children")
++    new_children = current.get("children")
++    if (not isinstance(old_children, list) or len(old_children) != 1
++            or old_children[0].get("$type") != "bsedit.GBTMRollback"
++            or not isinstance(new_children, list) or len(new_children) != 2):
++        raise ValueError("Begin must add exactly one feature to default history")
++    sketches = [node for node in new_children if isinstance(node, dict)
++                and node.get("featureType") == "newSketch"]
++    if (len(sketches) != 1 or [node for node in new_children if node is not sketches[0]] != old_children):
++        raise ValueError("Begin changed unrelated feature history")
++    sketch = sketches[0]
++    feature_id = sketch.get("featureId")
++    if (not isinstance(feature_id, str) or not feature_id
++            or after.get("editingFeatureId") != feature_id
++            or sketch.get("$type") != "bsedit.GBTMSketch"
++            or not sketch.get("nodeId") or sketch.get("entities") != []
++            or sketch.get("constraints") != []):
++        raise ValueError("Begin did not leave one blank active native sketch")
++    def metadata(tree):
++        value = json.loads(json.dumps({key: item for key, item in tree.items() if key != "children"}))
++        tolerance = (value.get("modelAnnotations") or {}).get("toleranceSchemaForParts")
++        if isinstance(tolerance, dict) and isinstance(tolerance.get("nodeId"), str) and tolerance["nodeId"]:
++            tolerance["nodeId"] = "<per-tab-tolerance-schema-node>"
++        return value
++    if metadata(prior) != metadata(current):
++        raise ValueError("Begin changed unrelated model metadata")
++    plane = [item for item in sketch.get("parameters", []) if isinstance(item, dict)
++             and item.get("parameterId") == "sketchPlane"]
++    if len(plane) != 1 or plane[0].get("$type") != "bsedit.GBTMParameterQueryList":
++        raise ValueError("Sketch plane parameter unavailable")
++    queries = plane[0].get("queries")
++    if (not isinstance(queries, list) or len(queries) != 1
++            or queries[0].get("$type") != "bsedit.GBTMIndividualQuery"
++            or not isinstance(queries[0].get("deterministicIds"), list)
++            or not queries[0]["deterministicIds"]):
++        raise ValueError("Sketch plane is not bound")
++    result = query_response.get("result") if isinstance(query_response, dict) else None
++    data = result.get("queryData") if isinstance(result, dict) else None
++    if (not isinstance(result, dict) or result.get("$type") != "ui.GBTUiGetQueryDataResponse"
++            or not isinstance(data, list) or len(data) != 1 or not isinstance(data[0], dict)
++            or data[0].get("deterministicIds") != queries[0]["deterministicIds"]
++            or data[0].get("featureId") != "Top"
++            or data[0].get("evaluationDetails", {}).get("fullOperationId") != "Top.planeOp"
++            or data[0]["evaluationDetails"].get("status") != 0
++            or data[0].get("hasErrorEntity") is not False):
++        raise ValueError("Bound sketch query did not resolve the Top plane")
++    return {"feature_id": feature_id, "feature_node_id": sketch["nodeId"],
++            "plane_query_ids": queries[0]["deterministicIds"],
++            "revision_before": before["element_microversion"],
++            "revision_after": after["element_microversion"],
++            "manual_top_completion": True, "blank_sketch_observed": True,
++            "top_query_semantically_resolved": True}
++
++
+ def shared_journal_clear(config):
+     """Read the configured H2 intent ledger without creating or altering it."""
+     path = config.get("h2cad_journal")
+@@ -595,6 +664,81 @@ def create_app(config=None):
+                              "reload": broker.reload_record,
+                              "capabilities": ["ui_exports_v1", "chunked_upload_v1", "chunked_response_v1", "artifact_download_v1", "viewer_mesh_v1", "h2_depth_edit_server_v1", "h2_native_begin_top_sketch_server_v1", "h2_native_sketch_populate_server_v1", "h2_native_extrude_populate_server_v1", "h2_extension_reload_server_v1"]})
+ 
++    async def reconcile_completed_top_begin(request):
++        """Confirm a manually completed, journaled Top selection without replaying it."""
++        denied = await auth(request)
++        if denied is not None:
++            return denied
++        try:
++            body = await read_body(request)
++        except (ValueError, BridgeError):
++            return JSONResponse({"status": "blocked", "reason": "Invalid reconciliation request"}, 400)
++        target = {"did": "4e078dec822b4e509616b1cb", "wid": "af0627de07264acf086e646a", "eid": "9a062f0eef8bb961f8c84f8e"}
++        if (not isinstance(body, dict) or set(body) != {"op_id", "tab_id"}
++                or not isinstance(body["op_id"], str)
++                or not re.fullmatch(r"begin-sketch-[a-f0-9]{32}", body["op_id"])
++                or type(body["tab_id"]) is not int or body["tab_id"] < 0):
++            return JSONResponse({"status": "blocked", "reason": "Invalid begin operation or exact tab"}, 400)
++        if not broker.unknown_write or broker.guard_invalid or broker.pending or broker.extension is None:
++            return JSONResponse({"status": "blocked", "reason": "Bridge safety state is not a single unresolved write"}, 409)
++        path = config.get("h2cad_journal")
++        if not isinstance(path, str) or not Path(path).is_absolute():
++            return JSONResponse({"status": "blocked", "reason": "Pinned journal unavailable"}, 409)
++        try:
++            first = await broker.dispatch({"kind": "state", "target": target, "tab_id": body["tab_id"]})
++            sketch = next(node for node in first["tree"]["children"]
++                          if node.get("featureId") == first.get("editingFeatureId")
++                          and node.get("featureType") == "newSketch")
++            plane = next(item for item in sketch["parameters"] if item.get("parameterId") == "sketchPlane")
++            query = plane["queries"][0]
++            resolved = await broker.dispatch({"kind": "native", "target": target, "tab_id": body["tab_id"],
++                                              "command": "ui.GBTUiGetQueryDataCall",
++                                              "body": {"elementId": target["eid"], "queries": [query],
++                                                       "qFunction": "", "additionalArguments": [],
++                                                       "queryNodeIdToInContextNodeId": {}}})
++            live = await broker.dispatch({"kind": "state", "target": target, "tab_id": body["tab_id"]})
++            if (first.get("element_microversion") != live.get("element_microversion")
++                    or first.get("editingFeatureId") != live.get("editingFeatureId")
++                    or first.get("tree") != live.get("tree")):
++                raise ValueError("Editor changed during read-only reconciliation")
++        except (BridgeError, ValueError, KeyError, TypeError, StopIteration, IndexError) as error:
++            return JSONResponse({"status": "blocked", "reason": f"Read-only Top evidence unavailable: {error}"}, 409)
++        async with broker.command_lock:
++            if not broker.unknown_write or broker.guard_invalid or broker.pending or broker.extension is None:
++                return JSONResponse({"status": "blocked", "reason": "Bridge safety state changed"}, 409)
++            try:
++                with sqlite3.connect(path, timeout=2, isolation_level=None) as db:
++                    db.execute("PRAGMA synchronous=FULL")
++                    db.execute("BEGIN IMMEDIATE")
++                    db.row_factory = sqlite3.Row
++                    rows = db.execute("SELECT * FROM writes WHERE state IN ('prepared','sent','unknown')").fetchall()
++                    row = db.execute("SELECT * FROM writes WHERE op_id=?", (body["op_id"],)).fetchone()
++                    if row is None or (row["state"] == "unknown" and (len(rows) != 1 or rows[0]["op_id"] != body["op_id"])):
++                        raise ValueError("Journal has another unresolved operation")
++                    before = json.loads(row["intent"]).get("before_state")
++                    if (row["action"] != "experimental_begin_top_sketch" or row["state"] not in {"unknown", "observed"}
++                            or row["target"] != "/".join(target.values())
++                            or not isinstance(before, dict)
++                            or before.get("element_microversion") != row["expected_revision"]):
++                        raise ValueError("Journal intent is not this unresolved Top begin")
++                    evidence = verify_completed_top_begin(before, live, resolved, target)
++                    if row["state"] == "unknown":
++                        db.execute("UPDATE writes SET state='observed', observation=?, updated_at=CURRENT_TIMESTAMP WHERE op_id=? AND state='unknown'",
++                                   (json.dumps(evidence, sort_keys=True), body["op_id"]))
++                    elif rows or json.loads(row["observation"] or "{}") != evidence:
++                        raise ValueError("Previously observed Top completion or another journal write differs")
++                    db.execute("COMMIT")
++            except (OSError, sqlite3.Error, ValueError, KeyError, TypeError) as error:
++                return JSONResponse({"status": "blocked", "reason": str(error)}, 409)
++            broker.unknown_write = False
++            try:
++                broker.save_guard()
++            except BridgeError as error:
++                broker.unknown_write = True
++                return JSONResponse({"status": "blocked", "reason": str(error)}, 409)
++            return JSONResponse({"status": "observed_manual_top_completion", "op_id": body["op_id"],
++                                 "evidence": evidence})
++
+     async def reconcile_known_sketch_rejection(request):
+         """Resolve exactly the reviewed patch-10 pre-RPC constructor failure.
+ 
+@@ -932,7 +1076,7 @@ def create_app(config=None):
+         except (BridgeError, ValueError) as error:
+             return JSONResponse({"message": str(error)}, 502)
+ 
+-    app = Starlette(routes=[Route("/health", health), Route("/local/reconcile_known_sketch_rejection", reconcile_known_sketch_rejection, methods=["POST"]), Route("/local/finalize_known_invalid_sketch_cancel", finalize_known_invalid_sketch_cancel, methods=["POST"]), Route("/artifacts/{handle}", artifact_download),
++    app = Starlette(routes=[Route("/health", health), Route("/local/reconcile_completed_top_begin", reconcile_completed_top_begin, methods=["POST"]), Route("/local/reconcile_known_sketch_rejection", reconcile_known_sketch_rejection, methods=["POST"]), Route("/local/finalize_known_invalid_sketch_cancel", finalize_known_invalid_sketch_cancel, methods=["POST"]), Route("/artifacts/{handle}", artifact_download),
+                            Route("/local/extension_reload", extension_reload, methods=["POST"]),
+                            Route("/command", command, methods=["POST"]),
+                            Route("/local/{tool}", local_tool, methods=["POST"]),
+diff --git a/tests/test_bridge.py b/tests/test_bridge.py
+index 1b39508..4682179 100644
+--- a/tests/test_bridge.py
++++ b/tests/test_bridge.py
+@@ -123,6 +123,61 @@ async def test_known_pre_dispatch_recovery_requires_exact_idle_tree(tmp_path, ch
+     assert broker.unknown_write is changed
+ 
+ 
++@pytest.mark.asyncio
++@pytest.mark.parametrize("fault", [None, "wrong_plane", "unrelated", "unbound", "other_edit"])
++async def test_manual_top_begin_reconciliation_requires_exact_semantic_readback(tmp_path, fault):
++    target = {"did": "4e078dec822b4e509616b1cb", "wid": "af0627de07264acf086e646a", "eid": "9a062f0eef8bb961f8c84f8e"}
++    op_id = "begin-sketch-" + "a" * 32
++    rollback = {"$type": "bsedit.GBTMRollback", "nodeId": "rollback"}
++    before = {"target": target, "connected": True, "editingFeatureId": None,
++              "element_microversion": "a" * 24,
++              "tree": {"$type": "bsedit.GBTMModel", "children": [rollback], "name": "Temp"}}
++    plane = {"$type": "bsedit.GBTMIndividualQuery", "deterministicIds": ["live-plane-id"], "queryString": ""}
++    sketch = {"$type": "bsedit.GBTMSketch", "featureType": "newSketch", "featureId": "fresh_0",
++              "nodeId": "fresh-node", "entities": [], "constraints": [],
++              "parameters": [{"$type": "bsedit.GBTMParameterQueryList", "parameterId": "sketchPlane", "queries": [plane]}]}
++    live = {"target": target, "connected": True, "editingFeatureId": "fresh_0",
++            "element_microversion": "b" * 24,
++            "tree": {"$type": "bsedit.GBTMModel", "children": [sketch, rollback], "name": "Temp"}}
++    if fault == "unrelated":
++        live["tree"]["name"] = "Modified"
++    if fault == "unbound":
++        sketch["parameters"][0]["queries"] = []
++    if fault == "other_edit":
++        live["editingFeatureId"] = "another_0"
++    query = {"result": {"$type": "ui.GBTUiGetQueryDataResponse", "queryData": [
++        {"deterministicIds": ["live-plane-id"], "featureId": "Front" if fault == "wrong_plane" else "Top",
++         "evaluationDetails": {"fullOperationId": "Top.planeOp", "status": 0}, "hasErrorEntity": False}]}}
++    journal = tmp_path / "intent.sqlite"
++    with sqlite3.connect(journal) as db:
++        db.execute("CREATE TABLE writes(op_id TEXT,target TEXT,expected_revision TEXT,action TEXT,logical_id TEXT,intent TEXT,state TEXT,receipt TEXT,observation TEXT,error TEXT,updated_at TEXT)")
++        db.execute("INSERT INTO writes(op_id,target,expected_revision,action,logical_id,intent,state,error) VALUES(?,?,?,?,?,?,?,?)",
++                   (op_id, "/".join(target.values()), before["element_microversion"], "experimental_begin_top_sketch",
++                    "Top", json.dumps({"before_state": before}), "unknown", "Top sketch action may have changed the editor but its bound plane is unconfirmed; outcome unknown."))
++    app = create_app({**CONFIG, "h2cad_journal": str(journal)})
++    broker = app.state.broker
++    broker.unknown_write = True
++    broker.save_guard()
++    broker.extension = object()
++    async def dispatch(job):
++        if job["kind"] == "state":
++            return json.loads(json.dumps(live))
++        assert job["kind"] == "native" and job["command"] == "ui.GBTUiGetQueryDataCall"
++        assert job["body"]["queries"] == [plane]
++        return query
++    broker.dispatch = dispatch
++    async with httpx.AsyncClient(transport=httpx.ASGITransport(app), base_url="http://127.0.0.1:8766", headers=AUTH) as client:
++        response = await client.post("/local/reconcile_completed_top_begin", json={"op_id": op_id, "tab_id": 17})
++    assert response.status_code == (200 if fault is None else 409)
++    with sqlite3.connect(journal) as db:
++        state = db.execute("SELECT state FROM writes WHERE op_id=?", (op_id,)).fetchone()[0]
++    assert state == ("observed" if fault is None else "unknown")
++    assert broker.unknown_write is (fault is not None)
++    if fault is None:
++        assert response.json()["evidence"]["top_query_semantically_resolved"] is True
++        assert response.json()["evidence"]["manual_top_completion"] is True
++
++
+ @pytest.mark.asyncio
+ @pytest.mark.parametrize("changed", [False, True])
+ async def test_applied_invalid_sketch_guard_releases_only_after_exact_rollback(tmp_path, changed):
+-- 
+2.54.0.windows.1
+

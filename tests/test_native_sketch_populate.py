@@ -314,6 +314,22 @@ async def test_known_recovery_client_uses_one_authenticated_local_endpoint():
     assert seen[0][2] == "Bearer " + "x" * 32
 
 
+@pytest.mark.asyncio
+async def test_manual_top_completion_client_uses_one_authenticated_local_endpoint():
+    seen = []
+    def reply(request):
+        seen.append((request.method, request.url.path, request.headers.get("authorization"), json.loads(request.content)))
+        return httpx.Response(200, json={"status": "observed_manual_top_completion", "op_id": "begin-sketch-" + "a" * 32})
+    bridge = NativeBridge("x" * 32, transport=httpx.MockTransport(reply))
+    try:
+        result = await bridge.reconcile_completed_top_begin("begin-sketch-" + "a" * 32, 17)
+    finally:
+        await bridge.close()
+    assert result["status"] == "observed_manual_top_completion"
+    assert seen == [("POST", "/local/reconcile_completed_top_begin", "Bearer " + "x" * 32,
+                     {"op_id": "begin-sketch-" + "a" * 32, "tab_id": 17})]
+
+
 def _prior_sketch_intent(journal):
     key = f"{TARGET.did}/{TARGET.wid}/{TARGET.eid}"
     journal.prepare(op_id="sketch-prior", target=key, expected_revision="a" * 24,
