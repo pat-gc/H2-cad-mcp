@@ -1,0 +1,182 @@
+From 4a9329db89d28f7dbb57e6bf390bd73afc346bfe Mon Sep 17 00:00:00 2001
+From: patcybermind <pato.gonzalezcabrera@gmail.com>
+Date: Fri, 13 Nov 2026 15:56:01 -0500
+Subject: [PATCH] fix: retire confirmed page marker and fail fast on editor
+ disconnect
+
+---
+ extension/page-adapter.js | 26 +++++++++++++++++++++++---
+ onshape_native/bridge.py  | 18 +++++++++++++++---
+ tests/adapter.test.mjs    | 14 ++++++++++++++
+ tests/test_bridge.py      |  8 ++++++--
+ 4 files changed, 58 insertions(+), 8 deletions(-)
+
+diff --git a/extension/page-adapter.js b/extension/page-adapter.js
+index f40b33c..36a5fb0 100644
+--- a/extension/page-adapter.js
++++ b/extension/page-adapter.js
+@@ -213,6 +213,10 @@ export async function pageCommand(job) {
+     return value;
+   }
+   function state() {
++    // The loopback extension may be connected while the Onshape editor socket
++    // is not. Refuse before touching model-tree getters in that state.
++    if (controller.connection?.isClosed?.() !== false)
++      throw new Error("Onshape editor disconnected; native state unavailable. Wait for editor reconnect.");
+     const cache = controller.documentClientCache;
+     const definition = elementModel?.definition;
+     const root = definition?.assembly || cache?.getModelTreeState(target.eid)?.diffableModelTree?.getRoot();
+@@ -270,7 +274,21 @@ export async function pageCommand(job) {
+         completeness: "Assembly definitions may be lazy. Use GBTUiAssemblyTreeItemDefinitionRequest or the full REST assembly for specific mate parameters."} : {}),
+       revision_check: "client preflight only; not atomic against collaborators"});
+   }
+-  if (job.kind === "state") return state();
++  if (job.kind === "state") {
++    const marker = controller.__onshapeNativeIncompleteFeatureEdit;
++    if (job.retire_acknowledged_op_id && marker?.stage === "await-saved-readback" &&
++        marker.op_id === job.retire_acknowledged_op_id &&
++        controller.connection?.isClosed?.() === false &&
++        elementModel?.get("idEditingFeature") == null &&
++        getElementMicroversion() !== marker.expected_revision &&
++        location.pathname === `/documents/${target.did}/w/${target.wid}/e/${target.eid}`) {
++      const root = controller.documentClientCache?.getModelTreeState(target.eid)?.diffableModelTree?.getRoot();
++      const matches = root?.children?.filter(node=>node?.featureId===marker.feature_id);
++      if (matches?.length === 1 && matches[0].nodeId === marker.node_id)
++        delete controller.__onshapeNativeIncompleteFeatureEdit;
++    }
++    return state();
++  }
+   if (job.kind === "ui_inspect") {
+     const nodes = [...document.querySelectorAll('button,input,select,textarea,[role="button"],[role="tab"],[role="menuitem"],[contenteditable="true"]')]
+       .filter(el => el.getClientRects().length && getComputedStyle(el).visibility !== "hidden").slice(0, 500);
+@@ -469,7 +487,8 @@ export async function pageCommand(job) {
+       editDescription:"Insert feature : H2 rectangle sketch"});
+     if (typeof controller.elementConnection?.callAndPromise !== "function")
+       throw new Error("Native editor connection unavailable.");
+-    controller.__onshapeNativeIncompleteFeatureEdit = {node_id:sketch.nodeId,op_id:job.op_id,stage:"prepared"};
++    controller.__onshapeNativeIncompleteFeatureEdit = {node_id:sketch.nodeId,feature_id:edit.feature_id,
++      expected_revision:job.expected_element_microversion,op_id:job.op_id,stage:"prepared"};
+     let activeGraph;
+     for (const [index,command] of [message,graphCall,commit].entries()) {
+       if (controller.connection?.isClosed?.() !== false || controller.getActiveElementTabId() !== target.eid ||
+@@ -597,7 +616,8 @@ export async function pageCommand(job) {
+       editDescription:"Insert feature : H2 source extrusion"});
+     if (typeof controller.elementConnection?.callAndPromise !== "function")
+       throw new Error("Native editor connection unavailable.");
+-    controller.__onshapeNativeIncompleteFeatureEdit = {node_id:feature.nodeId,op_id:job.op_id,stage:"prepared"};
++    controller.__onshapeNativeIncompleteFeatureEdit = {node_id:feature.nodeId,feature_id:edit.feature_id,
++      expected_revision:job.expected_element_microversion,op_id:job.op_id,stage:"prepared"};
+     for (const [index,command] of [specify,commit].entries()) {
+       if (controller.connection?.isClosed?.() !== false || controller.getActiveElementTabId() !== target.eid ||
+           location.pathname !== `/documents/${target.did}/w/${target.wid}/e/${target.eid}`)
+diff --git a/onshape_native/bridge.py b/onshape_native/bridge.py
+index e0d3320..e7d8aa7 100644
+--- a/onshape_native/bridge.py
++++ b/onshape_native/bridge.py
+@@ -247,6 +247,15 @@ def verify_completed_source_sketch(before, after, query_response, target, featur
+             "solid_geometry_verified": False, "unrelated_tree_preserved": True}
+ 
+ 
++def _tab_tolerance_node_normalized(tree):
++    """Ignore only the observed per-tab tolerance schema node identity."""
++    value = json.loads(json.dumps(tree))
++    tolerance = (value.get("modelAnnotations") or {}).get("toleranceSchemaForParts")
++    if isinstance(tolerance, dict) and isinstance(tolerance.get("nodeId"), str) and tolerance["nodeId"]:
++        tolerance["nodeId"] = "<per-tab-tolerance-schema-node>"
++    return value
++
++
+ def verify_saved_source_extrude(before, expected_tree, after, query_response,
+                                 target, sketch_id, source_depth_mm):
+     """Verify delayed saved native definition against one durable source intent."""
+@@ -257,7 +266,8 @@ def verify_saved_source_extrude(before, expected_tree, after, query_response,
+             or after.get("editingFeatureId") is not None
+             or not before.get("element_microversion")
+             or after.get("element_microversion") == before["element_microversion"]
+-            or not isinstance(expected_tree, dict) or after.get("tree") != expected_tree):
++            or not isinstance(expected_tree, dict) or not isinstance(after.get("tree"), dict)
++            or _tab_tolerance_node_normalized(after["tree"]) != _tab_tolerance_node_normalized(expected_tree)):
+         raise ValueError("Saved extrusion differs from exact journaled target or expected tree")
+     prior = before.get("tree")
+     if (not isinstance(prior, dict) or prior.get("$type") != "bsedit.GBTMModel"
+@@ -998,7 +1008,8 @@ def create_app(config=None):
+                                               "body": {"elementId": target["eid"], "queries": [query],
+                                                        "qFunction": "", "additionalArguments": [],
+                                                        "queryNodeIdToInContextNodeId": {}}})
+-            live = await broker.dispatch({"kind": "state", "target": target, "tab_id": body["tab_id"]})
++            live = await broker.dispatch({"kind": "state", "target": target, "tab_id": body["tab_id"],
++                                          "retire_acknowledged_op_id": body["op_id"]})
+             if (first.get("element_microversion") != live.get("element_microversion")
+                     or first.get("editingFeatureId") != live.get("editingFeatureId")
+                     or first.get("tree") != live.get("tree")):
+@@ -1096,7 +1107,8 @@ def create_app(config=None):
+                                                        "queries": entities[0]["queries"], "qFunction": "",
+                                                        "additionalArguments": [],
+                                                        "queryNodeIdToInContextNodeId": {}}})
+-            live = await broker.dispatch({"kind": "state", "target": target, "tab_id": body["tab_id"]})
++            live = await broker.dispatch({"kind": "state", "target": target, "tab_id": body["tab_id"],
++                                          "retire_acknowledged_op_id": body["op_id"]})
+             if (first.get("element_microversion") != live.get("element_microversion")
+                     or first.get("editingFeatureId") != live.get("editingFeatureId")
+                     or first.get("tree") != live.get("tree")):
+diff --git a/tests/adapter.test.mjs b/tests/adapter.test.mjs
+index b5d12e8..933664c 100644
+--- a/tests/adapter.test.mjs
++++ b/tests/adapter.test.mjs
+@@ -68,6 +68,14 @@ test('state returns the native tree and microversion without HTTP',async()=>{
+   setup();const state=await pageCommand({kind:'state',target});assert.equal(state.microversion,micro);assert.deepEqual(state.tree,{children:[]});assert.equal(sent.length,0);
+   assert.deepEqual(state.h2DepthEdit,{contract:'h2-depth-edit-page-v1',supported:true});
+ });
++test('native state rejects a disconnected Onshape editor before model-tree access',async()=>{
++  const modules=setup(undefined,false,'a'.repeat(24),{children:[]});
++  modules.__controller.connection.isClosed=()=>true;
++  modules.__controller.documentClientCache.getModelTreeState=()=>{throw Error('model getter must not run');};
++  const result=await pageCommand({kind:'state',target});
++  assert.match(result.error,/Onshape editor disconnected/);
++  assert.doesNotMatch(result.error,/model getter/);
++});
+ test('creation probe checks constructor ID behavior without editor traversal or RPC',async()=>{
+   const Node=class {constructor(){this.nodeId=crypto.randomUUID();this.featureId='';}getMessageName(){return 'bsedit.GBTMSketch';}};
+   setup(undefined,false,'e'.repeat(24),{children:[]},{Node});
+@@ -295,6 +303,12 @@ test('source extrusion updates only the UI bound region feature through typed ed
+   assert.equal(pending.op_id,'extrude-'+ 'a'.repeat(32));
+   assert.equal(saveClicks,1);
+   assert.deepEqual(sent.map(m=>m.getMessageName()),['ui.GBTUiGetQueryDataCall','ui.GBTUiSpecifyFeature','ui.GBTUiCommit']);
++  assert.equal(delayed.__controller.__onshapeNativeIncompleteFeatureEdit?.stage,'await-saved-readback');
++  editing=null;
++  await pageCommand({kind:'state',target:temp,retire_acknowledged_op_id:'extrude-'+ 'b'.repeat(32)});
++  assert.equal(delayed.__controller.__onshapeNativeIncompleteFeatureEdit?.stage,'await-saved-readback');
++  await pageCommand({kind:'state',target:temp,retire_acknowledged_op_id:'extrude-'+ 'a'.repeat(32)});
++  assert.equal(delayed.__controller.__onshapeNativeIncompleteFeatureEdit,undefined);
+   correctRegion=false;revision='a'.repeat(24);editing=extrude.featureId;
+   depth.value=25;depth.expression='25 mm';
+   const mismatch=setup(undefined,false,revision,root,{Quantity,QueryList,Change,Reference,Specify,Commit,GetQueryData},m=>{
+diff --git a/tests/test_bridge.py b/tests/test_bridge.py
+index acb38de..9efb51a 100644
+--- a/tests/test_bridge.py
++++ b/tests/test_bridge.py
+@@ -368,7 +368,7 @@ def source_extrude_states():
+     return target, before, expected, after, query
+ 
+ 
+-@pytest.mark.parametrize("fault", [None, "active", "wrong_region", "wrong_depth", "unrelated", "same_revision"])
++@pytest.mark.parametrize("fault", [None, "tab_tolerance", "active", "wrong_region", "wrong_depth", "unrelated", "same_revision"])
+ def test_saved_source_extrusion_verifier_preserves_exact_tree_and_region(fault):
+     target, before, expected, after, query = source_extrude_states()
+     if fault == "active": after["editingFeatureId"] = "extrude_0"
+@@ -376,7 +376,11 @@ def test_saved_source_extrusion_verifier_preserves_exact_tree_and_region(fault):
+     if fault == "wrong_depth": after["tree"]["children"][1]["parameters"][-1]["value"] = 6
+     if fault == "unrelated": after["tree"]["children"][0]["nodeId"] = "changed"
+     if fault == "same_revision": after["element_microversion"] = before["element_microversion"]
+-    if fault is None:
++    if fault == "tab_tolerance":
++        before["tree"]["modelAnnotations"] = {"toleranceSchemaForParts": {"nodeId": "old-tab", "items": [1]}}
++        expected["modelAnnotations"] = {"toleranceSchemaForParts": {"nodeId": "old-tab", "items": [1]}}
++        after["tree"]["modelAnnotations"] = {"toleranceSchemaForParts": {"nodeId": "new-tab", "items": [1]}}
++    if fault in (None, "tab_tolerance"):
+         evidence = verify_saved_source_extrude(before, expected, after, query, target, "source_0", 5)
+         assert evidence["definition_observed"] and evidence["region_source_verified"]
+         assert evidence["solid_geometry_verified"] is False
+-- 
+2.54.0.windows.1
+
