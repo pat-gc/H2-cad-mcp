@@ -40,3 +40,38 @@ def test_body_height_edit_preserves_unrelated_feature_definitions():
         feature.logical_id for feature in base.features]
     assert [feature for feature in plan.merged.features if feature.logical_id != "#bodyHeight"] == [
         feature for feature in base.features if feature.logical_id != "#bodyHeight"]
+
+
+def test_car_offset_planes_preserve_variable_expressions_and_source_order():
+    snapshot = compile_fsgen(SOURCE, Target("d", "w", "e"))
+    features = {feature.logical_id: feature for feature in snapshot.features}
+    ordered = [feature.logical_id for feature in snapshot.features]
+    expected = {
+        "Chassis height": ("20 mm", ()),
+        "Wheel left plane": ("-#width / 2 - #wheelThickness", ("#width", "#wheelThickness")),
+        "Wheel right plane": ("#width / 2", ("#width",)),
+    }
+    for name, (expression, dependencies) in expected.items():
+        plane = features[name]
+        assert plane.kind == "cPlane"
+        assert plane.parameters["offset"] == expression
+        assert plane.dependencies == dependencies
+        offset = next(item for item in plane.provenance["fsgen_feature_json"]["parameters"]
+                      if item["parameterId"] == "offset")
+        assert offset["expression"] == expression
+        assert all(ordered.index(dep) < ordered.index(name) for dep in dependencies)
+
+
+def test_offset_plane_feature_reference_remains_a_dependency():
+    source = SOURCE.read_text(encoding="utf-8")
+    marker = 'cPlane(context, id + "Wheel right plane", {'
+    assert marker in source
+    prefix, suffix = source.split(marker, 1)
+    old = 'qCreatedBy(makeId("Right"), EntityType.FACE)'
+    new = 'qCreatedBy(id + "Wheel left plane", EntityType.FACE)'
+    assert old in suffix
+    variant = prefix + marker + suffix.replace(old, new, 1)
+    snapshot = compile_fsgen(variant, Target("d", "w", "e"))
+    right = next(feature for feature in snapshot.features if feature.logical_id == "Wheel right plane")
+    assert right.dependencies == ("#width", "Wheel left plane")
+    assert right.parameters["offset"] == "#width / 2"
