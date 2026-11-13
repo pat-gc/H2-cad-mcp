@@ -1,0 +1,99 @@
+From 785184e326493671813570fce9b4a7205ad3f019 Mon Sep 17 00:00:00 2001
+From: patcybermind <pato.gonzalezcabrera@gmail.com>
+Date: Fri, 13 Nov 2026 16:05:42 -0500
+Subject: [PATCH] feat: finish source sketch through normal editor Save
+
+---
+ extension/page-adapter.js | 40 ++++++++++++++++++++++++++++++---------
+ tests/adapter.test.mjs    | 14 ++++++++++++++
+ 2 files changed, 45 insertions(+), 9 deletions(-)
+
+diff --git a/extension/page-adapter.js b/extension/page-adapter.js
+index 36a5fb0..185d133 100644
+--- a/extension/page-adapter.js
++++ b/extension/page-adapter.js
+@@ -519,17 +519,39 @@ export async function pageCommand(job) {
+           throw new Error("Active native sketch constraint graph is incomplete; Commit was not sent.");
+       }
+     }
+-    for (let attempt=0;attempt<10;attempt++) {
++    let saveClicked = false;
++    for (let attempt=0;attempt<50;attempt++) {
+       const after = root()?.children?.filter(node => node?.featureId === edit.feature_id);
+       if (after?.length === 1 && after[0].nodeId === sketch.nodeId &&
+           after[0].entities?.length === 4 && after[0].constraints?.length === 11 &&
+-          elementModel?.get("idEditingFeature") == null && getElementMicroversion() !== job.expected_element_microversion) {
+-        delete controller.__onshapeNativeIncompleteFeatureEdit;
+-        return {op_id:job.op_id,feature_id:edit.feature_id,feature_node_id:sketch.nodeId,
+-          element_microversion_before:job.expected_element_microversion,
+-          element_microversion_after:getElementMicroversion(),
+-          definition_candidate:true,active_constraint_graph:activeGraph,
+-          verification:"Independent saved state and editable UI checks required"};
++          getElementMicroversion() !== job.expected_element_microversion) {
++        if (elementModel?.get("idEditingFeature") == null) {
++          if (controller.connection?.isClosed?.() !== false ||
++              controller.getActiveElementTabId() !== target.eid ||
++              location.pathname !== `/documents/${target.did}/w/${target.wid}/e/${target.eid}`)
++            throw new Error("Sketch editor changed before saved-state confirmation; outcome unknown.");
++          delete controller.__onshapeNativeIncompleteFeatureEdit;
++          return {op_id:job.op_id,feature_id:edit.feature_id,feature_node_id:sketch.nodeId,
++            element_microversion_before:job.expected_element_microversion,
++            element_microversion_after:getElementMicroversion(),
++            definition_candidate:true,active_constraint_graph:activeGraph,normal_ui_finish:saveClicked,
++            verification:"Independent saved state and editable UI checks required"};
++        }
++        if (!saveClicked && elementModel?.get("idEditingFeature") === edit.feature_id) {
++          const buttons = [...document.querySelectorAll('.feature-dialog .ns-dialog-button-ok')]
++            .filter(node=>node.getClientRects().length>0 && !node.disabled &&
++              node.getAttribute("aria-disabled")!=="true");
++          if (buttons.length === 1) {
++            if (controller.connection?.isClosed?.() !== false ||
++                controller.getActiveElementTabId() !== target.eid ||
++                location.pathname !== `/documents/${target.did}/w/${target.wid}/e/${target.eid}` ||
++                elementModel?.get("idEditingFeature") !== edit.feature_id)
++              throw new Error("Sketch editor changed before normal Save; outcome unknown.");
++            controller.__onshapeNativeIncompleteFeatureEdit.stage="normal-ui-finish";
++            buttons[0].click();
++            saveClicked=true;
++          }
++        }
+       }
+       await new Promise(resolve=>setTimeout(resolve,100));
+     }
+@@ -541,7 +563,7 @@ export async function pageCommand(job) {
+         location.pathname === `/documents/${target.did}/w/${target.wid}/e/${target.eid}`) {
+       controller.__onshapeNativeIncompleteFeatureEdit.stage = "await-saved-readback";
+       return {op_id:job.op_id,feature_id:edit.feature_id,definition_candidate:true,
+-        active_constraint_graph:activeGraph,completion_pending:true,
++        active_constraint_graph:activeGraph,normal_ui_finish:saveClicked,completion_pending:true,
+         verification:"Commit acknowledged; saved idle state requires independent readback"};
+     }
+     throw new Error("Sketch command acknowledged but saved definition/idle state is unconfirmed; outcome unknown.");
+diff --git a/tests/adapter.test.mjs b/tests/adapter.test.mjs
+index 933664c..feafcfb 100644
+--- a/tests/adapter.test.mjs
++++ b/tests/adapter.test.mjs
+@@ -154,6 +154,20 @@ test('source rectangle populates an editor allocated blank sketch with typed nat
+   assert.deepEqual(root.children[1].constraints.filter(x=>x.constraintType===11)
+     .map(x=>x.parameters.find(p=>p.parameterId==='length').expression),['40 mm','20 mm']);
+   delayedCommit=true;revision='a'.repeat(24);editing=sketch.featureId;root.children[1]=sketch;
++  let sketchSaveClicks=0;
++  globalThis.document={querySelectorAll:selector=>selector==='.feature-dialog .ns-dialog-button-ok'?[{
++    getClientRects:()=>[1],disabled:false,getAttribute:()=>null,
++    click:()=>{sketchSaveClicks++;editing=null;}}]:[]};
++  const finishing=setup(undefined,false,revision,root,types,respond,temp);
++  finishing.__controller.documentModel.get=k=>k==='microversionId'?{theId:micro}:
++    {get:x=>x==='microversionId'?revision:x==='idEditingFeature'?editing:null};
++  const saved=await pageCommand({kind:'partstudio_populate_sketch',op_id:'sketch-'+ 'a'.repeat(32),target:temp,
++    expected_element_microversion:'a'.repeat(24),sketch_edit:{feature_id:'newlyAllocated_0',
++      entity_prefix:'box',rectangle_m:[0,0,.04,.02]}});
++  assert.equal(saved.normal_ui_finish,true,JSON.stringify(saved));
++  assert.equal(sketchSaveClicks,1);
++  delayedCommit=true;revision='a'.repeat(24);editing=sketch.featureId;root.children[1]=sketch;
++  globalThis.document={querySelectorAll:()=>[]};
+   const delayed=setup(undefined,false,revision,root,types,respond,temp);
+   delayed.__controller.documentModel.get=k=>k==='microversionId'?{theId:micro}:
+     {get:x=>x==='microversionId'?revision:x==='idEditingFeature'?editing:null};
+-- 
+2.54.0.windows.1
+
