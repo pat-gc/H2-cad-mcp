@@ -88,9 +88,9 @@ class Bridge:
 
     async def health(self):
         return {"extension_connected": True,
-                "capabilities": ["h2_native_sketch_populate_server_v1"] if self.capabilities else [],
+                "capabilities": ["h2_native_sketch_populate_server_v1", "h2_native_completion_receipt_server_v1"] if self.capabilities else [],
                 "extension": {"capabilities": ["h2_native_sketch_populate_page_v1"] +
-                              ([] if self.old_page else ["h2_native_fixed_origin_page_v1"])}}
+                              ([] if self.old_page else ["h2_native_fixed_origin_page_v1", "h2_native_completion_receipt_page_v1"])}}
 
     async def command(self, job):
         self.calls.append(copy.deepcopy(job))
@@ -112,7 +112,7 @@ class Bridge:
         graph = solved_graph()["result"]
         if self.unanchored:
             graph["references"]["box.bottom.start"]["anchorX"] = .01
-        return {"definition_candidate": True, "active_constraint_graph": graph}
+        return {"op_id": job["op_id"], "definition_candidate": True, "active_constraint_graph": graph}
 
 
 @pytest.mark.asyncio
@@ -393,17 +393,17 @@ class ExtrudeBridge:
 
     async def health(self):
         return {"extension_connected": True,
-                "capabilities": ["h2_native_extrude_populate_server_v1"],
+                "capabilities": ["h2_native_extrude_populate_server_v1", "h2_native_completion_receipt_server_v1"],
                 "extension": {"capabilities": ["h2_native_extrude_populate_page_v1"] +
                               ([] if self.old_page else ["h2_native_source_region_page_v1",
-                                                         "h2_native_extrude_recheck_page_v1"])}}
+                                                         "h2_native_extrude_recheck_page_v1", "h2_native_completion_receipt_page_v1"])}}
 
     async def command(self, job):
         self.calls.append(copy.deepcopy(job))
         if job["kind"] == "partstudio_populate_extrude":
             assert job["extrude_edit"] == {"feature_id": "freshExtrude_0", "sketch_feature_id": "editorAllocated_0",
                                             "from_mm": 25, "to_mm": 5}
-            return {"definition_candidate": True, "region_source_verified": True}
+            return {"op_id": job["op_id"], "definition_candidate": True, "region_source_verified": True}
         if job["kind"] == "native":
             assert job["command"] == "ui.GBTUiGetQueryDataCall"
             assert job["body"]["queries"][0]["deterministicIds"] == ["fresh-region"]

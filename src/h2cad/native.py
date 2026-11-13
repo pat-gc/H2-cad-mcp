@@ -7,6 +7,7 @@ replayed, and observed message shapes are not treated as proven capabilities.
 from __future__ import annotations
 
 from dataclasses import dataclass
+import asyncio
 import copy
 import json
 import math
@@ -22,6 +23,24 @@ from .model import Feature, Operation, Snapshot, Target
 from .journal import Journal
 
 _ID = re.compile(r"[a-f0-9]{24}\Z")
+
+
+async def _confirm_pending_readback(confirm, op_id: str, tab_id: int, label: str) -> dict[str, Any]:
+    """Retry only read-only exact-intent confirmation after an acknowledged write."""
+    last_error = None
+    for attempt in range(2):
+        try:
+            result = await confirm(op_id, tab_id)
+            if result.get("op_id") != op_id or not isinstance(result.get("evidence"), dict):
+                raise BackendError("Readback receipt does not match journal operation")
+            return result["evidence"]
+        except BackendError as exc:
+            last_error = exc
+            if attempt == 0:
+                await asyncio.sleep(0.5)
+    raise UncertainWrite(f"{label} saved-state confirmation pending; journal operation {op_id}") from last_error
+
+
 _DISPOSABLE = {"did": "f5a8353dc826a9ec52106138", "wid": "a3baadfcc7e36a50134951d6", "eid": "a2761fa52794bee99354ae96"}
 _NATIVE_CREATE_TEST = {"did": "4e078dec822b4e509616b1cb", "wid": "af0627de07264acf086e646a", "eid": "9a062f0eef8bb961f8c84f8e"}
 
@@ -440,7 +459,7 @@ class NativeBridge:
             data = response.json()
         except (httpx.HTTPError, ValueError) as exc:
             raise BackendError("Source sketch reconciliation unavailable; safety barrier remains") from exc
-        if response.status_code != 200 or data.get("status") != "observed_manual_source_completion":
+        if response.status_code != 200 or data.get("status") not in {"observed_manual_source_completion", "observed_delayed_source_sketch"}:
             raise BackendError(str(data.get("reason", "Source sketch reconciliation refused")))
         return data
 
@@ -729,8 +748,10 @@ class NativeBackend:
             health = await self.bridge.health()
             if (health.get("extension_connected") is not True
                     or "h2_native_sketch_populate_server_v1" not in (health.get("capabilities") or [])
+                    or "h2_native_completion_receipt_server_v1" not in (health.get("capabilities") or [])
                     or "h2_native_sketch_populate_page_v1" not in ((health.get("extension") or {}).get("capabilities") or [])
-                    or "h2_native_fixed_origin_page_v1" not in ((health.get("extension") or {}).get("capabilities") or [])):
+                    or "h2_native_fixed_origin_page_v1" not in ((health.get("extension") or {}).get("capabilities") or [])
+                    or "h2_native_completion_receipt_page_v1" not in ((health.get("extension") or {}).get("capabilities") or [])):
                 raise Unsupported("Installed bridge and loaded extension must both advertise native sketch support")
             before = await self.raw_state(target)
             tree = before["tree"]
@@ -753,7 +774,7 @@ class NativeBackend:
                             action="experimental_sketch_populate", logical_id=blueprint.sketch_logical_id,
                             intent={"before_state": before, "feature_id": feature_id,
                                     "blueprint": blueprint.to_dict(), "entity_prefix": prefix})
-            job: dict[str, Any] = {"kind": "partstudio_populate_sketch", "target": _NATIVE_CREATE_TEST,
+            job: dict[str, Any] = {"kind": "partstudio_populate_sketch", "op_id": op_id, "target": _NATIVE_CREATE_TEST,
                                    "tab_id": self.tab_id, "expected_element_microversion": before["element_microversion"],
                                    "sketch_edit": {"feature_id": feature_id, "entity_prefix": prefix,
                                                    "rectangle_m": list(blueprint.rectangle_m)}}
@@ -765,7 +786,13 @@ class NativeBackend:
             except Exception as exc:
                 journal.transition(op_id, "unknown", error=str(exc))
                 raise UncertainWrite(f"Sketch population outcome unknown; journal operation {op_id}") from exc
+            if response.get("op_id") != op_id:
+                journal.transition(op_id, "unknown", error="Sketch receipt operation identity differs")
+                raise UncertainWrite(f"Sketch receipt identity unknown; journal operation {op_id}")
             journal.transition(op_id, "sent", receipt=response)
+            if response.get("completion_pending") is True:
+                return await _confirm_pending_readback(self.bridge.reconcile_completed_source_sketch,
+                                                       op_id, self.tab_id, "Sketch")
             try:
                 after = await self.raw_state(target)
                 result = _live_rectangle_feature(after, blueprint, feature_id=feature_id)
@@ -910,9 +937,11 @@ class NativeBackend:
             health = await self.bridge.health()
             if (health.get("extension_connected") is not True
                     or "h2_native_extrude_populate_server_v1" not in (health.get("capabilities") or [])
+                    or "h2_native_completion_receipt_server_v1" not in (health.get("capabilities") or [])
                     or "h2_native_extrude_populate_page_v1" not in ((health.get("extension") or {}).get("capabilities") or [])
                     or "h2_native_source_region_page_v1" not in ((health.get("extension") or {}).get("capabilities") or [])
-                    or "h2_native_extrude_recheck_page_v1" not in ((health.get("extension") or {}).get("capabilities") or [])):
+                    or "h2_native_extrude_recheck_page_v1" not in ((health.get("extension") or {}).get("capabilities") or [])
+                    or "h2_native_completion_receipt_page_v1" not in ((health.get("extension") or {}).get("capabilities") or [])):
                 raise Unsupported("Installed bridge and loaded extension must both advertise native extrusion support")
             before = await self.raw_state(target)
             tree = before["tree"]
@@ -965,7 +994,7 @@ class NativeBackend:
                             intent={"before_state": before, "expected_tree": expected_tree,
                                     "sketch_op_id": sketch_op_id, "sketch_feature_id": sketch_id,
                                     "region_query_evidence": resolved})
-            job = {"kind": "partstudio_populate_extrude", "target": _NATIVE_CREATE_TEST,
+            job = {"kind": "partstudio_populate_extrude", "op_id": op_id, "target": _NATIVE_CREATE_TEST,
                    "tab_id": self.tab_id, "expected_element_microversion": before["element_microversion"],
                    "extrude_edit": {"feature_id": feature_id, "sketch_feature_id": sketch_id,
                                     "from_mm": from_mm, "to_mm": blueprint.depth_mm}}
@@ -977,7 +1006,15 @@ class NativeBackend:
             except Exception as exc:
                 journal.transition(op_id, "unknown", error=str(exc))
                 raise UncertainWrite(f"Extrusion population outcome unknown; journal operation {op_id}") from exc
+            if response.get("op_id") != op_id:
+                journal.transition(op_id, "unknown", error="Extrusion receipt operation identity differs")
+                raise UncertainWrite(f"Extrusion receipt identity unknown; journal operation {op_id}")
             journal.transition(op_id, "sent", receipt=response)
+            if response.get("completion_pending") is True:
+                # The broker retains its write barrier. Only a fresh exact
+                # readback tied to this durable operation can release it.
+                return await _confirm_pending_readback(self.bridge.reconcile_saved_source_extrude,
+                                                       op_id, self.tab_id, "Extrusion")
             try:
                 after = await self.raw_state(target)
                 if (response.get("definition_candidate") is not True
