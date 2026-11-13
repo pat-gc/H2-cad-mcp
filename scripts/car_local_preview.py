@@ -6,6 +6,7 @@ import json
 from pathlib import Path
 
 from fsgen.native.local import build_local, render
+from fsgen.native.paste import paste_export
 from fsgen.native.script import trace
 
 from h2cad.fsgen import compile_fsgen
@@ -106,6 +107,13 @@ def main() -> None:
     variant = validate_fsgen(variant_source)
     if variant.status != "passed" or variant.geometry["parts"] != 8 or variant.warnings:
         raise RuntimeError(f"Body height variant failed: {variant.to_dict()}")
+
+    feature_script, paste_check = paste_export(traced, "H2 Minimal Car")
+    if (not paste_check["ok"] or paste_check["paste_parts"] != 8
+            or paste_check["paste_volume_mm3"] != validation.geometry["volume_mm3"]):
+        raise RuntimeError(f"Feature Studio export did not match local geometry: {paste_check}")
+    (OUTPUT / "onshape-custom-feature.fs").write_text(feature_script, encoding="utf-8")
+    write_json(OUTPUT / "custom-feature-local-check.json", paste_check)
 
     # Placeholder IDs and revision identify a purely simulated empty Part Studio.
     target = Target("SIMULATED_DID", "SIMULATED_WID", "SIMULATED_EID")

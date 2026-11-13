@@ -1,0 +1,17 @@
+{
+  "native_volume_mm3": 525414.5098,
+  "native_parts": 8,
+  "ok": true,
+  "paste_volume_mm3": 525414.5098,
+  "paste_parts": 8,
+  "parameters": [
+    "length",
+    "width",
+    "bodyHeight",
+    "wheelbase",
+    "wheelRadius",
+    "wheelThickness",
+    "axleRadius"
+  ],
+  "output": []
+}
