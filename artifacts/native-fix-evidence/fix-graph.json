@@ -1,0 +1,426 @@
+{
+  "microversion_after": "173add483354f185892c6310",
+  "microversion_before": "173add483354f185892c6310",
+  "next": "Read native_state and check regeneration; an acknowledgement alone does not prove correct geometry.",
+  "result": {
+    "$type": "ui.sketch.GBTUiSketchGetConstraintGraphResponse",
+    "constraints": {
+      "AZ89d8x3En9M": {
+        "$type": "inferencing.GBTSketchConstraintNode",
+        "displayStatus": 1,
+        "driven": false,
+        "id": "AZ89d8x3En9M",
+        "index": 1,
+        "isExternal": false,
+        "name": "",
+        "referenceIds": [
+          "UVQ2E2s0LXAX.top"
+        ],
+        "status": 4,
+        "type": 11
+      },
+      "UVQ2E2s0LXAX.corner0": {
+        "$type": "inferencing.GBTSketchConstraintNode",
+        "displayStatus": 1,
+        "driven": false,
+        "id": "UVQ2E2s0LXAX.corner0",
+        "index": 1,
+        "isExternal": false,
+        "name": "",
+        "referenceIds": [
+          "UVQ2E2s0LXAX.bottom.start",
+          "UVQ2E2s0LXAX.left.start"
+        ],
+        "status": 4,
+        "type": 1
+      },
+      "UVQ2E2s0LXAX.corner1": {
+        "$type": "inferencing.GBTSketchConstraintNode",
+        "displayStatus": 1,
+        "driven": false,
+        "id": "UVQ2E2s0LXAX.corner1",
+        "index": 2,
+        "isExternal": false,
+        "name": "",
+        "referenceIds": [
+          "UVQ2E2s0LXAX.bottom.end",
+          "UVQ2E2s0LXAX.right.start"
+        ],
+        "status": 4,
+        "type": 1
+      },
+      "UVQ2E2s0LXAX.corner2": {
+        "$type": "inferencing.GBTSketchConstraintNode",
+        "displayStatus": 1,
+        "driven": false,
+        "id": "UVQ2E2s0LXAX.corner2",
+        "index": 3,
+        "isExternal": false,
+        "name": "",
+        "referenceIds": [
+          "UVQ2E2s0LXAX.top.start",
+          "UVQ2E2s0LXAX.left.end"
+        ],
+        "status": 4,
+        "type": 1
+      },
+      "UVQ2E2s0LXAX.corner3": {
+        "$type": "inferencing.GBTSketchConstraintNode",
+        "displayStatus": 1,
+        "driven": false,
+        "id": "UVQ2E2s0LXAX.corner3",
+        "index": 4,
+        "isExternal": false,
+        "name": "",
+        "referenceIds": [
+          "UVQ2E2s0LXAX.top.end",
+          "UVQ2E2s0LXAX.right.end"
+        ],
+        "status": 4,
+        "type": 1
+      },
+      "UVQ2E2s0LXAX.horizontal": {
+        "$type": "inferencing.GBTSketchConstraintNode",
+        "displayStatus": 1,
+        "driven": false,
+        "id": "UVQ2E2s0LXAX.horizontal",
+        "index": 1,
+        "isExternal": false,
+        "name": "",
+        "referenceIds": [
+          "UVQ2E2s0LXAX.top"
+        ],
+        "status": 4,
+        "type": 4
+      },
+      "UVQ2E2s0LXAX.parallel.1": {
+        "$type": "inferencing.GBTSketchConstraintNode",
+        "displayStatus": 1,
+        "driven": false,
+        "id": "UVQ2E2s0LXAX.parallel.1",
+        "index": 1,
+        "isExternal": false,
+        "name": "",
+        "referenceIds": [
+          "UVQ2E2s0LXAX.bottom",
+          "UVQ2E2s0LXAX.top"
+        ],
+        "status": 4,
+        "type": 2
+      },
+      "UVQ2E2s0LXAX.parallel.2": {
+        "$type": "inferencing.GBTSketchConstraintNode",
+        "displayStatus": 1,
+        "driven": false,
+        "id": "UVQ2E2s0LXAX.parallel.2",
+        "index": 2,
+        "isExternal": false,
+        "name": "",
+        "referenceIds": [
+          "UVQ2E2s0LXAX.left",
+          "UVQ2E2s0LXAX.right"
+        ],
+        "status": 4,
+        "type": 2
+      },
+      "UVQ2E2s0LXAX.perpendicular": {
+        "$type": "inferencing.GBTSketchConstraintNode",
+        "displayStatus": 1,
+        "driven": false,
+        "id": "UVQ2E2s0LXAX.perpendicular",
+        "index": 1,
+        "isExternal": false,
+        "name": "",
+        "referenceIds": [
+          "UVQ2E2s0LXAX.top",
+          "UVQ2E2s0LXAX.left"
+        ],
+        "status": 4,
+        "type": 5
+      },
+      "WwXoSQFd1kGP": {
+        "$type": "inferencing.GBTSketchConstraintNode",
+        "displayStatus": 1,
+        "driven": false,
+        "id": "WwXoSQFd1kGP",
+        "index": 1,
+        "isExternal": false,
+        "name": "",
+        "referenceIds": [
+          "UVQ2E2s0LXAX.bottom.start"
+        ],
+        "status": 4,
+        "type": 16
+      },
+      "l8sgycy12NIR": {
+        "$type": "inferencing.GBTSketchConstraintNode",
+        "displayStatus": 1,
+        "driven": false,
+        "id": "l8sgycy12NIR",
+        "index": 2,
+        "isExternal": false,
+        "name": "",
+        "referenceIds": [
+          "UVQ2E2s0LXAX.right"
+        ],
+        "status": 4,
+        "type": 11
+      }
+    },
+    "editDescription": "",
+    "elementId": "",
+    "messageId": "",
+    "references": {
+      "UVQ2E2s0LXAX.bottom": {
+        "$type": "inferencing.GBTSketchConstraintReferenceNode",
+        "anchorReference": "",
+        "anchorX": 0.030013113748282187,
+        "anchorY": 0.010306910115156328,
+        "anchorZ": 0,
+        "constraintIds": [
+          "UVQ2E2s0LXAX.parallel.1"
+        ],
+        "constraintVisibilities": [
+          true
+        ],
+        "directionX": 1,
+        "directionY": 0,
+        "directionZ": 0,
+        "id": "UVQ2E2s0LXAX.bottom",
+        "isSketchEntity": true,
+        "worstSolveStatus": 1
+      },
+      "UVQ2E2s0LXAX.bottom.end": {
+        "$type": "inferencing.GBTSketchConstraintReferenceNode",
+        "anchorReference": "",
+        "anchorX": 0.050013113748282184,
+        "anchorY": 0.010306910115156328,
+        "anchorZ": 0,
+        "constraintIds": [
+          "UVQ2E2s0LXAX.corner1"
+        ],
+        "constraintVisibilities": [
+          true
+        ],
+        "directionX": 0,
+        "directionY": 0,
+        "directionZ": 0,
+        "id": "UVQ2E2s0LXAX.bottom.end",
+        "isSketchEntity": true,
+        "worstSolveStatus": 1
+      },
+      "UVQ2E2s0LXAX.bottom.start": {
+        "$type": "inferencing.GBTSketchConstraintReferenceNode",
+        "anchorReference": "",
+        "anchorX": 0.01001311374828219,
+        "anchorY": 0.010306910115156328,
+        "anchorZ": 0,
+        "constraintIds": [
+          "UVQ2E2s0LXAX.corner0",
+          "WwXoSQFd1kGP"
+        ],
+        "constraintVisibilities": [
+          true,
+          true
+        ],
+        "directionX": 0,
+        "directionY": 0,
+        "directionZ": 0,
+        "id": "UVQ2E2s0LXAX.bottom.start",
+        "isSketchEntity": true,
+        "worstSolveStatus": 1
+      },
+      "UVQ2E2s0LXAX.left": {
+        "$type": "inferencing.GBTSketchConstraintReferenceNode",
+        "anchorReference": "",
+        "anchorX": 0.010013113748282192,
+        "anchorY": 0.020306910115156326,
+        "anchorZ": 0,
+        "constraintIds": [
+          "UVQ2E2s0LXAX.perpendicular",
+          "UVQ2E2s0LXAX.parallel.2"
+        ],
+        "constraintVisibilities": [
+          false,
+          true
+        ],
+        "directionX": 0,
+        "directionY": 1,
+        "directionZ": 0,
+        "id": "UVQ2E2s0LXAX.left",
+        "isSketchEntity": true,
+        "worstSolveStatus": 1
+      },
+      "UVQ2E2s0LXAX.left.end": {
+        "$type": "inferencing.GBTSketchConstraintReferenceNode",
+        "anchorReference": "",
+        "anchorX": 0.010013113748282192,
+        "anchorY": 0.03030691011515632,
+        "anchorZ": 0,
+        "constraintIds": [
+          "UVQ2E2s0LXAX.corner2"
+        ],
+        "constraintVisibilities": [
+          false
+        ],
+        "directionX": 0,
+        "directionY": 0,
+        "directionZ": 0,
+        "id": "UVQ2E2s0LXAX.left.end",
+        "isSketchEntity": true,
+        "worstSolveStatus": 1
+      },
+      "UVQ2E2s0LXAX.left.start": {
+        "$type": "inferencing.GBTSketchConstraintReferenceNode",
+        "anchorReference": "",
+        "anchorX": 0.010013113748282192,
+        "anchorY": 0.010306910115156328,
+        "anchorZ": 0,
+        "constraintIds": [
+          "UVQ2E2s0LXAX.corner0"
+        ],
+        "constraintVisibilities": [
+          false
+        ],
+        "directionX": 0,
+        "directionY": 0,
+        "directionZ": 0,
+        "id": "UVQ2E2s0LXAX.left.start",
+        "isSketchEntity": true,
+        "worstSolveStatus": 1
+      },
+      "UVQ2E2s0LXAX.right": {
+        "$type": "inferencing.GBTSketchConstraintReferenceNode",
+        "anchorReference": "",
+        "anchorX": 0.050013113748282184,
+        "anchorY": 0.020306910115156326,
+        "anchorZ": 0,
+        "constraintIds": [
+          "UVQ2E2s0LXAX.parallel.2",
+          "l8sgycy12NIR"
+        ],
+        "constraintVisibilities": [
+          false,
+          false
+        ],
+        "directionX": -1.8369701987210297e-16,
+        "directionY": 1,
+        "directionZ": 0,
+        "id": "UVQ2E2s0LXAX.right",
+        "isSketchEntity": true,
+        "worstSolveStatus": 1
+      },
+      "UVQ2E2s0LXAX.right.end": {
+        "$type": "inferencing.GBTSketchConstraintReferenceNode",
+        "anchorReference": "",
+        "anchorX": 0.050013113748282184,
+        "anchorY": 0.03030691011515632,
+        "anchorZ": 0,
+        "constraintIds": [
+          "UVQ2E2s0LXAX.corner3"
+        ],
+        "constraintVisibilities": [
+          false
+        ],
+        "directionX": 0,
+        "directionY": 0,
+        "directionZ": 0,
+        "id": "UVQ2E2s0LXAX.right.end",
+        "isSketchEntity": true,
+        "worstSolveStatus": 1
+      },
+      "UVQ2E2s0LXAX.right.start": {
+        "$type": "inferencing.GBTSketchConstraintReferenceNode",
+        "anchorReference": "",
+        "anchorX": 0.050013113748282184,
+        "anchorY": 0.010306910115156328,
+        "anchorZ": 0,
+        "constraintIds": [
+          "UVQ2E2s0LXAX.corner1"
+        ],
+        "constraintVisibilities": [
+          false
+        ],
+        "directionX": 0,
+        "directionY": 0,
+        "directionZ": 0,
+        "id": "UVQ2E2s0LXAX.right.start",
+        "isSketchEntity": true,
+        "worstSolveStatus": 1
+      },
+      "UVQ2E2s0LXAX.top": {
+        "$type": "inferencing.GBTSketchConstraintReferenceNode",
+        "anchorReference": "",
+        "anchorX": 0.030013113748282187,
+        "anchorY": 0.03030691011515632,
+        "anchorZ": 0,
+        "constraintIds": [
+          "UVQ2E2s0LXAX.perpendicular",
+          "UVQ2E2s0LXAX.parallel.1",
+          "UVQ2E2s0LXAX.horizontal",
+          "AZ89d8x3En9M"
+        ],
+        "constraintVisibilities": [
+          true,
+          false,
+          true,
+          false
+        ],
+        "directionX": 1,
+        "directionY": 0,
+        "directionZ": 0,
+        "id": "UVQ2E2s0LXAX.top",
+        "isSketchEntity": true,
+        "worstSolveStatus": 1
+      },
+      "UVQ2E2s0LXAX.top.end": {
+        "$type": "inferencing.GBTSketchConstraintReferenceNode",
+        "anchorReference": "",
+        "anchorX": 0.050013113748282184,
+        "anchorY": 0.03030691011515632,
+        "anchorZ": 0,
+        "constraintIds": [
+          "UVQ2E2s0LXAX.corner3"
+        ],
+        "constraintVisibilities": [
+          true
+        ],
+        "directionX": 0,
+        "directionY": 0,
+        "directionZ": 0,
+        "id": "UVQ2E2s0LXAX.top.end",
+        "isSketchEntity": true,
+        "worstSolveStatus": 1
+      },
+      "UVQ2E2s0LXAX.top.start": {
+        "$type": "inferencing.GBTSketchConstraintReferenceNode",
+        "anchorReference": "",
+        "anchorX": 0.010013113748282187,
+        "anchorY": 0.03030691011515632,
+        "anchorZ": 0,
+        "constraintIds": [
+          "UVQ2E2s0LXAX.corner2"
+        ],
+        "constraintVisibilities": [
+          true
+        ],
+        "directionX": 0,
+        "directionY": 0,
+        "directionZ": 0,
+        "id": "UVQ2E2s0LXAX.top.start",
+        "isSketchEntity": true,
+        "worstSolveStatus": 1
+      }
+    },
+    "sketchError": {
+      "$type": "display.GBTNodeStatus",
+      "faultyParameters": [],
+      "statusEnum": 0,
+      "statusMsg": "",
+      "statusType": 0,
+      "suppressed": false
+    },
+    "worstSolveStatus": 1
+  },
+  "tab_id": 941740749
+}
