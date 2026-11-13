@@ -4,7 +4,7 @@ This local compatibility branch starts from upstream `godbrigero/onshape-native`
 commit `f5304ed0aa49347dec40911af9c2018d81012604` and preserves that Git
 history. Branch: `codex/h2-native-compat` in ignored `upstream/onshape-native`.
 Current candidate fork commit in the isolated Native creation worktree:
-`1e90135d3d7752d531f16a0a8c78c1bac3ab2720`. The running bridge and
+`2e948ad78a2fec51ba52bacc25c3985a8a2e00ec`. The running bridge and
 extension require an explicit reviewed reload before this candidate can be probed.
 Reviewable patches: `patches/onshape-native/0001-feat-add-fail-closed-H2-native-readback-probe.patch`
 `patches/onshape-native/0002-fix-bound-native-state-readback-inspection.patch`,
@@ -13,7 +13,8 @@ Reviewable patches: `patches/onshape-native/0001-feat-add-fail-closed-H2-native-
 `patches/onshape-native/0005-feat-advertise-loaded-depth-edit-capability.patch`, and
 `patches/onshape-native/0006-feat-add-guarded-paired-extension-reload.patch`, and
 `patches/onshape-native/0007-fix-persist-reload-safety-and-validate-new-worker-in.patch`, and
-`patches/onshape-native/0008-feat-inspect-native-creation-allocator-surfaces-read.patch`.
+`patches/onshape-native/0008-feat-inspect-native-creation-allocator-surfaces-read.patch`, and
+`patches/onshape-native/0009-fix-remove-broad-editor-traversal-from-creation-prob.patch`.
 
 The user reports that the upstream owner authorized integration. This note
 records the report, not an independently verified public license grant. Keep
@@ -56,10 +57,10 @@ fork's `docs/extension-reload.md` for setup and result meanings.
 The seventh patch requires a valid new worker UUID before declaring success and
 persists pending or uncertain reload and CAD write state beside the pinned H2
 journal, so a bridge restart cannot silently unlock or repeat it.
-The eighth patch adds a read-only native creation probe. It lists relevant
-method names on the already-used editor objects and checks whether local
-serializer constructors generate unique node IDs. It does not invoke an
-allocator, send a feature command, or change the CAD document.
+The eighth patch added a read-only native creation probe. Its broad method-name
+enumeration hung in a live editor and yielded no evidence. The ninth patch
+removes that traversal, retaining only local constructor default checks. It
+sends no modeling RPC and does not change the CAD document.
 
 Reproduction from an upstream clone at the base commit:
 
@@ -72,6 +73,7 @@ git am patches/onshape-native/0005-feat-advertise-loaded-depth-edit-capability.p
 git am patches/onshape-native/0006-feat-add-guarded-paired-extension-reload.patch
 git am patches/onshape-native/0007-fix-persist-reload-safety-and-validate-new-worker-in.patch
 git am patches/onshape-native/0008-feat-inspect-native-creation-allocator-surfaces-read.patch
+git am patches/onshape-native/0009-fix-remove-broad-editor-traversal-from-creation-prob.patch
 node --test tests/adapter.test.mjs
 ```
 

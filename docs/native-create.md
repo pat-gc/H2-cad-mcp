@@ -33,13 +33,13 @@ The captured `GBTUiAddFeatureCall` shows typed insertions and subsequent
 `GBTUiCommit`/`GBTUiSpecifyFeature` commands, but anonymized IDs and opaque
 deterministic face/region IDs make it unsuitable for replay.
 
-The next bounded read-only probe reports method names on the already-used
-editor controller/model tree objects and whether local constructors generate
-unique node IDs. It calls no candidate allocator, sends no modeling RPC and
-does not create a feature. The tester can run `h2cad native-create-probe` only
-after installing and reviewing the corresponding fork patch. A discovered
-method name still needs safe call semantics and readback evidence before a
-write path is enabled.
+The first read-only method-name probe hung in the editor and returned no
+allocator evidence. The compatibility patch now removes that traversal; its
+remaining constructor check is narrow and read-only. Do not retry the earlier
+probe in the stuck tab. The normal toolbar has a live DOM-grounded Sketch
+control (`command-id="newSketch"`), so Onshape can allocate the feature ID
+through its ordinary editor lifecycle. The designated tester is observing
+that path in the isolated temporary Part Studio and will stop before drawing.
 
 ## Creation gate
 

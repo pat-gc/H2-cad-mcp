@@ -1,0 +1,73 @@
+From 2e948ad78a2fec51ba52bacc25c3985a8a2e00ec Mon Sep 17 00:00:00 2001
+From: patcybermind <pato.gonzalezcabrera@gmail.com>
+Date: Fri, 13 Nov 2026 12:19:18 -0500
+Subject: [PATCH] fix: remove broad editor traversal from creation probe
+
+---
+ extension/page-adapter.js | 20 +++-----------------
+ tests/adapter.test.mjs    |  4 ++--
+ 2 files changed, 5 insertions(+), 19 deletions(-)
+
+diff --git a/extension/page-adapter.js b/extension/page-adapter.js
+index 4ef441e..15b1db4 100644
+--- a/extension/page-adapter.js
++++ b/extension/page-adapter.js
+@@ -307,19 +307,8 @@ export async function pageCommand(job) {
+     return bounded({name: job.name, defaults: plain(new Type()), classId: new Type().getClassId()});
+   }
+   if (job.kind === "creation_probe") {
+-    // Read method names only from objects already used by native_state. Do not
+-    // invoke candidate allocators or create a feature during discovery.
+-    const methods = value => {
+-      const found = new Set(); let current = value;
+-      for (let level = 0; level < 4 && current && current !== Object.prototype; level++, current = Object.getPrototypeOf(current)) {
+-        for (const [name, descriptor] of Object.entries(Object.getOwnPropertyDescriptors(current)).slice(0, 300)) {
+-          if (typeof descriptor.value === "function" && /id|feature|sketch|insert|query|tree|edit/i.test(name)) found.add(name);
+-        }
+-      }
+-      return [...found].sort().slice(0, 100);
+-    };
+-    const cache = controller.documentClientCache;
+-    const treeState = cache?.getModelTreeState(target.eid);
++    // Only local serializer construction is inspected. A prior broad method
++    // enumeration hung in a live editor, so no controller traversal runs here.
+     const constructorsToCheck = ["bsedit.GBTMSketch", "bsedit.GBTMFeature", "bsedit.GBTMParameterQueryList"];
+     const generatedNodes = Object.fromEntries(constructorsToCheck.map(name => {
+       const Type = constructors.get(name);
+@@ -332,11 +321,8 @@ export async function pageCommand(job) {
+     return bounded({target, element_microversion:getElementMicroversion(),
+       connected:controller.connection?.isClosed?.() === false,
+       editingFeatureId:elementModel?.get("idEditingFeature") || null,
+-      methodNames:{controller:methods(controller), elementModel:methods(elementModel),
+-        documentClientCache:methods(cache), modelTreeState:methods(treeState),
+-        diffableModelTree:methods(treeState?.diffableModelTree)},
+       generatedNodes,
+-      note:"Method names and constructor defaults are read-only evidence; no allocator or query binding was invoked."});
++      note:"Local constructor defaults only; no editor object traversal, allocator, query binding, or modeling RPC was invoked."});
+   }
+   if (job.kind === "partstudio_depth_edit") {
+     // Experimental isolated-target operation. Keep the whole native edit
+diff --git a/tests/adapter.test.mjs b/tests/adapter.test.mjs
+index 9113c06..5665b1a 100644
+--- a/tests/adapter.test.mjs
++++ b/tests/adapter.test.mjs
+@@ -68,14 +68,14 @@ test('state returns the native tree and microversion without HTTP',async()=>{
+   setup();const state=await pageCommand({kind:'state',target});assert.equal(state.microversion,micro);assert.deepEqual(state.tree,{children:[]});assert.equal(sent.length,0);
+   assert.deepEqual(state.h2DepthEdit,{contract:'h2-depth-edit-page-v1',supported:true});
+ });
+-test('creation probe reports method names and constructor ID behavior without sending RPC',async()=>{
++test('creation probe checks constructor ID behavior without editor traversal or RPC',async()=>{
+   const Node=class {constructor(){this.nodeId=crypto.randomUUID();this.featureId='';}getMessageName(){return 'bsedit.GBTMSketch';}};
+   setup(undefined,false,'e'.repeat(24),{children:[]},{Node});
+   const result=await pageCommand({kind:'creation_probe',target});
+   assert.equal(result.element_microversion,'e'.repeat(24));
+   assert.equal(result.generatedNodes['bsedit.GBTMSketch'].unique_node_ids,true);
+   assert.equal(result.generatedNodes['bsedit.GBTMSketch'].feature_id_blank,true);
+-  assert.ok(result.methodNames.controller.includes('getActiveElementTabId'));
++  assert.equal(result.methodNames,undefined);
+   assert.equal(sent.length,0);
+ });
+ 
+-- 
+2.54.0.windows.1
+

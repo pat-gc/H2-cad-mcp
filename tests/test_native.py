@@ -4,7 +4,7 @@ import copy
 import httpx
 import pytest
 
-from h2cad.backend import Unsupported, UncertainWrite
+from h2cad.backend import BackendError, Unsupported, UncertainWrite
 from h2cad.journal import Journal
 from h2cad.model import Feature, Target
 from h2cad.native import NativeBackend, NativeBridge, stage_extrusion, stage_rectangle
@@ -87,6 +87,16 @@ async def test_creation_probe_uses_read_only_editor_channel():
     result = await NativeBackend(bridge, tab_id=7).creation_probe(T)
     assert result["methodNames"]["controller"] == ["getFeatureIdGenerator"]
     assert seen == [{"kind": "creation_probe", "target": T.to_dict(), "tab_id": 7}]
+    await bridge.close()
+
+
+@pytest.mark.asyncio
+async def test_read_only_bridge_rejection_preserves_diagnostic():
+    def handler(request):
+        return httpx.Response(400, json={"error": "A previous read-only command is still running"})
+    bridge = NativeBridge("x" * 32, transport=httpx.MockTransport(handler))
+    with pytest.raises(BackendError, match="previous read-only command"):
+        await NativeBackend(bridge).creation_probe(T)
     await bridge.close()
 
 

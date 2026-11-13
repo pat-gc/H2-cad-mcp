@@ -241,12 +241,12 @@ class NativeBridge:
             data = response.json()
         except (httpx.HTTPError, ValueError) as exc:
             raise UncertainWrite("Native bridge response unavailable; inspect before further mutation") from exc
-        if response.status_code != 200 or not isinstance(data, dict):
-            raise BackendError(f"Native bridge rejected command (HTTP {response.status_code})")
-        if data.get("error"):
+        if isinstance(data, dict) and data.get("error"):
             if job.get("kind") == "partstudio_depth_edit":
                 raise UncertainWrite(str(data["error"]))
             raise BackendError(str(data["error"]))
+        if response.status_code != 200 or not isinstance(data, dict):
+            raise BackendError(f"Native bridge rejected command (HTTP {response.status_code})")
         return data
 
 
