@@ -378,7 +378,8 @@ class ExtrudeBridge:
         return {"extension_connected": True,
                 "capabilities": ["h2_native_extrude_populate_server_v1"],
                 "extension": {"capabilities": ["h2_native_extrude_populate_page_v1"] +
-                              ([] if self.old_page else ["h2_native_source_region_page_v1"])}}
+                              ([] if self.old_page else ["h2_native_source_region_page_v1",
+                                                         "h2_native_extrude_recheck_page_v1"])}}
 
     async def command(self, job):
         self.calls.append(copy.deepcopy(job))
