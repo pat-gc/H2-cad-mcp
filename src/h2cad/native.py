@@ -803,12 +803,15 @@ class NativeBackend:
             _native_rectangle_constraints(feature, blueprint)
             previous = before["tree"].get("children")
             current = after["tree"].get("children")
+            prior_feature = next((x for x in previous if isinstance(x, dict) and x.get("featureId") == feature_id), None) if isinstance(previous, list) else None
             if (after.get("connected") is not True or after.get("editingFeatureId") != feature_id
                     or after.get("element_microversion") != "97955554c86d659d57a74a68"
                     or not isinstance(previous, list) or not isinstance(current, list)
                     or len(previous) != len(current)
                     or any(a != b for a, b in zip(previous, current) if a.get("featureId") != feature_id)
-                    or feature.get("parameters") != next(x for x in previous if x.get("featureId") == feature_id).get("parameters")):
+                    or prior_feature is None or feature.get("parameters") != prior_feature.get("parameters")
+                    or {k: v for k, v in before["tree"].items() if k != "children"}
+                       != {k: v for k, v in after["tree"].items() if k != "children"}):
                 raise Unsupported("Current failed sketch or unrelated tree differs from the known attempt")
             graph = await self.bridge.command({"kind": "native", "target": _NATIVE_CREATE_TEST,
                                                "tab_id": self.tab_id,
