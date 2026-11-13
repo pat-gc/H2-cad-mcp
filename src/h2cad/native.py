@@ -471,7 +471,7 @@ class NativeBridge:
             data = response.json()
         except (httpx.HTTPError, ValueError) as exc:
             raise BackendError("Source extrusion reconciliation unavailable; safety barrier remains") from exc
-        if response.status_code != 200 or data.get("status") != "observed_delayed_source_extrusion":
+        if response.status_code != 200 or data.get("status") not in {"observed_delayed_source_extrusion", "observed_source_extrusion"}:
             raise BackendError(str(data.get("reason", "Source extrusion reconciliation refused")))
         return data
 
@@ -820,8 +820,8 @@ class NativeBackend:
                         "geometry_verified": False, "constraint_graph_verified": True,
                         "graph_phase": "active_after_specify_before_commit",
                         "ui_editability_verified": False}
-            journal.transition(op_id, "observed", observation=evidence)
-            return evidence
+            return await _confirm_pending_readback(self.bridge.reconcile_completed_source_sketch,
+                                                   op_id, self.tab_id, "Sketch")
 
     async def reconcile_test_sketch(self, op_id: str, journal: Journal) -> dict[str, Any]:
         """Inspect an uncertain sketch write without retrying or declaring completion."""
@@ -1031,8 +1031,8 @@ class NativeBackend:
                         "depth_mm": blueprint.depth_mm, "definition_observed": True,
                         "solid_geometry_verified": False, "ui_editability_verified": False,
                         "region_source_verified": True}
-            journal.transition(op_id, "observed", observation=evidence)
-            return evidence
+            return await _confirm_pending_readback(self.bridge.reconcile_saved_source_extrude,
+                                                   op_id, self.tab_id, "Extrusion")
 
     async def reconcile_test_extrude(self, op_id: str, journal: Journal) -> dict[str, Any]:
         """Read an uncertain extrusion intent, never replaying its editor commands."""

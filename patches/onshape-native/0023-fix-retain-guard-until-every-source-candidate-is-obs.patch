@@ -1,0 +1,152 @@
+From d97f7031a2260ba7a5ce30142a90a918bbe0aeb3 Mon Sep 17 00:00:00 2001
+From: patcybermind <pato.gonzalezcabrera@gmail.com>
+Date: Fri, 13 Nov 2026 15:47:53 -0500
+Subject: [PATCH] fix: retain guard until every source candidate is observed
+
+---
+ onshape_native/bridge.py | 16 +++++++++-------
+ tests/test_bridge.py     | 30 ++++++++++++++++++------------
+ 2 files changed, 27 insertions(+), 19 deletions(-)
+
+diff --git a/onshape_native/bridge.py b/onshape_native/bridge.py
+index fb6a6ff..e0d3320 100644
+--- a/onshape_native/bridge.py
++++ b/onshape_native/bridge.py
+@@ -644,9 +644,7 @@ class Broker:
+                 if self.guard_path:
+                     self.save_guard()
+             elif not is_cad_read(job) and not (not isinstance(result, dict) or result.get("error") or
+-                    job.get("kind") in {"partstudio_populate_sketch", "partstudio_populate_extrude"} and
+-                    result.get("op_id") != job.get("op_id") or
+-                    result.get("completion_pending") is True or
++                    job.get("kind") in {"partstudio_populate_sketch", "partstudio_populate_extrude"} or
+                     job.get("kind") == "rest" and (type(result.get("status")) is not int or
+                                                     not 200 <= result["status"] < 300)):
+                 self.unknown_write = False
+@@ -1024,7 +1022,7 @@ def create_app(config=None):
+                     intent = json.loads(row["intent"])
+                     before = intent.get("before_state")
+                     receipt = json.loads(row["receipt"]) if row["receipt"] is not None else None
+-                    pending_receipt = (isinstance(receipt, dict) and receipt.get("completion_pending") is True
++                    pending_receipt = (isinstance(receipt, dict)
+                                        and receipt.get("op_id") == body["op_id"]
+                                        and receipt.get("definition_candidate") is True
+                                        and receipt.get("feature_id") == intent.get("feature_id")
+@@ -1044,7 +1042,8 @@ def create_app(config=None):
+                     if pending_receipt:
+                         evidence["constraint_graph_evidence"] = "captured_active_after_specify_before_commit"
+                         evidence["manual_commit_completion"] = False
+-                        evidence["completion_timing"] = "saved_idle_observed_after_pending_receipt"
++                        evidence["completion_timing"] = ("saved_idle_observed_after_pending_receipt" if receipt.get("completion_pending") is True
++                                                         else "saved_idle_observed_after_immediate_receipt")
+                     if row["state"] in {"sent", "unknown"}:
+                         db.execute("UPDATE writes SET state='observed', observation=?, error=NULL, updated_at=CURRENT_TIMESTAMP WHERE op_id=? AND state=?",
+                                    (json.dumps(evidence, sort_keys=True), body["op_id"], row["state"]))
+@@ -1125,7 +1124,7 @@ def create_app(config=None):
+                     if row["state"] in {"sent", "unknown"} and (len(rows) != 1 or rows[0]["op_id"] != body["op_id"]):
+                         raise ValueError("Journal has another unresolved operation")
+                     receipt = json.loads(row["receipt"]) if row["receipt"] is not None else None
+-                    pending_receipt = (isinstance(receipt, dict) and receipt.get("completion_pending") is True
++                    pending_receipt = (isinstance(receipt, dict)
+                                        and receipt.get("op_id") == body["op_id"]
+                                        and receipt.get("definition_candidate") is True
+                                        and receipt.get("region_source_verified") is True)
+@@ -1149,6 +1148,9 @@ def create_app(config=None):
+                     evidence = verify_saved_source_extrude(before, intent.get("expected_tree"), live,
+                                                            resolved, target, intent.get("sketch_feature_id"), depth)
+                     evidence["op_id"] = body["op_id"]
++                    if pending_receipt:
++                        evidence["completion_timing"] = ("saved_idle_observed_after_pending_receipt" if receipt.get("completion_pending") is True
++                                                         else "saved_idle_observed_after_immediate_receipt")
+                     if row["state"] in {"sent", "unknown"}:
+                         db.execute("UPDATE writes SET state='observed', observation=?, error=NULL, updated_at=CURRENT_TIMESTAMP WHERE op_id=? AND state=?",
+                                    (json.dumps(evidence, sort_keys=True), body["op_id"], row["state"]))
+@@ -1163,7 +1165,7 @@ def create_app(config=None):
+             except BridgeError as error:
+                 broker.unknown_write = True
+                 return JSONResponse({"status": "blocked", "reason": str(error)}, 409)
+-            return JSONResponse({"status": "observed_delayed_source_extrusion", "op_id": body["op_id"],
++            return JSONResponse({"status": "observed_source_extrusion" if pending_receipt else "observed_delayed_source_extrusion", "op_id": body["op_id"],
+                                  "evidence": evidence})
+ 
+     async def reconcile_known_sketch_rejection(request):
+diff --git a/tests/test_bridge.py b/tests/test_bridge.py
+index fb493dc..acb38de 100644
+--- a/tests/test_bridge.py
++++ b/tests/test_bridge.py
+@@ -76,14 +76,15 @@ async def test_trusted_pre_dispatch_sketch_rejection_clears_broker_unknown_write
+ 
+ 
+ @pytest.mark.asyncio
+-async def test_acknowledged_pending_save_keeps_broker_barrier_without_second_send(tmp_path):
++@pytest.mark.parametrize("pending", [False, True, "malformed"])
++async def test_acknowledged_source_candidate_keeps_broker_barrier_without_second_send(tmp_path, pending):
+     broker = Broker({"token": "x" * 32, "h2cad_journal": str(tmp_path / "intent.sqlite")})
+     sends = []
+     class Connection:
+         async def send_json(self, data):
+             sends.append(data)
+-            broker.pending[data["id"]].set_result({"op_id": "extrude-" + "a" * 32,
+-                "definition_candidate": True, "completion_pending": True})
++            broker.pending[data["id"]].set_result({"unexpected": "ack"} if pending == "malformed" else
++                {"op_id": "extrude-" + "a" * 32, "definition_candidate": True, "completion_pending": pending})
+     broker.extension = Connection()
+     broker.extension_info = {"capabilities": ["h2_native_extrude_populate_page_v1",
+         "h2_native_source_region_page_v1", "h2_native_extrude_recheck_page_v1",
+@@ -94,7 +95,8 @@ async def test_acknowledged_pending_save_keeps_broker_barrier_without_second_sen
+         "extrude_edit": {"feature_id": "freshExtrude_0", "sketch_feature_id": "source_0",
+                          "from_mm": 25, "to_mm": 5}}
+     result = await broker.dispatch(job)
+-    assert result["completion_pending"] is True and len(sends) == 1
++    assert (result == {"unexpected": "ack"} if pending == "malformed" else
++            result["completion_pending"] is pending) and len(sends) == 1
+     assert broker.unknown_write is True and broker.pending == {}
+     with pytest.raises(BridgeError, match="unresolved"):
+         await broker.dispatch(job)
+@@ -384,8 +386,9 @@ def test_saved_source_extrusion_verifier_preserves_exact_tree_and_region(fault):
+ 
+ 
+ @pytest.mark.asyncio
+-@pytest.mark.parametrize("pending_receipt,changed", [(False, False), (True, False), (True, True)])
+-async def test_delayed_saved_extrusion_reconciles_one_journaled_intent(tmp_path, pending_receipt, changed):
++@pytest.mark.parametrize("candidate_receipt,pending,changed", [(False, False, False),
++    (True, True, False), (True, False, False), (True, True, True)])
++async def test_delayed_saved_extrusion_reconciles_one_journaled_intent(tmp_path, candidate_receipt, pending, changed):
+     target, before, expected, after, query = source_extrude_states()
+     source_op, extrude_op = "sketch-" + "1" * 32, "extrude-" + "2" * 32
+     journal = tmp_path / "intent.sqlite"
+@@ -399,10 +402,10 @@ async def test_delayed_saved_extrusion_reconciles_one_journaled_intent(tmp_path,
+                    (extrude_op, "/".join(target.values()), before["element_microversion"],
+                     "experimental_extrude_populate", "Solid",
+                     json.dumps({"before_state": before, "expected_tree": expected, "sketch_op_id": source_op,
+-                                "sketch_feature_id": "source_0"}), "sent" if pending_receipt else "unknown",
+-                    json.dumps({"op_id": extrude_op, "completion_pending": True, "definition_candidate": True,
+-                                "region_source_verified": True}) if pending_receipt else None,
+-                    None if pending_receipt else "Extrusion command acknowledged but saved definition/idle state is unconfirmed; outcome unknown."))
++                                "sketch_feature_id": "source_0"}), "sent" if candidate_receipt else "unknown",
++                    json.dumps({"op_id": extrude_op, "completion_pending": pending, "definition_candidate": True,
++                                "region_source_verified": True}) if candidate_receipt else None,
++                    None if candidate_receipt else "Extrusion command acknowledged but saved definition/idle state is unconfirmed; outcome unknown."))
+     app = create_app({**CONFIG, "h2cad_journal": str(journal)})
+     broker = app.state.broker
+     broker.unknown_write = True
+@@ -423,11 +426,14 @@ async def test_delayed_saved_extrusion_reconciles_one_journaled_intent(tmp_path,
+         response = await client.post("/local/reconcile_saved_source_extrude", json={"op_id": extrude_op, "tab_id": 17})
+     assert response.status_code == (409 if changed else 200), response.text
+     if not changed:
+-        assert response.json()["evidence"]["completion_timing"] == "saved_idle_observed_after_page_final_poll_timeout"
++        assert response.json()["evidence"]["completion_timing"] == (
++            "saved_idle_observed_after_pending_receipt" if pending else
++            "saved_idle_observed_after_immediate_receipt" if candidate_receipt else
++            "saved_idle_observed_after_page_final_poll_timeout")
+     assert dispatched == ["state", "native", "state"]
+     with sqlite3.connect(journal) as db:
+         state = db.execute("SELECT state FROM writes WHERE op_id=?", (extrude_op,)).fetchone()[0]
+-    assert state == ("sent" if changed and pending_receipt else "observed")
++    assert state == ("sent" if changed and candidate_receipt else "observed")
+     assert broker.unknown_write is changed
+ 
+ 
+-- 
+2.54.0.windows.1
+

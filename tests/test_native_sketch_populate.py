@@ -114,11 +114,19 @@ class Bridge:
             graph["references"]["box.bottom.start"]["anchorX"] = .01
         return {"op_id": job["op_id"], "definition_candidate": True, "active_constraint_graph": graph}
 
+    async def reconcile_completed_source_sketch(self, op_id, tab_id):
+        assert tab_id == 17 and self.journal.get(op_id)["state"] == "sent"
+        evidence = {"op_id": op_id, "feature_id": "editorAllocated_0",
+                    "definition_observed": True, "origin_verified": True, "geometry_verified": False}
+        self.journal.transition(op_id, "observed", observation=evidence)
+        return {"op_id": op_id, "evidence": evidence}
+
 
 @pytest.mark.asyncio
 async def test_source_pair_journals_one_write_and_verifies_native_definition(tmp_path):
     bridge = Bridge()
     journal = Journal(tmp_path / "intent.sqlite")
+    bridge.journal = journal
     evidence = await NativeBackend(bridge, tab_id=17).populate_test_sketch(TARGET, SOURCE, journal)
     assert evidence["definition_observed"] is True and evidence["origin_verified"] is True
     assert evidence["geometry_verified"] is False
@@ -404,6 +412,7 @@ class ExtrudeBridge:
             assert job["extrude_edit"] == {"feature_id": "freshExtrude_0", "sketch_feature_id": "editorAllocated_0",
                                             "from_mm": 25, "to_mm": 5}
             return {"op_id": job["op_id"], "definition_candidate": True, "region_source_verified": True}
+
         if job["kind"] == "native":
             assert job["command"] == "ui.GBTUiGetQueryDataCall"
             assert job["body"]["queries"][0]["deterministicIds"] == ["fresh-region"]
@@ -429,12 +438,20 @@ class ExtrudeBridge:
                  "value": depth, "units": "millimeter", "expression": f"{depth} mm"}]})
         return result
 
+    async def reconcile_saved_source_extrude(self, op_id, tab_id):
+        assert tab_id == 17 and self.journal.get(op_id)["state"] == "sent"
+        evidence = {"op_id": op_id, "feature_id": "freshExtrude_0",
+                    "definition_observed": True, "solid_geometry_verified": False}
+        self.journal.transition(op_id, "observed", observation=evidence)
+        return {"op_id": op_id, "evidence": evidence}
+
 
 @pytest.mark.asyncio
 async def test_source_extrusion_journals_one_typed_depth_edit(tmp_path):
     journal = Journal(tmp_path / "intent.sqlite")
     _prior_sketch_intent(journal)
     bridge = ExtrudeBridge()
+    bridge.journal = journal
     evidence = await NativeBackend(bridge, tab_id=17).populate_test_extrude(
         TARGET, SOURCE, sketch_op_id="sketch-prior", journal=journal)
     assert evidence["definition_observed"] is True and evidence["solid_geometry_verified"] is False
