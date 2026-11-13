@@ -41,3 +41,21 @@ unknown. No-op execution refreshes the sync base only from complete readback.
 Offline tests use an HTTP fake bridge with the real adapter serialization path,
 plus fake backend state transitions for executor failure cases. They do not claim
 live Onshape sketch or extrusion acceptance.
+
+## Reload the paired extension worker
+
+After the reviewed Native patch is installed, pin the existing H2 journal in
+the Native bridge configuration with `scripts/configure.py --h2cad-journal
+PATH_TO_JOURNAL_DB` and restart the bridge. The same journal must be supplied
+to H2's experimental depth edit and reload commands. This setup preserves
+pairing; it does not create a new token. A missing or unresolved journal blocks
+the reload command.
+
+Run `h2cad extension-reload --bridge-config PATH_TO_BRIDGE_JSON --journal
+PATH_TO_JOURNAL_DB` for a bounded, structured result. The loaded older worker
+does not contain the handler and reports `needs_manual_bootstrap`; one normal
+manual Reload of the Onshape Native extension is then required. Later calls use
+only that extension worker's `chrome.runtime.reload()` and require a new
+matching worker identity, build, capability, and pairing handshake. An
+uncertain result must be inspected manually; neither H2 journal state nor a
+potentially committed CAD mutation is cleared by reload.

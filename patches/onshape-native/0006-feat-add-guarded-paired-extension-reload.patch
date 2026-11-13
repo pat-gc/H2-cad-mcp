@@ -1,0 +1,828 @@
+From d55bf03d19da93aa50fc2a34ec2c0c22550fdfb8 Mon Sep 17 00:00:00 2001
+From: patcybermind <pato.gonzalezcabrera@gmail.com>
+Date: Fri, 13 Nov 2026 10:38:00 -0500
+Subject: [PATCH] feat: add guarded paired extension reload
+
+---
+ docs/extension-reload.md       |  39 ++++++
+ docs/installation.md           |   5 +
+ extension/connection.js        |  17 ++-
+ extension/manifest.json        |   2 +-
+ onshape_native/bridge.py       | 154 ++++++++++++++++++++-
+ onshape_native/client.py       |  11 ++
+ onshape_native/server.py       |   6 +
+ scripts/configure.py           |  23 +++-
+ scripts/reload_extension.py    |  31 +++++
+ tests/connection.test.mjs      |  32 ++++-
+ tests/test_extension_reload.py | 237 +++++++++++++++++++++++++++++++++
+ tests/test_responses.py        |   5 +-
+ 12 files changed, 553 insertions(+), 9 deletions(-)
+ create mode 100644 docs/extension-reload.md
+ create mode 100644 scripts/reload_extension.py
+ create mode 100644 tests/test_extension_reload.py
+
+diff --git a/docs/extension-reload.md b/docs/extension-reload.md
+new file mode 100644
+index 0000000..bd98e7b
+--- /dev/null
++++ b/docs/extension-reload.md
+@@ -0,0 +1,39 @@
++# Paired extension reload
++
++The local bridge offers `extension_reload` through its existing MCP server and
++`scripts/reload_extension.py` through its local CLI. Both call only
++`POST /local/extension_reload` on the authenticated loopback companion. No
++extension management page, browser debugging port, registry setting, extension
++enumeration, or unrelated browser capability is used. The loaded Onshape Native
++worker invokes `chrome.runtime.reload()` for itself after sending one
++acknowledgement. The command does not reload an Onshape document tab.
++
++For H2 CAD, first pin the **existing** shared SQLite write journal to the
++existing bridge runtime using `scripts/configure.py --h2cad-journal PATH`, then
++restart the bridge. The path must be the same journal used by H2's
++`experimental-depth-edit` command. Configuration preserves the existing
++bridge token and extension folder. A missing, unreadable, or unresolved journal
++blocks reload; no journal row is changed. Use `h2cad extension-reload
++--bridge-config PATH_TO_BRIDGE_JSON --journal PATH_TO_SAME_JOURNAL` for the H2
++CLI. The Native MCP tool and Native CLI use the same pinned bridge journal.
++
++The first attempt against an already loaded older worker reports
++`needs_manual_bootstrap` and sends no reload command. Use the browser's normal
++manual **Reload** for this extension once, then let the existing pairing
++reconnect. Do not regenerate the token. After that, the local command requires
++the loaded `h2_extension_reload_v1` capability, build marker and manifest
++version. It records a single request ID and waits for a new worker instance
++whose `runtime.id` matches the authenticated extension origin and the original
++paired identity. An optional `extension_id` in bridge configuration pins that
++identity across server restarts. Socket reconnect from the old worker alone
++cannot pass the check.
++
++The command rejects a pending bridge command, unresolved H2 journal intent,
++or a bridge write with an unknown result. It also refuses a second request
++after an uncertain reload result. A disconnect after acknowledgement without
++a new verified handshake reports `uncertain`; no retry is sent. A new worker
++with the wrong build reports `needs_manual_bootstrap`. Onshape edits and
++model state must be inspected and reconciled separately; reload is never a
++write cancellation or an unlock for unknown mutations. Direct writes made
++outside H2's shared journal still need independent reconciliation if their
++outcome is unknown.
+diff --git a/docs/installation.md b/docs/installation.md
+index 0dca103..460c4cc 100644
+--- a/docs/installation.md
++++ b/docs/installation.md
+@@ -46,6 +46,11 @@ For `generic`, merge the generated `.mcp.json` server entry into your client's s
+ 
+ ## Updates
+ 
++For the local H2 CAD paired-extension reload utility, see
++[`extension-reload.md`](extension-reload.md). It requires the existing shared H2
++journal to be pinned to the bridge; a loaded older worker still needs one normal
++manual Reload before the command can work.
++
+ Repeat the remote command with the same destination, or update your checkout and rerun its `install.py`. Installer-managed source is replaced; keep code edits in a separate checkout. Existing pairing is reused. Restart the AI client afterward. Reload the browser extension only when its files change. If you selected a custom runtime, keep using it; managed remote installs remember it.
+ 
+ Do not share `.mcp.json`, `.runtime`, virtual environments, `extension/local-config.js`, or installer marker files. To distribute a clean source ZIP, run `uv run python scripts/package.py`. A recipient configures fresh pairing on their own computer.
+diff --git a/extension/connection.js b/extension/connection.js
+index c7eeb15..01ec8db 100644
+--- a/extension/connection.js
++++ b/extension/connection.js
+@@ -1,6 +1,8 @@
+ // Connection recovery only; commands are never queued or replayed after a drop.
+ export function createConnection({browser, token, execute, Socket = WebSocket,
+   timers = globalThis, now = Date.now}) {
++  // Created at worker startup. A socket reconnect from this worker keeps this ID.
++  const instanceId = crypto.randomUUID();
+   let socket = null, heartbeat = null, deadline = null, retry = null;
+   let enabled = false, connected = false, inFlight = false, error = '', delay = 1000;
+   const orphanedReads = new Set();
+@@ -71,7 +73,8 @@ export function createConnection({browser, token, execute, Socket = WebSocket,
+     current.onopen = () => {
+       if (socket !== current) return;
+       current.send(JSON.stringify({type: 'hello', token, version: browser.runtime.getManifest().version,
+-        capabilities: ['tab_context_v1', 'assembly_sidebar_map_v1', 'display_v1', 'native_modeling_v1', 'element_revision_v1', 'editor_tabs_v1', 'ui_exports_v1', 'chunked_upload_v1', 'chunked_response_v1', 'viewer_mesh_v1', 'h2_depth_edit_page_v1']}));
++        runtime_id: browser.runtime.id, instance_id: instanceId, build: 'h2-extension-reload-v1',
++        capabilities: ['tab_context_v1', 'assembly_sidebar_map_v1', 'display_v1', 'native_modeling_v1', 'element_revision_v1', 'editor_tabs_v1', 'ui_exports_v1', 'chunked_upload_v1', 'chunked_response_v1', 'viewer_mesh_v1', 'h2_depth_edit_page_v1', 'h2_extension_reload_v1']}));
+     };
+     let lastPong = now(), chunkedResponses = false;
+     current.onmessage = async event => {
+@@ -96,6 +99,18 @@ export function createConnection({browser, token, execute, Socket = WebSocket,
+       }
+       if (message.type === 'pong') { lastPong = now(); return; }
+       if (!connected || message.type !== 'command') return;
++      if (message.job?.kind === 'extension_reload') {
++        const safe = !inFlight && orphanedReads.size === 0 &&
++          message.job.request_id === message.id &&
++          Object.keys(message.job).length === 2 &&
++          typeof browser.runtime.reload === 'function';
++        if (safe) inFlight = true;
++        current.send(JSON.stringify({type:'result', id:message.id, result:safe ?
++          {accepted:true, request_id:message.id, phase:'acknowledged'} :
++          {accepted:false, request_id:message.id, phase:'rejected'}}));
++        if (safe) timers.setTimeout(() => browser.runtime.reload(), 50);
++        return;
++      }
+       let result;
+       if (inFlight) result = {error: 'Previous command still running; inspect state before continuing.'};
+       else if (readOnly(message.job) && orphanedReads.has(readKey(message.job)))
+diff --git a/extension/manifest.json b/extension/manifest.json
+index 34dd2a3..bb0f2af 100644
+--- a/extension/manifest.json
++++ b/extension/manifest.json
+@@ -1,7 +1,7 @@
+ {
+   "manifest_version": 3,
+   "name": "Onshape Native Local Bridge",
+-  "version": "0.4.3",
++  "version": "0.4.4",
+   "description": "Connect a local command server to Onshape's own editor messages. No API keys or cookie export.",
+   "minimum_chrome_version": "120",
+   "icons": {
+diff --git a/onshape_native/bridge.py b/onshape_native/bridge.py
+index a2933b6..6d4e4df 100644
+--- a/onshape_native/bridge.py
++++ b/onshape_native/bridge.py
+@@ -9,6 +9,9 @@ import re
+ import secrets
+ import socket
+ import base64
++import sqlite3
++from pathlib import Path
++from urllib.parse import quote
+ from urllib.parse import unquote, urlsplit, parse_qs
+ 
+ import httpx
+@@ -23,12 +26,41 @@ from .config import load_config
+ from .native_catalog import is_allowed, READS
+ 
+ MAX_BODY = 96 * 1024 * 1024
++RELOAD_CAPABILITY = "h2_extension_reload_v1"
++RELOAD_BUILD = "h2-extension-reload-v1"
++RELOAD_VERSION = "0.4.4"
+ 
+ 
+ class BridgeError(Exception):
+     pass
+ 
+ 
++def is_cad_read(job):
++    """An exhaustive read allowlist; unknown jobs are treated as mutations."""
++    kind = job.get("kind")
++    return (kind in {"state", "schema", "tabs", "ui_inspect", "viewer_mesh"}
++            or kind == "rest" and job.get("method") == "GET"
++            or kind == "native" and job.get("command") in READS
++            or kind == "editor_tab" and job.get("action") == "status")
++
++
++def shared_journal_clear(config):
++    """Read the configured H2 intent ledger without creating or altering it."""
++    path = config.get("h2cad_journal")
++    if not isinstance(path, str) or not path:
++        return False
++    try:
++        file = Path(path).resolve(strict=True)
++        if not file.is_file():
++            return False
++        uri = "file:" + quote(file.as_posix(), safe="/:" ) + "?mode=ro"
++        with sqlite3.connect(uri, uri=True, timeout=.2) as db:
++            db.execute("PRAGMA query_only=ON")
++            return db.execute("SELECT count(*) FROM writes WHERE state IN ('prepared','sent','unknown')").fetchone()[0] == 0
++    except (OSError, ValueError, sqlite3.Error):
++        return False
++
++
+ def validate_job(job):
+     if not isinstance(job, dict):
+         raise BridgeError("Expected a JSON object.")
+@@ -151,6 +183,11 @@ class Broker:
+         self.result_chunks = {}
+         self.send_lock = asyncio.Lock()
+         self.command_lock = asyncio.Lock()
++        self.unknown_write = False
++        self.reload_record = None
++        self.reload_event = None
++        self.reload_identity = None
++        self.extension_origin = None
+ 
+     async def dispatch(self, job, timeout=50, redirects=0):
+         validate_job(job)
+@@ -185,10 +222,20 @@ class Broker:
+                     await ws.send_json({"type": "command", "id": command_id, "job": job})
+                 result = await asyncio.wait_for(future, timeout)
+             except (asyncio.TimeoutError, WebSocketDisconnect, RuntimeError):
++                if not is_cad_read(job):
++                    self.unknown_write = True
+                 raise BridgeError("Command outcome unknown. Inspect Onshape before retrying; no automatic replay.") from None
++            except BridgeError:
++                if not is_cad_read(job):
++                    self.unknown_write = True
++                raise
+             finally:
+                 self.pending.pop(command_id, None)
+                 self.result_chunks.pop(command_id, None)
++            if not is_cad_read(job) and (not isinstance(result, dict) or result.get("error") or
++                    job.get("kind") == "rest" and (type(result.get("status")) is not int or
++                                                    not 200 <= result["status"] < 300)):
++                self.unknown_write = True
+         if job.get("kind") == "rest" and job.get("method") == "GET" and isinstance(result, dict) and result.get("download_redirect"):
+             if redirects >= 5:
+                 raise BridgeError("Too many download redirects.")
+@@ -218,6 +265,69 @@ class Broker:
+                     raise BridgeError("Export download failed; no credentials were forwarded to file storage.") from None
+         return result
+ 
++    async def reload_extension(self, timeout=20):
++        """One acknowledged own-worker reload, then proof from a new paired worker."""
++        if self.command_lock.locked():
++            return {"status": "busy", "phase": "preflight", "reason": "A bridge command is in flight."}
++        async with self.command_lock:
++            if self.reload_record and self.reload_record["status"] in {"pending", "uncertain", "timeout"}:
++                return {"status": "blocked", "phase": "preflight", "reason":
++                        "A prior reload request has no verified outcome; inspect the loaded extension manually.",
++                        "prior_request_id": self.reload_record["request_id"]}
++            info = self.extension_info or {}
++            if self.pending or self.unknown_write:
++                return {"status": "blocked", "phase": "preflight", "reason":
++                        "A command is pending or a CAD write outcome is unresolved; inspect persisted state first."}
++            if self.extension is None:
++                return {"status": "disconnected", "phase": "preflight"}
++            if not shared_journal_clear(self.config):
++                return {"status": "blocked", "phase": "journal", "reason":
++                        "The configured H2 journal is missing, unreadable, or has unresolved write intent."}
++            if (RELOAD_CAPABILITY not in info.get("capabilities", []) or info.get("build") != RELOAD_BUILD
++                    or info.get("version") != RELOAD_VERSION):
++                return {"status": "needs_manual_bootstrap", "phase": "preflight", "reason":
++                        "Loaded extension has no verified reload handler; use its normal manual Reload once."}
++            runtime_id, instance_id = info.get("runtime_id"), info.get("instance_id")
++            if (not runtime_id or not instance_id or
++                    self.extension_origin != "chrome-extension://" + runtime_id or
++                    self.config.get("extension_id", runtime_id) != runtime_id):
++                return {"status": "identity_mismatch", "phase": "preflight"}
++            self.reload_identity = (runtime_id, instance_id)
++            request_id = secrets.token_hex(16)
++            future = asyncio.get_running_loop().create_future()
++            self.pending[request_id] = future
++            self.reload_event = asyncio.Event()
++            self.reload_record = {"request_id": request_id, "phase": "sent", "status": "pending"}
++            old = self.extension
++            try:
++                try:
++                    async with self.send_lock:
++                        await old.send_json({"type": "command", "id": request_id,
++                                             "job": {"kind": "extension_reload", "request_id": request_id}})
++                except (WebSocketDisconnect, RuntimeError):
++                    self.reload_record.update(status="uncertain", phase="send_failed")
++                    return dict(self.reload_record)
++                try:
++                    ack = await asyncio.wait_for(future, min(timeout, 5))
++                except (asyncio.TimeoutError, BridgeError, WebSocketDisconnect, RuntimeError):
++                    self.reload_record.update(status="uncertain", phase="ack_missing")
++                    return dict(self.reload_record)
++                if ack != {"accepted": True, "request_id": request_id, "phase": "acknowledged"}:
++                    self.reload_record.update(status="rejected", phase="acknowledgement")
++                    return dict(self.reload_record)
++                self.reload_record.update(phase="acknowledged")
++                try:
++                    await asyncio.wait_for(self.reload_event.wait(), timeout)
++                except asyncio.TimeoutError:
++                    self.reload_record.update(status="uncertain" if self.extension is None else "timeout",
++                                              phase="new_handshake_missing")
++                    return dict(self.reload_record)
++                return dict(self.reload_record)
++            finally:
++                self.pending.pop(request_id, None)
++                self.reload_event = None
++                self.reload_identity = None
++
+     async def websocket(self, ws):
+         origin = ws.headers.get("origin", "")
+         if not re.fullmatch(r"chrome-extension://[a-p]{32}", origin):
+@@ -230,12 +340,42 @@ class Broker:
+             if not isinstance(supplied, str) or not secrets.compare_digest(supplied.encode(), self.config["token"].encode()) or self.extension:
+                 await ws.close(code=1008)
+                 return
++            runtime_id = hello.get("runtime_id")
++            if runtime_id is not None and (runtime_id != origin.removeprefix("chrome-extension://") or
++                    not re.fullmatch(r"[a-p]{32}", runtime_id)):
++                await ws.close(code=1008)
++                return
++            if self.reload_identity and runtime_id != self.reload_identity[0]:
++                await ws.close(code=1008)
++                return
++            if self.config.get("extension_id", runtime_id) != runtime_id:
++                await ws.close(code=1008)
++                return
+             self.extension = ws
++            self.extension_origin = origin
+             version = hello.get("version")
+             capabilities = hello.get("capabilities", [])
+             self.extension_info = {"version": version if isinstance(version, str) and len(version) < 50 else "unknown",
+                                    "capabilities": [c for c in capabilities if isinstance(c, str) and len(c)<80][:30] if isinstance(capabilities, list) else []}
++            if runtime_id:
++                self.extension_info["runtime_id"] = runtime_id
++            instance_id = hello.get("instance_id")
++            if isinstance(instance_id, str) and re.fullmatch(r"[0-9a-f-]{36}", instance_id):
++                self.extension_info["instance_id"] = instance_id
++            build = hello.get("build")
++            if isinstance(build, str) and len(build) < 80:
++                self.extension_info["build"] = build
+             await ws.send_json({"type": "ready", "protocol": 1, "capabilities": ["chunked_response_v1"]})
++            if self.reload_identity and self.reload_event and self.reload_record:
++                expected_id, old_instance = self.reload_identity
++                if (runtime_id == expected_id and instance_id != old_instance and
++                        self.extension_info.get("version") == RELOAD_VERSION and build == RELOAD_BUILD and
++                        RELOAD_CAPABILITY in self.extension_info["capabilities"]):
++                    self.reload_record.update(status="reconnected", phase="new_handshake_verified")
++                    self.reload_event.set()
++                elif runtime_id == expected_id and instance_id != old_instance:
++                    self.reload_record.update(status="needs_manual_bootstrap", phase="unsupported_new_worker")
++                    self.reload_event.set()
+             while True:
+                 raw = await ws.receive_text()
+                 if len(raw.encode()) > MAX_BODY:
+@@ -282,6 +422,7 @@ class Broker:
+             if self.extension is ws:
+                 self.extension = None
+                 self.extension_info = None
++                self.extension_origin = None
+                 self.result_chunks.clear()
+                 for future in self.pending.values():
+                     if not future.done():
+@@ -317,7 +458,17 @@ def create_app(config=None):
+             return denied
+         return JSONResponse({"protocol": 1, "extension_connected": broker.extension is not None,
+                              "extension": broker.extension_info, "pending": len(broker.pending),
+-                             "capabilities": ["ui_exports_v1", "chunked_upload_v1", "chunked_response_v1", "artifact_download_v1", "viewer_mesh_v1", "h2_depth_edit_server_v1"]})
++                             "reload": broker.reload_record,
++                             "capabilities": ["ui_exports_v1", "chunked_upload_v1", "chunked_response_v1", "artifact_download_v1", "viewer_mesh_v1", "h2_depth_edit_server_v1", "h2_extension_reload_server_v1"]})
++
++    async def extension_reload(request):
++        denied = await auth(request)
++        if denied is not None:
++            return denied
++        # No body or caller-specified job can be routed to this operation.
++        if await request.body():
++            return JSONResponse({"status": "invalid_request", "phase": "preflight"}, 400)
++        return JSONResponse(await broker.reload_extension())
+ 
+     async def artifact_download(request):
+         denied = await auth(request)
+@@ -491,6 +642,7 @@ def create_app(config=None):
+             return JSONResponse({"message": str(error)}, 502)
+ 
+     app = Starlette(routes=[Route("/health", health), Route("/artifacts/{handle}", artifact_download),
++                           Route("/local/extension_reload", extension_reload, methods=["POST"]),
+                            Route("/command", command, methods=["POST"]),
+                            Route("/local/{tool}", local_tool, methods=["POST"]),
+                            WebSocketRoute("/extension", broker.websocket),
+diff --git a/onshape_native/client.py b/onshape_native/client.py
+index 81eabb7..5285622 100644
+--- a/onshape_native/client.py
++++ b/onshape_native/client.py
+@@ -82,6 +82,17 @@ class Client:
+         except httpx.HTTPError:
+             return {"bridge_connected": False, "extension_connected": False}
+ 
++    async def extension_reload(self):
++        try:
++            response = await self.http.post("/local/extension_reload", timeout=30)
++            data = response.json()
++        except (httpx.HTTPError, ValueError):
++            return {"status": "uncertain", "phase": "bridge_response_missing",
++                    "reason": "Inspect the loaded extension; do not repeat the request blindly."}
++        if response.status_code != 200 or not isinstance(data, dict):
++            return {"status": "rejected", "phase": "bridge_response"}
++        return data
++
+     async def request(self, method, path, query=None, body=None, *, read_only=False):
+         self.calls += 1
+         data = await self.command({"kind": "rest", "method": method, "path": path,
+diff --git a/onshape_native/server.py b/onshape_native/server.py
+index c791bd1..dd57822 100644
+--- a/onshape_native/server.py
++++ b/onshape_native/server.py
+@@ -295,6 +295,12 @@ async def bridge_status() -> str:
+     return compact(status)
+ 
+ 
++@mcp.tool(structured_output=False, annotations=DISPLAY_WRITE)
++async def extension_reload() -> str:
++    """Reload only the currently paired Onshape Native Local Bridge worker once. Refuses active or uncertain CAD work and old workers. Success requires a new matching worker identity, build, capability and pairing handshake. A first manual extension Reload may be needed to install this handler. Never use as cancellation or write recovery."""
++    return compact(await svc().client.extension_reload())
++
++
+ @mcp.tool(structured_output=False, annotations=READ)
+ def native_catalog(search: str = "") -> str:
+     """Discover native commands from the captured client schema and observed examples. Examples use research-document IDs: resolve fresh IDs with native_state. Coordinates are meters. client-schema means untested; observed is not replay-verified."""
+diff --git a/scripts/configure.py b/scripts/configure.py
+index 0d9c3b5..37cdcfd 100644
+--- a/scripts/configure.py
++++ b/scripts/configure.py
+@@ -9,10 +9,11 @@ import sys
+ ROOT = Path(__file__).resolve().parents[1]
+ sys.path.insert(0, str(ROOT))
+ from onshape_native.config import load_config, runtime_dir
++from onshape_native.bridge import shared_journal_clear
+ from onshape_native.installation import venv_python, write_json
+ 
+ 
+-def configure(root=ROOT, runtime=None):
++def configure(root=ROOT, runtime=None, h2cad_journal=None):
+     root = Path(root).resolve()
+     python = venv_python(root / ".venv")
+     if not python.is_file():
+@@ -20,6 +21,23 @@ def configure(root=ROOT, runtime=None):
+     if runtime is not None:
+         os.environ["ONSHAPE_NATIVE_RUNTIME"] = str(Path(runtime).expanduser().resolve())
+     config = load_config()
++    if h2cad_journal is not None:
++        try:
++            journal = Path(h2cad_journal).expanduser().resolve(strict=True)
++        except OSError as exc:
++            raise ValueError("H2 journal is missing or unreadable.") from exc
++        updated = {**config, "h2cad_journal": str(journal)}
++        if not shared_journal_clear(updated):
++            raise ValueError("H2 journal is unreadable or has unresolved writes; inspect it before configuring reload.")
++        config_path = runtime_dir() / "bridge.json"
++        pending = config_path.with_suffix(".json.pending")
++        fd = os.open(pending, os.O_WRONLY | os.O_CREAT | os.O_EXCL, 0o600)
++        with os.fdopen(fd, "w", encoding="utf-8") as stream:
++            json.dump(updated, stream, indent=2)
++            stream.write("\n")
++        os.replace(pending, config_path)
++        config_path.chmod(0o600)
++        config = updated
+     local = root / "extension/local-config.js"
+     fd = os.open(local, os.O_WRONLY | os.O_CREAT | os.O_TRUNC, 0o600)
+     with os.fdopen(fd, "w", encoding="utf-8") as stream:
+@@ -37,9 +55,10 @@ def configure(root=ROOT, runtime=None):
+ if __name__ == "__main__":
+     parser = argparse.ArgumentParser(description=__doc__)
+     parser.add_argument("--runtime-dir", type=Path, help="Private pairing/artifact directory; defaults to .runtime or ONSHAPE_NATIVE_RUNTIME.")
++    parser.add_argument("--h2cad-journal", type=Path, help="Pin the existing shared H2 SQLite journal for safe extension reload. Restart the bridge afterward.")
+     args = parser.parse_args()
+     try:
+-        configure(runtime=args.runtime_dir)
++        configure(runtime=args.runtime_dir, h2cad_journal=args.h2cad_journal)
+     except ValueError as error:
+         raise SystemExit(str(error)) from None
+     print("Configured onshape-native for this device. Pairing stays local; no Onshape credentials needed.")
+diff --git a/scripts/reload_extension.py b/scripts/reload_extension.py
+new file mode 100644
+index 0000000..f2830e0
+--- /dev/null
++++ b/scripts/reload_extension.py
+@@ -0,0 +1,31 @@
++#!/usr/bin/env python3
++"""Request one bounded reload of the currently paired Native extension worker."""
++from __future__ import annotations
++
++import argparse
++import asyncio
++import json
++from pathlib import Path
++import sys
++
++sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
++from onshape_native.client import Client
++
++
++async def run():
++    client = Client()
++    try:
++        return await client.extension_reload()
++    finally:
++        await client.close()
++
++
++def main(argv=None):
++    argparse.ArgumentParser(description=__doc__).parse_args(argv)
++    result = asyncio.run(run())
++    print(json.dumps(result, sort_keys=True))
++    return 0 if result.get("status") == "reconnected" else 2
++
++
++if __name__ == "__main__":
++    raise SystemExit(main())
+diff --git a/tests/connection.test.mjs b/tests/connection.test.mjs
+index eae902d..4e453a4 100644
+--- a/tests/connection.test.mjs
++++ b/tests/connection.test.mjs
+@@ -38,13 +38,14 @@ function fixture({enabled = true, token = 'test-token', execute = async () => ({
+     close() { this.readyState = 3; } // The browser delivers close asynchronously.
+     drop(code = 1006) { this.readyState = 3; this.onclose({code}); }
+   }
++  let reloads = 0;
+   const browser = {
+     storage: {local: {get: async () => ({...settings}), set: async value => {Object.assign(settings, value);}}},
+     action: {setBadgeText: async value => {badges.push(value.text);}},
+-    runtime: {getManifest: () => ({version: '0.4.2'})},
++    runtime: {id: 'a'.repeat(32), getManifest: () => ({version: '0.4.4'}), reload: () => {reloads++;}},
+   };
+   const connection = createConnection({browser, token, execute, Socket, timers: c.timers, now: c.now});
+-  return {...c, sockets, settings, browser, badges, connection};
++  return {...c, sockets, settings, browser, badges, connection, reloads: () => reloads};
+ }
+ async function ready(f) {
+   await f.connection.resume();
+@@ -57,9 +58,36 @@ test('a socket is not connected until the authenticated ready handshake', async
+   const s = f.sockets[0]; s.open();
+   assert.equal(f.connection.status().connected, false);
+   assert.equal(s.sent[0].type, 'hello');
++  assert.equal(s.sent[0].runtime_id, f.browser.runtime.id);
++  assert.equal(s.sent[0].build, 'h2-extension-reload-v1');
++  assert(s.sent[0].capabilities.includes('h2_extension_reload_v1'));
+   await s.receive({type: 'ready'});
+   assert.equal(f.connection.status().connected, true);
+ });
++test('own worker acknowledges once before calling the official runtime reload', async () => {
++  const f = fixture(), s = await ready(f), id = 'one';
++  await s.receive({type:'command', id, job:{kind:'extension_reload', request_id:id}});
++  assert.deepEqual(s.sent.at(-1), {type:'result', id, result:{accepted:true,request_id:id,phase:'acknowledged'}});
++  assert.equal(f.reloads(), 0);
++  await f.advance(50);
++  assert.equal(f.reloads(), 1);
++  assert.equal(f.settings.enabled, true);
++});
++test('own worker refuses reload while CAD work or orphaned read remains', async () => {
++  let settle;
++  const f = fixture({execute: () => new Promise(resolve => {settle=resolve;})}), s = await ready(f);
++  const write = s.receive({type:'command',id:'write',job:{kind:'native',command:'ui.GBTUiCommit'}});
++  await flush();
++  await s.receive({type:'command',id:'reload',job:{kind:'extension_reload',request_id:'reload'}});
++  assert.equal(s.sent.at(-1).result.accepted, false);
++  await f.advance(0); assert.equal(f.reloads(), 0);
++  settle({ok:true}); await write;
++  const read = s.receive({type:'command',id:'read',job:{kind:'state',tab_id:3}});
++  await flush(); await f.advance(10000); await read;
++  await s.receive({type:'command',id:'reload2',job:{kind:'extension_reload',request_id:'reload2'}});
++  assert.equal(s.sent.at(-1).result.accepted, false);
++  await f.advance(0); assert.equal(f.reloads(), 0);
++});
+ test('bridge unavailable at startup retries and preserves enabled preference', async () => {
+   const f = fixture(); await f.connection.resume(); f.sockets[0].drop();
+   assert.match(f.connection.status().error, /Start your AI client/);
+diff --git a/tests/test_extension_reload.py b/tests/test_extension_reload.py
+new file mode 100644
+index 0000000..d3eaeef
+--- /dev/null
++++ b/tests/test_extension_reload.py
+@@ -0,0 +1,237 @@
++"""Offline reload protocol tests; no browser or Onshape document is used."""
++import asyncio
++import json
++import sqlite3
++
++import pytest
++from starlette.testclient import TestClient
++from starlette.websockets import WebSocketDisconnect
++
++from onshape_native.bridge import Broker, create_app, is_cad_read, shared_journal_clear, RELOAD_BUILD, RELOAD_CAPABILITY, RELOAD_VERSION
++
++TOKEN = "test-pairing-" * 4
++IDENTITY = "a" * 32
++OTHER = "b" * 32
++CONFIG = {"host": "127.0.0.1", "port": 8766, "token": TOKEN, "extension_id": IDENTITY}
++
++
++def new_broker(tmp_path):
++    path = tmp_path / "shared.sqlite"
++    with sqlite3.connect(path) as db:
++        db.execute("CREATE TABLE IF NOT EXISTS writes (state TEXT NOT NULL)")
++    return Broker({**CONFIG, "h2cad_journal": str(path)})
++
++
++class Socket:
++    def __init__(self, identity=IDENTITY, token=TOKEN, instance="1" * 36, *, runtime_id=None, version=RELOAD_VERSION,
++                 build=RELOAD_BUILD, capabilities=None):
++        self.headers = {"origin": "chrome-extension://" + identity}
++        self.hello = {"type": "hello", "token": token, "runtime_id": runtime_id or identity,
++                      "instance_id": instance, "version": version, "build": build,
++                      "capabilities": capabilities if capabilities is not None else [RELOAD_CAPABILITY]}
++        self.incoming = asyncio.Queue()
++        self.sent = []
++        self.accepted = False
++        self.closed = False
++
++    async def accept(self):
++        self.accepted = True
++
++    async def close(self, code=1000):
++        self.closed = True
++
++    async def receive_json(self):
++        return self.hello
++
++    async def receive_text(self):
++        value = await self.incoming.get()
++        if value is None:
++            raise WebSocketDisconnect()
++        return json.dumps(value)
++
++    async def send_json(self, value):
++        self.sent.append(value)
++
++    def reply(self, value):
++        self.incoming.put_nowait(value)
++
++    def drop(self):
++        self.incoming.put_nowait(None)
++
++
++async def connected(broker, **kwargs):
++    ws = Socket(**kwargs)
++    task = asyncio.create_task(broker.websocket(ws))
++    for _ in range(100):
++        if broker.extension is ws or ws.closed:
++            break
++        await asyncio.sleep(0)
++    return ws, task
++
++
++async def request_started(broker):
++    task = asyncio.create_task(broker.reload_extension(timeout=.05))
++    for _ in range(100):
++        if broker.reload_record:
++            break
++        await asyncio.sleep(0)
++    return task, broker.reload_record["request_id"]
++
++
++@pytest.mark.asyncio
++async def test_reloads_once_only_after_new_matching_runtime_handshake(tmp_path):
++    broker = new_broker(tmp_path)
++    old, old_task = await connected(broker)
++    request, request_id = await request_started(broker)
++    assert old.sent[-1] == {"type": "command", "id": request_id,
++                            "job": {"kind": "extension_reload", "request_id": request_id}}
++    old.reply({"type": "result", "id": request_id,
++               "result": {"accepted": True, "request_id": request_id, "phase": "acknowledged"}})
++    await asyncio.sleep(0)
++    old.drop(); await old_task
++    new, new_task = await connected(broker, instance="2" * 36)
++    result = await request
++    assert result == {"request_id": request_id, "phase": "new_handshake_verified", "status": "reconnected"}
++    assert len([x for x in old.sent if x.get("job", {}).get("kind") == "extension_reload"]) == 1
++    assert new.sent[0]["type"] == "ready"
++    new.drop(); await new_task
++
++
++@pytest.mark.asyncio
++async def test_old_worker_needs_manual_bootstrap_and_sends_no_command(tmp_path):
++    broker = new_broker(tmp_path)
++    old, task = await connected(broker, capabilities=[])
++    assert (await broker.reload_extension())["status"] == "needs_manual_bootstrap"
++    assert not [x for x in old.sent if x.get("type") == "command"]
++    old.drop(); await task
++
++
++@pytest.mark.asyncio
++async def test_wrong_origin_identity_or_token_cannot_trigger_reload(tmp_path):
++    for kwargs in ({"identity": OTHER}, {"identity": IDENTITY, "token": "wrong"},
++                   {"identity": IDENTITY, "runtime_id": OTHER}):
++        broker = new_broker(tmp_path)
++        ws, task = await connected(broker, **kwargs)
++        assert ws.closed
++        assert (await broker.reload_extension())["status"] == "disconnected"
++        await task
++
++
++@pytest.mark.asyncio
++async def test_pending_or_unknown_write_blocks_reload(tmp_path):
++    broker = new_broker(tmp_path)
++    old, task = await connected(broker)
++    broker.pending["write"] = asyncio.get_running_loop().create_future()
++    assert (await broker.reload_extension())["status"] == "blocked"
++    broker.pending.clear()
++    broker.unknown_write = True
++    assert (await broker.reload_extension())["status"] == "blocked"
++    assert not [x for x in old.sent if x.get("type") == "command"]
++    old.drop(); await task
++
++
++@pytest.mark.asyncio
++async def test_active_read_blocks_reload_and_unknown_write_is_latched(tmp_path):
++    broker = new_broker(tmp_path)
++    old, task = await connected(broker)
++    read = asyncio.create_task(broker.dispatch({"kind": "tabs"}, timeout=.03))
++    for _ in range(100):
++        if any(x.get("type") == "command" for x in old.sent):
++            break
++        await asyncio.sleep(0)
++    assert (await broker.reload_extension())["status"] == "busy"
++    from onshape_native.bridge import BridgeError
++    with pytest.raises(BridgeError, match="outcome unknown"):
++        await read
++    assert broker.unknown_write is False
++    write = asyncio.create_task(broker.dispatch({"kind": "rest", "method": "POST", "path": "/api/v1/documents"}, timeout=.03))
++    with pytest.raises(BridgeError, match="outcome unknown"):
++        await write
++    assert broker.unknown_write is True
++    assert (await broker.reload_extension())["status"] == "blocked"
++    old.drop(); await task
++
++
++def test_read_classifier_fails_closed_for_unrecognized_mutations():
++    assert is_cad_read({"kind": "rest", "method": "GET"})
++    assert is_cad_read({"kind": "state"})
++    for job in ({"kind": "rest", "method": "POST"}, {"kind": "native", "command": "ui.GBTUiCommit"},
++                {"kind": "partstudio_depth_edit"}, {"kind": "display", "operation": "feature"},
++                {"kind": "editor_tab", "action": "refresh"}, {"kind": "unknown"}):
++        assert not is_cad_read(job)
++
++
++@pytest.mark.asyncio
++async def test_disconnect_after_ack_is_uncertain_and_never_retried(tmp_path):
++    broker = new_broker(tmp_path)
++    old, task = await connected(broker)
++    request, request_id = await request_started(broker)
++    old.reply({"type": "result", "id": request_id,
++               "result": {"accepted": True, "request_id": request_id, "phase": "acknowledged"}})
++    await asyncio.sleep(0)
++    old.drop(); await task
++    assert (await request)["status"] == "uncertain"
++    assert (await broker.reload_extension())["status"] == "blocked"
++    assert len([x for x in old.sent if x.get("type") == "command"]) == 1
++
++
++@pytest.mark.asyncio
++async def test_stale_instance_or_wrong_build_cannot_prove_reload(tmp_path):
++    for kwargs, expected in (({"instance": "1" * 36}, "timeout"),
++                             ({"instance": "2" * 36, "build": "wrong"}, "needs_manual_bootstrap")):
++        broker = new_broker(tmp_path)
++        old, old_task = await connected(broker)
++        request, request_id = await request_started(broker)
++        old.reply({"type": "result", "id": request_id,
++                   "result": {"accepted": True, "request_id": request_id, "phase": "acknowledged"}})
++        await asyncio.sleep(0)
++        old.drop(); await old_task
++        new, new_task = await connected(broker, **kwargs)
++        assert (await request)["status"] == expected
++        new.drop(); await new_task
++
++
++def test_authenticated_route_has_no_job_passthrough():
++    with TestClient(create_app(CONFIG), base_url="http://127.0.0.1:8766") as client:
++        auth = {"Authorization": "Bearer " + TOKEN}
++        assert client.post("/local/extension_reload").status_code == 401
++        assert client.post("/local/extension_reload", headers={**auth, "Origin": "https://evil.example"}).status_code == 403
++        assert client.post("/local/extension_reload", headers=auth, json={"kind": "native"}).status_code == 400
++        assert client.post("/local/extension_reload", headers=auth).json()["status"] == "disconnected"
++
++
++def test_shared_journal_missing_or_unresolved_blocks_without_mutation(tmp_path):
++    broker = new_broker(tmp_path)
++    path = broker.config["h2cad_journal"]
++    assert shared_journal_clear(broker.config)
++    with sqlite3.connect(path) as db:
++        db.execute("INSERT INTO writes VALUES ('prepared')")
++    assert not shared_journal_clear(broker.config)
++    assert not shared_journal_clear({**broker.config, "h2cad_journal": str(tmp_path / "absent.sqlite")})
++    assert not shared_journal_clear({**broker.config, "h2cad_journal": None})
++    with sqlite3.connect(path) as db:
++        assert db.execute("SELECT state FROM writes").fetchone()[0] == "prepared"
++
++
++def test_configure_pins_existing_journal_without_rotating_pairing(tmp_path, monkeypatch):
++    import importlib.util
++    import sys
++    from onshape_native.config import load_config
++    monkeypatch.setenv("ONSHAPE_NATIVE_RUNTIME", str(tmp_path / "runtime"))
++    before = load_config()
++    root = tmp_path / "source"
++    (root / "extension").mkdir(parents=True)
++    (root / ".venv" / ("Scripts" if sys.platform == "win32" else "bin")).mkdir(parents=True)
++    python = root / ".venv" / ("Scripts/python.exe" if sys.platform == "win32" else "bin/python")
++    python.touch()
++    journal = tmp_path / "intent.sqlite"
++    with sqlite3.connect(journal) as db:
++        db.execute("CREATE TABLE writes (state TEXT NOT NULL)")
++    module_path = __import__("pathlib").Path(__file__).resolve().parents[1] / "scripts/configure.py"
++    spec = importlib.util.spec_from_file_location("native_configure_test", module_path)
++    module = importlib.util.module_from_spec(spec)
++    spec.loader.exec_module(module)
++    module.configure(root=root, runtime=tmp_path / "runtime", h2cad_journal=journal)
++    after = load_config()
++    assert after["token"] == before["token"]
++    assert after["h2cad_journal"] == str(journal)
+diff --git a/tests/test_responses.py b/tests/test_responses.py
+index a9f8abb..d4cc1b4 100644
+--- a/tests/test_responses.py
++++ b/tests/test_responses.py
+@@ -97,11 +97,12 @@ def test_camera_ack_retains_restoration_id_and_full_state(tmp_path):
+     assert 'camera' not in result
+ 
+ 
+-async def test_mcp_contract_has_41_tools_with_one_expander(tmp_path,monkeypatch):
++async def test_mcp_contract_has_42_tools_with_one_expander(tmp_path,monkeypatch):
+     from onshape_native import server
+     monkeypatch.setattr(server,'service',SimpleNamespace(store=Store(tmp_path)))
+     tools=await server.mcp.list_tools()
+-    assert len(tools)==41
++    assert len(tools)==42
++    assert sum(t.name=='extension_reload' for t in tools)==1
+     assert sum(t.name=='artifact_page' for t in tools)==1
+     result=json.loads(server.search_commands('create an assembly'))
+     expanded=json.loads(server.artifact_page(result['artifact'],'/manual_fallback'))
+-- 
+2.54.0.windows.1
+

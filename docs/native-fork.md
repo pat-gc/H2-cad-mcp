@@ -3,12 +3,15 @@
 This local compatibility branch starts from upstream `godbrigero/onshape-native`
 commit `f5304ed0aa49347dec40911af9c2018d81012604` and preserves that Git
 history. Branch: `codex/h2-native-compat` in ignored `upstream/onshape-native`.
-Current fork commit: `6a4e157f2aa8cb781b8ba84552bd76c180374336`.
+Current candidate fork commit in the isolated Native worktree:
+`d55bf03d19da93aa50fc2a34ec2c0c22550fdfb8`. The installed fork remains at
+`6a4e157f2aa8cb781b8ba84552bd76c180374336` until reviewed deployment.
 Reviewable patches: `patches/onshape-native/0001-feat-add-fail-closed-H2-native-readback-probe.patch`
 `patches/onshape-native/0002-fix-bound-native-state-readback-inspection.patch`,
 `patches/onshape-native/0003-fix-release-hung-read-only-bridge-work-safely.patch`, and
 `patches/onshape-native/0004-feat-guard-isolated-Part-Studio-extrusion-depth-edit.patch`, and
-`patches/onshape-native/0005-feat-advertise-loaded-depth-edit-capability.patch`.
+`patches/onshape-native/0005-feat-advertise-loaded-depth-edit-capability.patch`, and
+`patches/onshape-native/0006-feat-add-guarded-paired-extension-reload.patch`.
 
 The user reports that the upstream owner authorized integration. This note
 records the report, not an independently verified public license grant. Keep
@@ -40,6 +43,14 @@ The fifth patch advertises separate read-only capability markers in the bridge
 health response, extension handshake, and page state. H2 checks all three
 before journaling or submitting an edit. An old loaded build refuses the edit
 without leaving an unresolved journal intent.
+The sixth patch adds a bounded paired reload command to the existing local
+Native MCP and CLI distribution. The worker uses its own `chrome.runtime.reload()`
+only after an authenticated bridge acknowledgement. The bridge checks the
+configured H2 write journal, active bridge commands, the currently paired
+extension identity, and a new worker instance handshake with the expected
+build and capability. Existing loaded builds need one normal manual Reload.
+No CAD mutation or journal state is changed by this command. See the candidate
+fork's `docs/extension-reload.md` for setup and result meanings.
 
 Reproduction from an upstream clone at the base commit:
 
@@ -49,12 +60,15 @@ git am patches/onshape-native/0002-fix-bound-native-state-readback-inspection.pa
 git am patches/onshape-native/0003-fix-release-hung-read-only-bridge-work-safely.patch
 git am patches/onshape-native/0004-feat-guard-isolated-Part-Studio-extrusion-depth-edit.patch
 git am patches/onshape-native/0005-feat-advertise-loaded-depth-edit-capability.patch
+git am patches/onshape-native/0006-feat-add-guarded-paired-extension-reload.patch
 node --test tests/adapter.test.mjs
 ```
 
-The full Node suite passed 90/90 and focused bridge tests 47/47 on Windows
-after five patches. H2 local tests passed 39/39 before the fifth-patch
-integration and 45/45 afterward. The new command has not been
+The full Node suite passed 92/92 after six patches. Targeted Native Python
+bridge/reload/response tests passed 71/71, and H2 tests passed 49/49. The
+full Native Python suite had 232 passed, one skipped, and two failures in
+unmodified Windows-specific tests: symlink creation lacked privilege and one
+archive separator case was not rejected. The new command has not been
 executed against Onshape; its tests use synthetic local objects. The earlier
 live editor tree supports a narrow preflight shape, not a complete semantic
 readback contract.

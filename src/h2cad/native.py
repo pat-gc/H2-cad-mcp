@@ -64,6 +64,17 @@ class NativeBridge:
             raise BackendError("Unknown native bridge protocol")
         return data
 
+    async def reload_extension(self) -> dict[str, Any]:
+        """Ask the paired bridge for one own-worker reload; never submit a CAD job."""
+        try:
+            response = await self.http.post("/local/extension_reload", timeout=30)
+            data = response.json()
+        except (httpx.HTTPError, ValueError) as exc:
+            raise BackendError("Reload outcome uncertain; inspect the paired extension before another request") from exc
+        if response.status_code != 200 or not isinstance(data, dict) or not isinstance(data.get("status"), str):
+            raise BackendError("Bridge did not return a structured reload result")
+        return data
+
     async def command(self, job: dict[str, Any]) -> dict[str, Any]:
         if job.get("kind") not in {"state", "schema", "native", "partstudio_depth_edit"}:
             raise Unsupported("Browser-mode adapter permits only native editor jobs")

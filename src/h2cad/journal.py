@@ -80,6 +80,9 @@ class Journal:
         rows = self._db.execute("SELECT * FROM writes WHERE target=? AND state IN ('prepared','sent','unknown') ORDER BY created_at", (target,)).fetchall()
         return [dict(row) for row in rows]
 
+    def has_unresolved(self) -> bool:
+        return self._db.execute("SELECT 1 FROM writes WHERE state IN ('prepared','sent','unknown') LIMIT 1").fetchone() is not None
+
     def save_sync_snapshot(self, target: str, snapshot: dict[str, Any]) -> None:
         if not snapshot.get("complete"):
             raise ValueError("Cannot persist incomplete readback as a sync base")

@@ -68,12 +68,34 @@ def build_parser() -> argparse.ArgumentParser:
     depth_cmd.add_argument("--feature-id", required=True)
     depth_cmd.add_argument("--from-mm", type=float, required=True)
     depth_cmd.add_argument("--to-mm", type=float, required=True)
+    reload_cmd = commands.add_parser("extension-reload", help="request one paired Native extension reload after journal preflight")
+    reload_cmd.add_argument("--bridge-config", type=Path, required=True)
+    reload_cmd.add_argument("--journal", type=Path, required=True)
     return parser
 
 
 async def _bridge_action(args: argparse.Namespace) -> tuple[object, int]:
+    if args.command in {"extension-reload", "experimental-depth-edit"}:
+        config = json.loads(args.bridge_config.read_text(encoding="utf-8"))
+        pinned = config.get("h2cad_journal")
+        if (not isinstance(pinned, str) or
+                Path(pinned).resolve() != args.journal.resolve()):
+            raise ValueError("Bridge must pin the same H2 journal used by this command")
+        if args.command == "extension-reload":
+            if not args.journal.is_file():
+                raise ValueError("Configured H2 journal is missing")
+            journal = Journal(args.journal)
+            try:
+                if journal.has_unresolved():
+                    return {"status": "blocked", "phase": "journal",
+                            "reason": "Unresolved CAD write intent remains in the H2 journal"}, 2
+            finally:
+                journal.close()
     bridge = NativeBridge.from_config(args.bridge_config)
     try:
+        if args.command == "extension-reload":
+            result = await bridge.reload_extension()
+            return result, 0 if result.get("status") == "reconnected" else 2
         if args.command == "doctor":
             health = await bridge.health()
             return {"bridge_protocol": health.get("protocol"), "extension_connected": health.get("extension_connected"),
