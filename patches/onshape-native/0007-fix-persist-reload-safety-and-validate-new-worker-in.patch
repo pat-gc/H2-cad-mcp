@@ -1,0 +1,471 @@
+From 0e10bde63fed031847539011984f1e5432877417 Mon Sep 17 00:00:00 2001
+From: patcybermind <pato.gonzalezcabrera@gmail.com>
+Date: Fri, 13 Nov 2026 10:48:36 -0500
+Subject: [PATCH] fix: persist reload safety and validate new worker instance
+
+---
+ docs/extension-reload.md       |   7 +-
+ onshape_native/bridge.py       | 133 +++++++++++++++++++++++++++------
+ tests/test_extension_reload.py | 129 ++++++++++++++++++++++++++++++--
+ 3 files changed, 236 insertions(+), 33 deletions(-)
+
+diff --git a/docs/extension-reload.md b/docs/extension-reload.md
+index bd98e7b..c4f5ab9 100644
+--- a/docs/extension-reload.md
++++ b/docs/extension-reload.md
+@@ -29,8 +29,11 @@ identity across server restarts. Socket reconnect from the old worker alone
+ cannot pass the check.
+ 
+ The command rejects a pending bridge command, unresolved H2 journal intent,
+-or a bridge write with an unknown result. It also refuses a second request
+-after an uncertain reload result. A disconnect after acknowledgement without
++or a bridge write with an unknown result. The bridge records a pending reload
++or mutation in a small local safety file alongside the pinned H2 journal
++before sending it. An uncertain result remains in that file across bridge
++restarts; a missing or unwritable safety file blocks reload. It also refuses a
++second request after an uncertain reload result. A disconnect after acknowledgement without
+ a new verified handshake reports `uncertain`; no retry is sent. A new worker
+ with the wrong build reports `needs_manual_bootstrap`. Onshape edits and
+ model state must be inspected and reconciled separately; reload is never a
+diff --git a/onshape_native/bridge.py b/onshape_native/bridge.py
+index 6d4e4df..1634dc1 100644
+--- a/onshape_native/bridge.py
++++ b/onshape_native/bridge.py
+@@ -9,7 +9,9 @@ import re
+ import secrets
+ import socket
+ import base64
++import os
+ import sqlite3
++import uuid
+ from pathlib import Path
+ from urllib.parse import quote
+ from urllib.parse import unquote, urlsplit, parse_qs
+@@ -53,7 +55,7 @@ def shared_journal_clear(config):
+         file = Path(path).resolve(strict=True)
+         if not file.is_file():
+             return False
+-        uri = "file:" + quote(file.as_posix(), safe="/:" ) + "?mode=ro"
++        uri = "file:" + quote(file.as_posix(), safe="/:") + "?mode=ro"
+         with sqlite3.connect(uri, uri=True, timeout=.2) as db:
+             db.execute("PRAGMA query_only=ON")
+             return db.execute("SELECT count(*) FROM writes WHERE state IN ('prepared','sent','unknown')").fetchone()[0] == 0
+@@ -61,6 +63,16 @@ def shared_journal_clear(config):
+         return False
+ 
+ 
++def valid_instance_id(value):
++    if not isinstance(value, str):
++        return False
++    try:
++        parsed = uuid.UUID(value)
++    except (ValueError, AttributeError):
++        return False
++    return parsed.version == 4 and str(parsed) == value
++
++
+ def validate_job(job):
+     if not isinstance(job, dict):
+         raise BridgeError("Expected a JSON object.")
+@@ -188,11 +200,63 @@ class Broker:
+         self.reload_event = None
+         self.reload_identity = None
+         self.extension_origin = None
++        journal = config.get("h2cad_journal")
++        self.guard_path = (Path(journal).with_name(Path(journal).name + ".extension-reload-guard.json")
++                           if isinstance(journal, str) and journal and Path(journal).is_absolute() else None)
++        self.guard_invalid = False
++        if self.guard_path and self.guard_path.exists():
++            try:
++                guard = json.loads(self.guard_path.read_text(encoding="utf-8"))
++                if (not isinstance(guard, dict) or guard.get("schema") != 1 or
++                        type(guard.get("unknown_write")) is not bool or
++                        guard.get("reload") is not None and (not isinstance(guard["reload"], dict) or
++                            not isinstance(guard["reload"].get("request_id"), str) or
++                            guard["reload"].get("status") not in {"pending", "uncertain", "timeout", "rejected", "needs_manual_bootstrap", "reconnected"})):
++                    raise ValueError("Invalid safety record")
++                self.unknown_write = guard["unknown_write"]
++                self.reload_record = guard["reload"]
++            except (OSError, ValueError, UnicodeError):
++                self.guard_invalid = True
++
++    def save_guard(self):
++        if not self.guard_path or self.guard_invalid:
++            raise BridgeError("Shared reload safety record unavailable; no operation sent.")
++        payload = {"schema": 1, "unknown_write": self.unknown_write, "reload": self.reload_record}
++        temporary = self.guard_path.with_name(self.guard_path.name + "." + secrets.token_hex(8) + ".pending")
++        try:
++            fd = os.open(temporary, os.O_WRONLY | os.O_CREAT | os.O_EXCL, 0o600)
++            with os.fdopen(fd, "w", encoding="utf-8") as stream:
++                json.dump(payload, stream, sort_keys=True)
++                stream.write("\n")
++                stream.flush()
++                os.fsync(stream.fileno())
++            os.replace(temporary, self.guard_path)
++        except OSError:
++            self.guard_invalid = True
++            raise BridgeError("Shared reload safety record unavailable; no operation sent.") from None
++        finally:
++            temporary.unlink(missing_ok=True)
++
++    def record_reload(self, status, phase):
++        self.reload_record.update(status=status, phase=phase)
++        try:
++            self.save_guard()
++        except BridgeError:
++            self.reload_record.update(status="uncertain", phase="safety_record_unavailable")
++        return dict(self.reload_record)
+ 
+     async def dispatch(self, job, timeout=50, redirects=0):
+         validate_job(job)
++        if self.reload_record and (self.reload_record.get("status") == "pending" or
++                self.reload_record.get("status") in {"uncertain", "timeout"} and not is_cad_read(job)):
++            raise BridgeError("Extension reload has no verified outcome; no CAD command was sent.")
+         # Serialize all native transactions and browser requests. Timeouts are never replayed.
+         async with self.command_lock:
++            if self.reload_record and (self.reload_record.get("status") == "pending" or
++                    self.reload_record.get("status") in {"uncertain", "timeout"} and not is_cad_read(job)):
++                raise BridgeError("Extension reload has no verified outcome; no CAD command was sent.")
++            if not is_cad_read(job) and (self.unknown_write or self.guard_invalid):
++                raise BridgeError("Previous CAD write or safety record is unresolved; inspect before mutation.")
+             ws = self.extension
+             if ws is None:
+                 raise BridgeError("Extension disconnected. Connect Onshape Native in Comet.")
+@@ -216,6 +280,9 @@ class Broker:
+                 raise BridgeError("Reload the updated extension: element_revision_v1 is required.")
+             command_id = secrets.token_hex(16)
+             future = asyncio.get_running_loop().create_future()
++            if not is_cad_read(job) and self.guard_path:
++                self.unknown_write = True
++                self.save_guard()
+             self.pending[command_id] = future
+             try:
+                 async with self.send_lock:
+@@ -232,10 +299,12 @@ class Broker:
+             finally:
+                 self.pending.pop(command_id, None)
+                 self.result_chunks.pop(command_id, None)
+-            if not is_cad_read(job) and (not isinstance(result, dict) or result.get("error") or
++            if not is_cad_read(job) and not (not isinstance(result, dict) or result.get("error") or
+                     job.get("kind") == "rest" and (type(result.get("status")) is not int or
+                                                     not 200 <= result["status"] < 300)):
+-                self.unknown_write = True
++                self.unknown_write = False
++                if self.guard_path:
++                    self.save_guard()
+         if job.get("kind") == "rest" and job.get("method") == "GET" and isinstance(result, dict) and result.get("download_redirect"):
+             if redirects >= 5:
+                 raise BridgeError("Too many download redirects.")
+@@ -270,6 +339,9 @@ class Broker:
+         if self.command_lock.locked():
+             return {"status": "busy", "phase": "preflight", "reason": "A bridge command is in flight."}
+         async with self.command_lock:
++            if self.guard_invalid:
++                return {"status": "blocked", "phase": "safety_record", "reason":
++                        "Shared reload safety record is unavailable; inspect it before another request."}
+             if self.reload_record and self.reload_record["status"] in {"pending", "uncertain", "timeout"}:
+                 return {"status": "blocked", "phase": "preflight", "reason":
+                         "A prior reload request has no verified outcome; inspect the loaded extension manually.",
+@@ -288,16 +360,22 @@ class Broker:
+                 return {"status": "needs_manual_bootstrap", "phase": "preflight", "reason":
+                         "Loaded extension has no verified reload handler; use its normal manual Reload once."}
+             runtime_id, instance_id = info.get("runtime_id"), info.get("instance_id")
+-            if (not runtime_id or not instance_id or
++            if (not runtime_id or not valid_instance_id(instance_id) or
+                     self.extension_origin != "chrome-extension://" + runtime_id or
+                     self.config.get("extension_id", runtime_id) != runtime_id):
+                 return {"status": "identity_mismatch", "phase": "preflight"}
+             self.reload_identity = (runtime_id, instance_id)
+             request_id = secrets.token_hex(16)
+             future = asyncio.get_running_loop().create_future()
++            self.reload_record = {"request_id": request_id, "phase": "sent", "status": "pending"}
++            try:
++                self.save_guard()
++            except BridgeError:
++                self.reload_identity = None
++                return {"status": "blocked", "phase": "safety_record", "reason":
++                        "Could not record the reload before sending; no request was sent."}
+             self.pending[request_id] = future
+             self.reload_event = asyncio.Event()
+-            self.reload_record = {"request_id": request_id, "phase": "sent", "status": "pending"}
+             old = self.extension
+             try:
+                 try:
+@@ -305,23 +383,20 @@ class Broker:
+                         await old.send_json({"type": "command", "id": request_id,
+                                              "job": {"kind": "extension_reload", "request_id": request_id}})
+                 except (WebSocketDisconnect, RuntimeError):
+-                    self.reload_record.update(status="uncertain", phase="send_failed")
+-                    return dict(self.reload_record)
++                    return self.record_reload("uncertain", "send_failed")
+                 try:
+                     ack = await asyncio.wait_for(future, min(timeout, 5))
+                 except (asyncio.TimeoutError, BridgeError, WebSocketDisconnect, RuntimeError):
+-                    self.reload_record.update(status="uncertain", phase="ack_missing")
+-                    return dict(self.reload_record)
++                    return self.record_reload("uncertain", "ack_missing")
+                 if ack != {"accepted": True, "request_id": request_id, "phase": "acknowledged"}:
+-                    self.reload_record.update(status="rejected", phase="acknowledgement")
+-                    return dict(self.reload_record)
+-                self.reload_record.update(phase="acknowledged")
++                    return self.record_reload("rejected", "acknowledgement")
++                if self.reload_record["status"] == "pending" and self.reload_record["phase"] == "sent":
++                    self.record_reload("pending", "acknowledged")
+                 try:
+                     await asyncio.wait_for(self.reload_event.wait(), timeout)
+                 except asyncio.TimeoutError:
+-                    self.reload_record.update(status="uncertain" if self.extension is None else "timeout",
+-                                              phase="new_handshake_missing")
+-                    return dict(self.reload_record)
++                    return self.record_reload("uncertain" if self.extension is None else "timeout",
++                                              "new_handshake_missing")
+                 return dict(self.reload_record)
+             finally:
+                 self.pending.pop(request_id, None)
+@@ -345,6 +420,11 @@ class Broker:
+                     not re.fullmatch(r"[a-p]{32}", runtime_id)):
+                 await ws.close(code=1008)
+                 return
++            candidate_instance = hello.get("instance_id")
++            instance_id = candidate_instance if valid_instance_id(candidate_instance) else None
++            if self.reload_identity and instance_id is None:
++                await ws.close(code=1008)
++                return
+             if self.reload_identity and runtime_id != self.reload_identity[0]:
+                 await ws.close(code=1008)
+                 return
+@@ -359,23 +439,28 @@ class Broker:
+                                    "capabilities": [c for c in capabilities if isinstance(c, str) and len(c)<80][:30] if isinstance(capabilities, list) else []}
+             if runtime_id:
+                 self.extension_info["runtime_id"] = runtime_id
+-            instance_id = hello.get("instance_id")
+-            if isinstance(instance_id, str) and re.fullmatch(r"[0-9a-f-]{36}", instance_id):
++            if instance_id:
+                 self.extension_info["instance_id"] = instance_id
+             build = hello.get("build")
+             if isinstance(build, str) and len(build) < 80:
+                 self.extension_info["build"] = build
+             await ws.send_json({"type": "ready", "protocol": 1, "capabilities": ["chunked_response_v1"]})
+-            if self.reload_identity and self.reload_event and self.reload_record:
++            if self.reload_identity and self.reload_event and self.reload_record and not self.guard_invalid:
+                 expected_id, old_instance = self.reload_identity
+-                if (runtime_id == expected_id and instance_id != old_instance and
++                ack = self.pending.get(self.reload_record["request_id"])
++                acknowledged = (ack is not None and ack.done() and not ack.cancelled() and
++                                ack.exception() is None and ack.result() == {"accepted": True,
++                                  "request_id": self.reload_record["request_id"], "phase": "acknowledged"})
++                if (acknowledged and runtime_id == expected_id and instance_id != old_instance and
+                         self.extension_info.get("version") == RELOAD_VERSION and build == RELOAD_BUILD and
+                         RELOAD_CAPABILITY in self.extension_info["capabilities"]):
+-                    self.reload_record.update(status="reconnected", phase="new_handshake_verified")
+-                    self.reload_event.set()
+-                elif runtime_id == expected_id and instance_id != old_instance:
+-                    self.reload_record.update(status="needs_manual_bootstrap", phase="unsupported_new_worker")
+-                    self.reload_event.set()
++                    self.record_reload("reconnected", "new_handshake_verified")
++                    if self.reload_record["status"] == "reconnected":
++                        self.reload_event.set()
++                elif acknowledged and runtime_id == expected_id and instance_id != old_instance:
++                    self.record_reload("needs_manual_bootstrap", "unsupported_new_worker")
++                    if self.reload_record["status"] == "needs_manual_bootstrap":
++                        self.reload_event.set()
+             while True:
+                 raw = await ws.receive_text()
+                 if len(raw.encode()) > MAX_BODY:
+diff --git a/tests/test_extension_reload.py b/tests/test_extension_reload.py
+index d3eaeef..4d3d337 100644
+--- a/tests/test_extension_reload.py
++++ b/tests/test_extension_reload.py
+@@ -8,14 +8,19 @@ from starlette.testclient import TestClient
+ from starlette.websockets import WebSocketDisconnect
+ 
+ from onshape_native.bridge import Broker, create_app, is_cad_read, shared_journal_clear, RELOAD_BUILD, RELOAD_CAPABILITY, RELOAD_VERSION
++from onshape_native.bridge import BridgeError
+ 
+ TOKEN = "test-pairing-" * 4
+ IDENTITY = "a" * 32
+ OTHER = "b" * 32
++MISSING = object()
++OLD_INSTANCE = "11111111-1111-4111-8111-111111111111"
++NEW_INSTANCE = "22222222-2222-4222-8222-222222222222"
+ CONFIG = {"host": "127.0.0.1", "port": 8766, "token": TOKEN, "extension_id": IDENTITY}
+ 
+ 
+ def new_broker(tmp_path):
++    tmp_path.mkdir(parents=True, exist_ok=True)
+     path = tmp_path / "shared.sqlite"
+     with sqlite3.connect(path) as db:
+         db.execute("CREATE TABLE IF NOT EXISTS writes (state TEXT NOT NULL)")
+@@ -23,12 +28,14 @@ def new_broker(tmp_path):
+ 
+ 
+ class Socket:
+-    def __init__(self, identity=IDENTITY, token=TOKEN, instance="1" * 36, *, runtime_id=None, version=RELOAD_VERSION,
++    def __init__(self, identity=IDENTITY, token=TOKEN, instance=OLD_INSTANCE, *, runtime_id=None, version=RELOAD_VERSION,
+                  build=RELOAD_BUILD, capabilities=None):
+         self.headers = {"origin": "chrome-extension://" + identity}
+         self.hello = {"type": "hello", "token": token, "runtime_id": runtime_id or identity,
+-                      "instance_id": instance, "version": version, "build": build,
++                      "version": version, "build": build,
+                       "capabilities": capabilities if capabilities is not None else [RELOAD_CAPABILITY]}
++        if instance is not MISSING:
++            self.hello["instance_id"] = instance
+         self.incoming = asyncio.Queue()
+         self.sent = []
+         self.accepted = False
+@@ -89,7 +96,7 @@ async def test_reloads_once_only_after_new_matching_runtime_handshake(tmp_path):
+                "result": {"accepted": True, "request_id": request_id, "phase": "acknowledged"}})
+     await asyncio.sleep(0)
+     old.drop(); await old_task
+-    new, new_task = await connected(broker, instance="2" * 36)
++    new, new_task = await connected(broker, instance=NEW_INSTANCE)
+     result = await request
+     assert result == {"request_id": request_id, "phase": "new_handshake_verified", "status": "reconnected"}
+     assert len([x for x in old.sent if x.get("job", {}).get("kind") == "extension_reload"]) == 1
+@@ -97,6 +104,30 @@ async def test_reloads_once_only_after_new_matching_runtime_handshake(tmp_path):
+     new.drop(); await new_task
+ 
+ 
++@pytest.mark.asyncio
++async def test_new_handshake_before_ack_waiter_resumes_keeps_verified_phase(tmp_path, monkeypatch):
++    broker = new_broker(tmp_path)
++    old, old_task = await connected(broker)
++    gate = asyncio.Event()
++    original_wait_for = asyncio.wait_for
++    async def delayed_ack(awaitable, timeout):
++        result = await original_wait_for(awaitable, timeout)
++        if isinstance(awaitable, asyncio.Future) and timeout == .05:
++            await gate.wait()
++        return result
++    monkeypatch.setattr("onshape_native.bridge.asyncio.wait_for", delayed_ack)
++    request, request_id = await request_started(broker)
++    old.reply({"type": "result", "id": request_id,
++               "result": {"accepted": True, "request_id": request_id, "phase": "acknowledged"}})
++    await asyncio.sleep(0)
++    old.drop(); await old_task
++    new, new_task = await connected(broker, instance=NEW_INSTANCE)
++    assert broker.reload_record["phase"] == "new_handshake_verified"
++    gate.set()
++    assert (await request)["phase"] == "new_handshake_verified"
++    new.drop(); await new_task
++
++
+ @pytest.mark.asyncio
+ async def test_old_worker_needs_manual_bootstrap_and_sends_no_command(tmp_path):
+     broker = new_broker(tmp_path)
+@@ -140,7 +171,6 @@ async def test_active_read_blocks_reload_and_unknown_write_is_latched(tmp_path):
+             break
+         await asyncio.sleep(0)
+     assert (await broker.reload_extension())["status"] == "busy"
+-    from onshape_native.bridge import BridgeError
+     with pytest.raises(BridgeError, match="outcome unknown"):
+         await read
+     assert broker.unknown_write is False
+@@ -152,6 +182,91 @@ async def test_active_read_blocks_reload_and_unknown_write_is_latched(tmp_path):
+     old.drop(); await task
+ 
+ 
++@pytest.mark.asyncio
++async def test_missing_none_or_malformed_instance_never_proves_fresh_runtime(tmp_path):
++    for index, instance in enumerate((MISSING, None, "", "not-a-uuid", "1" * 36,
++                                      "33333333-3333-1333-8333-333333333333")):
++        broker = new_broker(tmp_path / str(index))
++        old, old_task = await connected(broker)
++        request, request_id = await request_started(broker)
++        old.reply({"type": "result", "id": request_id,
++                   "result": {"accepted": True, "request_id": request_id, "phase": "acknowledged"}})
++        await asyncio.sleep(0)
++        old.drop(); await old_task
++        bad, task = await connected(broker, instance=instance)
++        assert bad.closed
++        assert (await request)["status"] == "uncertain"
++        await task
++
++
++@pytest.mark.asyncio
++async def test_reload_and_unknown_write_barriers_survive_broker_restart(tmp_path):
++    broker = new_broker(tmp_path)
++    old, old_task = await connected(broker)
++    request, request_id = await request_started(broker)
++    with pytest.raises(BridgeError, match="reload has no verified outcome"):
++        await broker.dispatch({"kind": "tabs"})
++    with pytest.raises(BridgeError, match="reload has no verified outcome"):
++        await broker.dispatch({"kind": "rest", "method": "POST", "path": "/api/v1/documents"})
++    assert len([x for x in old.sent if x.get("type") == "command"]) == 1
++    old.reply({"type": "result", "id": request_id,
++               "result": {"accepted": True, "request_id": request_id, "phase": "acknowledged"}})
++    await asyncio.sleep(0)
++    old.drop(); await old_task
++    assert (await request)["status"] == "uncertain"
++    restarted = new_broker(tmp_path)
++    assert restarted.reload_record["request_id"] == request_id
++    fresh, task = await connected(restarted, instance=NEW_INSTANCE)
++    assert (await restarted.reload_extension())["status"] == "blocked"
++    with pytest.raises(BridgeError, match="reload has no verified outcome"):
++        await restarted.dispatch({"kind": "rest", "method": "POST", "path": "/api/v1/documents"})
++    assert not [x for x in fresh.sent if x.get("type") == "command"]
++    fresh.drop(); await task
++
++    other = new_broker(tmp_path / "write")
++    ws, ws_task = await connected(other)
++    with pytest.raises(BridgeError, match="outcome unknown"):
++        await other.dispatch({"kind": "rest", "method": "POST", "path": "/api/v1/documents"}, timeout=.01)
++    ws.drop(); await ws_task
++    restarted_write = new_broker(tmp_path / "write")
++    assert restarted_write.unknown_write is True
++    fresh_write, fresh_task = await connected(restarted_write)
++    assert (await restarted_write.reload_extension())["status"] == "blocked"
++    assert not [x for x in fresh_write.sent if x.get("type") == "command"]
++    fresh_write.drop(); await fresh_task
++
++
++@pytest.mark.asyncio
++async def test_safety_record_failure_prevents_reload_send(tmp_path, monkeypatch):
++    broker = new_broker(tmp_path)
++    old, task = await connected(broker)
++    def fail():
++        raise BridgeError("disk unavailable")
++    monkeypatch.setattr(broker, "save_guard", fail)
++    assert (await broker.reload_extension())["status"] == "blocked"
++    assert not [x for x in old.sent if x.get("type") == "command"]
++    old.drop(); await task
++
++
++@pytest.mark.asyncio
++async def test_pending_mutation_is_durable_before_send_and_known_result_clears_it(tmp_path):
++    broker = new_broker(tmp_path)
++    ws, task = await connected(broker)
++    write = asyncio.create_task(broker.dispatch({"kind": "rest", "method": "POST",
++                                                 "path": "/api/v1/documents"}, timeout=.1))
++    for _ in range(100):
++        if any(x.get("type") == "command" for x in ws.sent):
++            break
++        await asyncio.sleep(0)
++    sent = [x for x in ws.sent if x.get("type") == "command"]
++    assert len(sent) == 1
++    assert new_broker(tmp_path).unknown_write is True
++    ws.reply({"type": "result", "id": sent[0]["id"], "result": {"status": 201, "body": {"id": "synthetic"}}})
++    assert (await write)["status"] == 201
++    assert new_broker(tmp_path).unknown_write is False
++    ws.drop(); await task
++
++
+ def test_read_classifier_fails_closed_for_unrecognized_mutations():
+     assert is_cad_read({"kind": "rest", "method": "GET"})
+     assert is_cad_read({"kind": "state"})
+@@ -177,9 +292,9 @@ async def test_disconnect_after_ack_is_uncertain_and_never_retried(tmp_path):
+ 
+ @pytest.mark.asyncio
+ async def test_stale_instance_or_wrong_build_cannot_prove_reload(tmp_path):
+-    for kwargs, expected in (({"instance": "1" * 36}, "timeout"),
+-                             ({"instance": "2" * 36, "build": "wrong"}, "needs_manual_bootstrap")):
+-        broker = new_broker(tmp_path)
++    for index, (kwargs, expected) in enumerate((({"instance": OLD_INSTANCE}, "timeout"),
++                             ({"instance": NEW_INSTANCE, "build": "wrong"}, "needs_manual_bootstrap"))):
++        broker = new_broker(tmp_path / str(index))
+         old, old_task = await connected(broker)
+         request, request_id = await request_started(broker)
+         old.reply({"type": "result", "id": request_id,
+-- 
+2.54.0.windows.1
+

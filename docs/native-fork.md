@@ -4,14 +4,15 @@ This local compatibility branch starts from upstream `godbrigero/onshape-native`
 commit `f5304ed0aa49347dec40911af9c2018d81012604` and preserves that Git
 history. Branch: `codex/h2-native-compat` in ignored `upstream/onshape-native`.
 Current candidate fork commit in the isolated Native worktree:
-`d55bf03d19da93aa50fc2a34ec2c0c22550fdfb8`. The installed fork remains at
+`0e10bde63fed031847539011984f1e5432877417`. The installed fork remains at
 `6a4e157f2aa8cb781b8ba84552bd76c180374336` until reviewed deployment.
 Reviewable patches: `patches/onshape-native/0001-feat-add-fail-closed-H2-native-readback-probe.patch`
 `patches/onshape-native/0002-fix-bound-native-state-readback-inspection.patch`,
 `patches/onshape-native/0003-fix-release-hung-read-only-bridge-work-safely.patch`, and
 `patches/onshape-native/0004-feat-guard-isolated-Part-Studio-extrusion-depth-edit.patch`, and
 `patches/onshape-native/0005-feat-advertise-loaded-depth-edit-capability.patch`, and
-`patches/onshape-native/0006-feat-add-guarded-paired-extension-reload.patch`.
+`patches/onshape-native/0006-feat-add-guarded-paired-extension-reload.patch`, and
+`patches/onshape-native/0007-fix-persist-reload-safety-and-validate-new-worker-in.patch`.
 
 The user reports that the upstream owner authorized integration. This note
 records the report, not an independently verified public license grant. Keep
@@ -51,6 +52,9 @@ extension identity, and a new worker instance handshake with the expected
 build and capability. Existing loaded builds need one normal manual Reload.
 No CAD mutation or journal state is changed by this command. See the candidate
 fork's `docs/extension-reload.md` for setup and result meanings.
+The seventh patch requires a valid new worker UUID before declaring success and
+persists pending or uncertain reload and CAD write state beside the pinned H2
+journal, so a bridge restart cannot silently unlock or repeat it.
 
 Reproduction from an upstream clone at the base commit:
 
@@ -61,12 +65,13 @@ git am patches/onshape-native/0003-fix-release-hung-read-only-bridge-work-safely
 git am patches/onshape-native/0004-feat-guard-isolated-Part-Studio-extrusion-depth-edit.patch
 git am patches/onshape-native/0005-feat-advertise-loaded-depth-edit-capability.patch
 git am patches/onshape-native/0006-feat-add-guarded-paired-extension-reload.patch
+git am patches/onshape-native/0007-fix-persist-reload-safety-and-validate-new-worker-in.patch
 node --test tests/adapter.test.mjs
 ```
 
-The full Node suite passed 92/92 after six patches. Targeted Native Python
-bridge/reload/response tests passed 71/71, and H2 tests passed 49/49. The
-full Native Python suite had 232 passed, one skipped, and two failures in
+The full Node suite passed 92/92 after seven patches. Targeted Native Python
+bridge/reload/response tests passed 76/76, and H2 tests passed 50/50. The
+full Native Python suite had 238 passed, one skipped, and two failures in
 unmodified Windows-specific tests: symlink creation lacked privilege and one
 archive separator case was not rejected. The new command has not been
 executed against Onshape; its tests use synthetic local objects. The earlier

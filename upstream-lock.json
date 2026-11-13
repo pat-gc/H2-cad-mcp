@@ -10,8 +10,8 @@
     "onshape_native": {
       "url": "https://github.com/godbrigero/onshape-native",
       "commit": "f5304ed0aa49347dec40911af9c2018d81012604",
-      "reviewed_patch_count": 6,
-      "reviewed_tree": "f7ef32dc792191ad1fc2da79a0bc8333df4e528f",
+      "reviewed_patch_count": 7,
+      "reviewed_tree": "8f5b4ff2009cec50830be8c75ef41980213abe9d",
       "license": "Repository-wide license not found; user reports owner permission for fork-based integration; see docs/UPSTREAM-PERMISSION.md",
       "local_path": "upstream/onshape-native"
     }

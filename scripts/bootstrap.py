@@ -23,12 +23,14 @@ NATIVE_PATCH3_TREE = "299e8b02e85db5f59e66fddc6c33504cd1ef3bc0"
 NATIVE_PATCH4_TREE = "0c96b1bf06273de1ee8043bc45a867d07cf44a89"
 NATIVE_PATCH5_TREE = "0f89502a9661f2191a712756775403cbadde06df"
 NATIVE_PATCH6_TREE = "f7ef32dc792191ad1fc2da79a0bc8333df4e528f"
+NATIVE_PATCH7_TREE = "8f5b4ff2009cec50830be8c75ef41980213abe9d"
 PATCH = ROOT / "patches" / "onshape-native" / "0001-feat-add-fail-closed-H2-native-readback-probe.patch"
 PATCH2 = ROOT / "patches" / "onshape-native" / "0002-fix-bound-native-state-readback-inspection.patch"
 PATCH3 = ROOT / "patches" / "onshape-native" / "0003-fix-release-hung-read-only-bridge-work-safely.patch"
 PATCH4 = ROOT / "patches" / "onshape-native" / "0004-feat-guard-isolated-Part-Studio-extrusion-depth-edit.patch"
 PATCH5 = ROOT / "patches" / "onshape-native" / "0005-feat-advertise-loaded-depth-edit-capability.patch"
 PATCH6 = ROOT / "patches" / "onshape-native" / "0006-feat-add-guarded-paired-extension-reload.patch"
+PATCH7 = ROOT / "patches" / "onshape-native" / "0007-fix-persist-reload-safety-and-validate-new-worker-in.patch"
 
 
 def run(*args: str, cwd: Path | None = None) -> str:
@@ -53,8 +55,8 @@ def check(root: Path, with_fsgen: bool) -> dict:
     return {"python": sys.version.split()[0], "python_machine": platform.machine(),
             "python_64_bit": struct.calcsize("P") == 8,
             "git": shutil.which("git"), "native": native, "native_base": NATIVE_SHA,
-            "native_patches": [str(PATCH), str(PATCH2), str(PATCH3), str(PATCH4), str(PATCH5), str(PATCH6)],
-            "native_patches_present": [PATCH.is_file(), PATCH2.is_file(), PATCH3.is_file(), PATCH4.is_file(), PATCH5.is_file(), PATCH6.is_file()],
+            "native_patches": [str(PATCH), str(PATCH2), str(PATCH3), str(PATCH4), str(PATCH5), str(PATCH6), str(PATCH7)],
+            "native_patches_present": [PATCH.is_file(), PATCH2.is_file(), PATCH3.is_file(), PATCH4.is_file(), PATCH5.is_file(), PATCH6.is_file(), PATCH7.is_file()],
             "fsgen": fsgen, "fsgen_base": FS_SHA if with_fsgen else None,
             "venv_present": (root / ".venv").is_dir()}
 
@@ -83,7 +85,7 @@ def native_checkout_reviewed(path: Path, state: dict) -> int:
     if state["head"] == NATIVE_SHA:
         return 0
     count = run("git", "rev-list", "--count", f"{NATIVE_SHA}..HEAD", cwd=path)
-    if count not in {"1", "2", "3", "4", "5", "6"}:
+    if count not in {"1", "2", "3", "4", "5", "6", "7"}:
         raise RuntimeError("Unrecognized Native descendant: expected reviewed patch stack only")
     if count == "1":
         if run("git", "rev-parse", "HEAD^", cwd=path) != NATIVE_SHA or run("git", "rev-parse", "HEAD^{tree}", cwd=path) != NATIVE_PATCH_TREE:
@@ -119,7 +121,7 @@ def native_checkout_reviewed(path: Path, state: dict) -> int:
         raise RuntimeError("Unrecognized Native content or ancestry at reviewed patch 5")
     if count == "5":
         return 5
-    if (run("git", "rev-parse", "HEAD~6", cwd=path) != NATIVE_SHA
+    if count == "6" and (run("git", "rev-parse", "HEAD~6", cwd=path) != NATIVE_SHA
             or run("git", "rev-parse", "HEAD^{tree}", cwd=path) != NATIVE_PATCH6_TREE
             or run("git", "rev-parse", "HEAD~1^{tree}", cwd=path) != NATIVE_PATCH5_TREE
             or run("git", "rev-parse", "HEAD~2^{tree}", cwd=path) != NATIVE_PATCH4_TREE
@@ -127,13 +129,24 @@ def native_checkout_reviewed(path: Path, state: dict) -> int:
             or run("git", "rev-parse", "HEAD~4^{tree}", cwd=path) != NATIVE_PATCH2_TREE
             or run("git", "rev-parse", "HEAD~5^{tree}", cwd=path) != NATIVE_PATCH_TREE):
         raise RuntimeError("Unrecognized Native content or ancestry at reviewed patch 6")
-    return 6
+    if count == "6":
+        return 6
+    if (run("git", "rev-parse", "HEAD~7", cwd=path) != NATIVE_SHA
+            or run("git", "rev-parse", "HEAD^{tree}", cwd=path) != NATIVE_PATCH7_TREE
+            or run("git", "rev-parse", "HEAD~1^{tree}", cwd=path) != NATIVE_PATCH6_TREE
+            or run("git", "rev-parse", "HEAD~2^{tree}", cwd=path) != NATIVE_PATCH5_TREE
+            or run("git", "rev-parse", "HEAD~3^{tree}", cwd=path) != NATIVE_PATCH4_TREE
+            or run("git", "rev-parse", "HEAD~4^{tree}", cwd=path) != NATIVE_PATCH3_TREE
+            or run("git", "rev-parse", "HEAD~5^{tree}", cwd=path) != NATIVE_PATCH2_TREE
+            or run("git", "rev-parse", "HEAD~6^{tree}", cwd=path) != NATIVE_PATCH_TREE):
+        raise RuntimeError("Unrecognized Native content or ancestry at reviewed patch 7")
+    return 7
 
 
 def bootstrap(root: Path, *, with_fsgen: bool, dry_run: bool, python: str, sources_only: bool = False) -> dict:
     if not shutil.which("git"):
         raise RuntimeError("Git is required")
-    if not all(path.is_file() for path in (PATCH, PATCH2, PATCH3, PATCH4, PATCH5, PATCH6)):
+    if not all(path.is_file() for path in (PATCH, PATCH2, PATCH3, PATCH4, PATCH5, PATCH6, PATCH7)):
         raise RuntimeError("Native compatibility patch stack is incomplete")
     if with_fsgen and (struct.calcsize("P") != 8 or platform.machine().lower() not in {"amd64", "x86_64"}):
         raise RuntimeError("FSGen OpenCascade needs an x64 Python process; run this script with x64 Python")
@@ -167,6 +180,10 @@ def bootstrap(root: Path, *, with_fsgen: bool, dry_run: bool, python: str, sourc
         run("git", "am", str(PATCH6), cwd=native)
         if native_checkout_reviewed(native, git_state(native)) != 6:
             raise RuntimeError("Native patch 6 verification failed")
+    if reviewed < 7 and not dry_run:
+        run("git", "am", str(PATCH7), cwd=native)
+        if native_checkout_reviewed(native, git_state(native)) != 7:
+            raise RuntimeError("Native patch 7 verification failed")
     if with_fsgen:
         ensure_checkout(fsgen, FS_URL, FS_SHA, dry_run=dry_run)
     if not dry_run and not sources_only:
@@ -178,7 +195,7 @@ def bootstrap(root: Path, *, with_fsgen: bool, dry_run: bool, python: str, sourc
         if with_fsgen:
             run(str(interpreter), "-m", "pip", "install", "-e", str(fsgen))
     return {"status": "dry_run" if dry_run else "sources_ready" if sources_only else "installed", "native_base": NATIVE_SHA,
-            "native_patches": [PATCH.name, PATCH2.name, PATCH3.name, PATCH4.name, PATCH5.name, PATCH6.name], "fsgen_base": FS_SHA if with_fsgen else None,
+            "native_patches": [PATCH.name, PATCH2.name, PATCH3.name, PATCH4.name, PATCH5.name, PATCH6.name, PATCH7.name], "fsgen_base": FS_SHA if with_fsgen else None,
             "core_environment": str(root / ".venv")}
 
 

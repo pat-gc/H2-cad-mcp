@@ -59,3 +59,6 @@ only that extension worker's `chrome.runtime.reload()` and require a new
 matching worker identity, build, capability, and pairing handshake. An
 uncertain result must be inspected manually; neither H2 journal state nor a
 potentially committed CAD mutation is cleared by reload.
+The bridge also keeps a local safety record beside the pinned journal. A
+pending or uncertain reload or CAD write remains blocked after a bridge
+restart; the record must not be deleted to force another attempt.
