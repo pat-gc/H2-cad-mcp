@@ -43,6 +43,12 @@ def test_blueprint_cli_uses_same_fsgen_source_without_browser(capsys):
     lambda x: x.features[0].structure["sketch"]["rectangle"].update(construction=True),
     lambda x: x.features[0].structure.update(parameter_schema=None),
     lambda x: x.features[0].structure["fsgen_native"].update(entities="oops"),
+    lambda x: x.features[0].structure["fsgen_native"]["entities"][0].update(endParam=.05),
+    lambda x: x.features[0].structure["fsgen_native"]["entities"][1]["geometry"].update(dirY=-1),
+    lambda x: x.features[0].structure["fsgen_native"]["constraints"][0]["parameters"][1].update(value="box.top.end"),
+    lambda x: x.features[0].structure["fsgen_native"]["constraints"][-1]["parameters"][-1].update(expression="21 mm"),
+    lambda x: x.features[0].structure["fsgen_native"]["constraints"].append({"constraintType": "TANGENT"}),
+    lambda x: x.features[0].structure["fsgen_native"]["constraints"][1].update(entityId="co_box.bottom.start_box.left.end"),
 ])
 def test_unsupported_or_diverged_plan_stops_before_native_compilation(mutation):
     snapshot = copy.deepcopy(compile_fsgen(SOURCE, Target("d", "w", "e")))

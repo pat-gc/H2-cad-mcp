@@ -53,6 +53,96 @@ class NativePairBlueprint:
                                           "sketch region query binding", "native feature regeneration proof"]}
 
 
+def _validate_fsgen_rectangle(body: dict[str, Any], xy: tuple[float, float, float, float]) -> None:
+    """Require the actual FSGen entities and constraints to match the summary."""
+    x0, y0, x1, y1 = xy
+    if x0 != 0 or y0 != 0:
+        raise Unsupported("First native rectangle requires an origin anchor")
+    entities = body.get("entities")
+    constraints = body.get("constraints")
+    if not isinstance(entities, list) or len(entities) != 4 or not isinstance(constraints, list) or len(constraints) != 11:
+        raise Unsupported("First native rectangle requires four lines and eleven supported constraints")
+    first_id = entities[0].get("entityId") if isinstance(entities[0], dict) else None
+    prefix = first_id[:-7] if isinstance(first_id, str) and first_id.endswith(".bottom") else None
+    if not prefix or not re.fullmatch(r"[A-Za-z][A-Za-z0-9_.]*", prefix):
+        raise Unsupported("Rectangle entity IDs are unsupported")
+    specs = [("bottom", x0, y0, 1, 0, x1-x0), ("right", x1, y0, 0, 1, y1-y0),
+             ("top", x1, y1, -1, 0, x1-x0), ("left", x0, y1, 0, -1, y1-y0)]
+    for entity, (side, px, py, dx, dy, distance) in zip(entities, specs):
+        if not isinstance(entity, dict) or entity.get("btType") != "BTMSketchCurveSegment-155" or entity.get("isConstruction") is not False:
+            raise Unsupported("Rectangle line entity type or construction state differs")
+        ident = f"{prefix}.{side}"
+        if (entity.get("entityId") != ident or entity.get("startPointId") != ident + ".start"
+                or entity.get("endPointId") != ident + ".end"):
+            raise Unsupported("Rectangle line identity differs")
+        geometry = entity.get("geometry")
+        if not isinstance(geometry, dict) or geometry.get("btType") != "BTCurveGeometryLine-117":
+            raise Unsupported("Rectangle line geometry type differs")
+        expected = {"startParam": 0, "endParam": distance,
+                    "pntX": px, "pntY": py, "dirX": dx, "dirY": dy}
+        for key, value in expected.items():
+            actual = geometry.get(key) if key.startswith(("pnt", "dir")) else entity.get(key)
+            if type(actual) not in (int, float) or not math.isfinite(actual) or not math.isclose(actual, value, rel_tol=0, abs_tol=1e-12):
+                raise Unsupported(f"Rectangle line {side} {key} differs from summary")
+
+    observed: list[tuple[Any, ...]] = []
+    constraint_ids: set[str] = set()
+    for constraint in constraints:
+        if not isinstance(constraint, dict) or constraint.get("btType") != "BTMSketchConstraint-2" or not isinstance(constraint.get("parameters"), list):
+            raise Unsupported("Rectangle constraint type differs")
+        ident = constraint.get("entityId")
+        if not isinstance(ident, str) or not ident or ident in constraint_ids:
+            raise Unsupported("Rectangle constraint IDs are absent or duplicated")
+        constraint_ids.add(ident)
+        params = constraint["parameters"]
+        by_id = {p.get("parameterId"): p for p in params if isinstance(p, dict)}
+        if len(by_id) != len(params) or any(not isinstance(p, dict) or not isinstance(p.get("parameterId"), str) for p in params):
+            raise Unsupported("Rectangle constraint parameters are ambiguous")
+        kind = constraint.get("constraintType")
+        if kind in {"COINCIDENT", "HORIZONTAL", "VERTICAL"}:
+            first = by_id.get("localFirst")
+            if not first or first.get("btType") != "BTMParameterString-149":
+                raise Unsupported("Rectangle constraint local reference differs")
+            second = by_id.get("localSecond")
+            external = by_id.get("externalSecond")
+            if second and second.get("btType") != "BTMParameterString-149":
+                raise Unsupported("Rectangle coincidence reference differs")
+            if external and (external.get("btType") != "BTMParameterQueryList-148" or
+                             external.get("queries") != [{"btType": "BTMIndividualQuery-138",
+                                                       "queryString": 'query=qCreatedBy(makeId("Origin"), EntityType.VERTEX);'}]):
+                raise Unsupported("Rectangle origin anchor differs")
+            if set(by_id) != ({"localFirst", "externalSecond"} if external else {"localFirst", "localSecond"} if second else {"localFirst"}):
+                raise Unsupported("Rectangle constraint has extra parameters")
+            observed.append((kind, first.get("value"), second.get("value") if second else None, bool(external)))
+        elif kind == "DISTANCE":
+            if set(by_id) != {"localFirst", "localSecond", "direction", "length"}:
+                raise Unsupported("Rectangle distance dimension differs")
+            if (by_id["localFirst"].get("btType") != "BTMParameterString-149" or
+                    by_id["localSecond"].get("btType") != "BTMParameterString-149" or
+                    by_id["direction"].get("btType") != "BTMParameterEnum-145" or
+                    by_id["direction"].get("enumName") != "DimensionDirection" or
+                    by_id["length"].get("btType") != "BTMParameterQuantity-147"):
+                raise Unsupported("Rectangle dimension parameter schema differs")
+            observed.append(("DISTANCE", by_id["localFirst"].get("value"), by_id["localSecond"].get("value"),
+                             by_id["direction"].get("value"), by_id["length"].get("expression")))
+        else:
+            raise Unsupported("Rectangle contains an unsupported constraint")
+    expected_constraints = [
+        ("COINCIDENT", f"{prefix}.bottom.start", f"{prefix}.left.end", False),
+        ("COINCIDENT", f"{prefix}.bottom.end", f"{prefix}.right.start", False),
+        ("COINCIDENT", f"{prefix}.right.end", f"{prefix}.top.start", False),
+        ("COINCIDENT", f"{prefix}.top.end", f"{prefix}.left.start", False),
+        ("COINCIDENT", f"{prefix}.bottom.start", None, True),
+        ("HORIZONTAL", f"{prefix}.bottom", None, False),
+        ("HORIZONTAL", f"{prefix}.top", None, False),
+        ("VERTICAL", f"{prefix}.right", None, False),
+        ("VERTICAL", f"{prefix}.left", None, False),
+        ("DISTANCE", f"{prefix}.bottom.start", f"{prefix}.bottom.end", "HORIZONTAL", f"{(x1-x0)*1000:g} mm"),
+        ("DISTANCE", f"{prefix}.right.start", f"{prefix}.right.end", "VERTICAL", f"{(y1-y0)*1000:g} mm")]
+    if sorted(map(repr, observed)) != sorted(map(repr, expected_constraints)):
+        raise Unsupported("Rectangle constraints contradict entity geometry or dimensions")
+
+
 def stage_minimal_pair(snapshot: Snapshot) -> NativePairBlueprint:
     """Normalize the first real FSGen plan without treating REST JSON as RPC."""
     if not snapshot.complete or len(snapshot.features) != 2:
@@ -73,10 +163,12 @@ def stage_minimal_pair(snapshot: Snapshot) -> NativePairBlueprint:
         raise Unsupported("Rectangle coordinates must be finite, ordered, and nonconstruction")
     sketch_body = sketch.structure.get("fsgen_native")
     if (not isinstance(sketch_body, dict) or sketch_body.get("featureType") != "newSketch"
+            or sketch_body.get("name") != sketch.logical_id
             or not isinstance(sketch_body.get("entities"), list) or len(sketch_body["entities"]) != 4
             or not isinstance(sketch_body.get("constraints"), list)
             or sketch.parameters.get("sketchPlane") != ['query=qCreatedBy(makeId("Top"), EntityType.FACE);']):
         raise Unsupported("FSGen sketch entities, constraints, or Top query differ")
+    _validate_fsgen_rectangle(sketch_body, xy)
     sketch_schema = sketch.structure.get("parameter_schema")
     extrusion_schema = extrusion.structure.get("parameter_schema")
     if (not isinstance(sketch_schema, dict) or not isinstance(extrusion_schema, dict)
