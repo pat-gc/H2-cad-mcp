@@ -83,6 +83,11 @@ def build_parser() -> argparse.ArgumentParser:
     sketch_cmd.add_argument("--bridge-config", type=Path, required=True)
     sketch_cmd.add_argument("--tab-id", type=int, required=True)
     sketch_cmd.add_argument("--journal", type=Path, required=True)
+    begin_cmd = commands.add_parser("experimental-begin-top-sketch", help="start one blank Top sketch using normal editor controls")
+    _add_target(begin_cmd)
+    begin_cmd.add_argument("--bridge-config", type=Path, required=True)
+    begin_cmd.add_argument("--tab-id", type=int, required=True)
+    begin_cmd.add_argument("--journal", type=Path, required=True)
     extrude_cmd = commands.add_parser("experimental-extrude-populate", help="set source depth on one UI-bound native extrusion")
     extrude_cmd.add_argument("source", type=Path)
     _add_target(extrude_cmd)
@@ -103,7 +108,8 @@ def build_parser() -> argparse.ArgumentParser:
 
 
 async def _bridge_action(args: argparse.Namespace) -> tuple[object, int]:
-    if args.command in {"extension-reload", "experimental-depth-edit", "experimental-sketch-populate",
+    if args.command in {"extension-reload", "experimental-depth-edit", "experimental-begin-top-sketch",
+                        "experimental-sketch-populate",
                         "experimental-extrude-populate",
                         "experimental-reconcile-known-sketch-rejection"}:
         config = json.loads(args.bridge_config.read_text(encoding="utf-8"))
@@ -153,6 +159,12 @@ async def _bridge_action(args: argparse.Namespace) -> tuple[object, int]:
                 return await backend.populate_test_sketch(_target(args), args.source, journal), 0
             finally:
                 journal.close()
+        if args.command == "experimental-begin-top-sketch":
+            journal = Journal(args.journal)
+            try:
+                return await backend.begin_test_top_sketch(_target(args), journal), 0
+            finally:
+                journal.close()
         if args.command == "experimental-extrude-populate":
             journal = Journal(args.journal)
             try:
@@ -167,6 +179,12 @@ async def _bridge_action(args: argparse.Namespace) -> tuple[object, int]:
             if row and row["action"] == "experimental_sketch_populate":
                 outcome = await backend.reconcile_test_sketch(args.op_id, journal)
                 return outcome, 0 if outcome["status"] == "verified" else 2
+            if row and row["action"] == "experimental_begin_top_sketch":
+                if row["state"] == "observed":
+                    return {"op_id": args.op_id, "status": "verified",
+                            "evidence": json.loads(row["observation"] or "{}")}, 0
+                return {"op_id": args.op_id, "status": "unknown",
+                        "reason": "Top-sketch initiation needs exact read-only editor review; no action was replayed"}, 2
             if row and row["action"] == "experimental_extrude_populate":
                 outcome = await backend.reconcile_test_extrude(args.op_id, journal)
                 return outcome, 0 if outcome["status"] == "verified" else 2

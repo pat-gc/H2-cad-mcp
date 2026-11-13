@@ -413,7 +413,7 @@ class NativeBridge:
         return data
 
     async def command(self, job: dict[str, Any]) -> dict[str, Any]:
-        if job.get("kind") not in {"state", "schema", "creation_probe", "native", "partstudio_depth_edit", "partstudio_populate_sketch", "partstudio_populate_extrude"}:
+        if job.get("kind") not in {"state", "schema", "creation_probe", "native", "partstudio_depth_edit", "partstudio_begin_top_sketch", "partstudio_populate_sketch", "partstudio_populate_extrude"}:
             raise Unsupported("Browser-mode adapter permits only native editor jobs")
         try:
             response = await self.http.post("/command", json=job)
@@ -421,10 +421,10 @@ class NativeBridge:
         except (httpx.HTTPError, ValueError) as exc:
             raise UncertainWrite("Native bridge response unavailable; inspect before further mutation") from exc
         if isinstance(data, dict) and data.get("error"):
-            if (job.get("kind") in {"partstudio_populate_sketch", "partstudio_populate_extrude"}
+            if (job.get("kind") in {"partstudio_begin_top_sketch", "partstudio_populate_sketch", "partstudio_populate_extrude"}
                     and data.get("write_stage") == "pre_dispatch"):
                 raise PreDispatchRejected(str(data["error"]))
-            if job.get("kind") in {"partstudio_depth_edit", "partstudio_populate_sketch", "partstudio_populate_extrude"}:
+            if job.get("kind") in {"partstudio_depth_edit", "partstudio_begin_top_sketch", "partstudio_populate_sketch", "partstudio_populate_extrude"}:
                 raise UncertainWrite(str(data["error"]))
             raise BackendError(str(data["error"]))
         if response.status_code != 200 or not isinstance(data, dict):
@@ -584,6 +584,73 @@ class NativeBackend:
 
     async def apply(self, operation: Operation, target: Target, expected_revision: str) -> Receipt:
         raise Unsupported("Native sketch/extrusion transaction lacks proven live ID allocation and complete readback")
+
+    async def begin_test_top_sketch(self, target: Target, journal: Journal) -> dict[str, Any]:
+        """Use observed normal editor controls to allocate one blank Top sketch."""
+        if _target(target) != _NATIVE_CREATE_TEST or self.tab_id is None:
+            raise Unsupported("Native sketch initiation requires the authorized temporary tab")
+        key = f"{target.did}/{target.wid}/{target.eid}"
+        with journal.target_lock(key):
+            if journal.unresolved(key):
+                raise UncertainWrite("Prior target write unresolved; inspect before mutation")
+            health = await self.bridge.health()
+            if (health.get("extension_connected") is not True
+                    or "h2_native_begin_top_sketch_server_v1" not in (health.get("capabilities") or [])
+                    or "h2_native_begin_top_sketch_page_v1" not in ((health.get("extension") or {}).get("capabilities") or [])):
+                raise Unsupported("Installed bridge and loaded extension must both advertise Top-sketch initiation")
+            before = await self.raw_state(target)
+            children = before["tree"].get("children")
+            if (before.get("connected") is not True or before.get("editingFeatureId") is not None
+                    or before["tree"].get("$type") != "bsedit.GBTMModel"
+                    or not isinstance(children, list) or len(children) != 1
+                    or children[0].get("$type") != "bsedit.GBTMRollback"
+                    or not children[0].get("nodeId")):
+                # The first source-driven slice requires only default planes and
+                # the rollback node. More complex history needs its own contract.
+                raise Unsupported("Initial Top sketch requires an empty idle temporary Part Studio")
+            op_id = "begin-sketch-" + uuid4().hex
+            journal.prepare(op_id=op_id, target=key, expected_revision=before["element_microversion"],
+                            action="experimental_begin_top_sketch", logical_id="Top", intent={"before_state": before})
+            job = {"kind": "partstudio_begin_top_sketch", "target": _NATIVE_CREATE_TEST,
+                   "tab_id": self.tab_id, "expected_element_microversion": before["element_microversion"]}
+            try:
+                response = await self.bridge.command(job)
+            except PreDispatchRejected as exc:
+                journal.transition(op_id, "rejected", error=str(exc))
+                raise
+            except Exception as exc:
+                journal.transition(op_id, "unknown", error=str(exc))
+                raise UncertainWrite(f"Top sketch initiation outcome unknown; journal operation {op_id}") from exc
+            journal.transition(op_id, "sent", receipt=response)
+            try:
+                after = await self.raw_state(target)
+                after_children = after["tree"].get("children", [])
+                feature_id = response.get("feature_id")
+                matches = [node for node in after_children if isinstance(node, dict) and node.get("featureId") == feature_id]
+                if (response.get("initiation_candidate") is not True or after.get("connected") is not True
+                        or after.get("editingFeatureId") != feature_id
+                        or after["element_microversion"] == before["element_microversion"]
+                        or len(after_children) != len(children) + 1 or len(matches) != 1
+                        or matches[0].get("nodeId") != response.get("feature_node_id")
+                        or matches[0].get("featureType") != "newSketch"
+                        or matches[0].get("entities") != [] or matches[0].get("constraints") != []
+                        or any(node not in after_children for node in children)
+                        or {k: v for k, v in before["tree"].items() if k != "children"}
+                           != {k: v for k, v in after["tree"].items() if k != "children"}):
+                    raise UncertainWrite("Independent Top sketch allocation or unchanged default tree not confirmed")
+                plane = [p for p in matches[0].get("parameters", []) if p.get("parameterId") == "sketchPlane"]
+                if (len(plane) != 1 or plane[0].get("$type") != "bsedit.GBTMParameterQueryList"
+                        or len(plane[0].get("queries", [])) != 1
+                        or plane[0]["queries"][0].get("deterministicIds") != response.get("plane_query_ids")):
+                    raise UncertainWrite("Top plane binding differs from editor response")
+            except Exception as exc:
+                journal.transition(op_id, "unknown", error=str(exc))
+                raise UncertainWrite(f"Top sketch initiation outcome unknown; journal operation {op_id}") from exc
+            evidence = {"op_id": op_id, "feature_id": feature_id,
+                        "revision_before": before["element_microversion"], "revision_after": after["element_microversion"],
+                        "top_selected_by_observed_control": True, "blank_sketch_observed": True}
+            journal.transition(op_id, "observed", observation=evidence)
+            return evidence
 
     async def populate_test_sketch(self, target: Target, source: str | Path, journal: Journal) -> dict[str, Any]:
         """Populate one UI-allocated blank sketch from an exact FSGen source pair.

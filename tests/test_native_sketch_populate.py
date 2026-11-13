@@ -189,6 +189,55 @@ def test_cli_exposes_explicit_temp_sketch_command():
     assert args.command == "experimental-sketch-populate" and args.tab_id == 17
 
 
+class BeginBridge:
+    def __init__(self, *, altered=False):
+        self.calls = []
+        self.altered = altered
+
+    async def health(self):
+        return {"extension_connected": True, "capabilities": ["h2_native_begin_top_sketch_server_v1"],
+                "extension": {"capabilities": ["h2_native_begin_top_sketch_page_v1"]}}
+
+    async def command(self, job):
+        self.calls.append(copy.deepcopy(job))
+        if job["kind"] == "partstudio_begin_top_sketch":
+            return {"initiation_candidate": True, "feature_id": "newSketch_0", "feature_node_id": "fresh-node",
+                    "plane_query_ids": ["bound-top"]}
+        assert job["kind"] == "state"
+        after = len(self.calls) > 1
+        rollback = {"$type": "bsedit.GBTMRollback", "nodeId": "rollback-node"}
+        sketch = {"$type": "bsedit.GBTMSketch", "featureId": "newSketch_0", "featureType": "newSketch",
+                  "nodeId": "fresh-node", "entities": [], "constraints": [],
+                  "parameters": [{"$type": "bsedit.GBTMParameterQueryList", "parameterId": "sketchPlane",
+                                  "queries": [{"$type": "bsedit.GBTMIndividualQuery", "deterministicIds": ["bound-top"]}]}]}
+        return {"target": {"did": TARGET.did, "wid": TARGET.wid, "eid": TARGET.eid},
+                "connected": True, "editingFeatureId": "newSketch_0" if after else None,
+                "element_microversion": ("b" if after else "a") * 24,
+                "tree": {"$type": "bsedit.GBTMModel", "name": "changed" if after and self.altered else "Temp",
+                         "children": [sketch, rollback] if after else [rollback]}}
+
+
+@pytest.mark.asyncio
+async def test_normal_top_sketch_initiation_has_durable_intent_and_fresh_id(tmp_path):
+    bridge = BeginBridge()
+    journal = Journal(tmp_path / "intent.sqlite")
+    evidence = await NativeBackend(bridge, tab_id=17).begin_test_top_sketch(TARGET, journal)
+    assert evidence["feature_id"] == "newSketch_0" and evidence["blank_sketch_observed"]
+    assert [x["kind"] for x in bridge.calls] == ["state", "partstudio_begin_top_sketch", "state"]
+    assert journal.get(evidence["op_id"])["state"] == "observed"
+    journal.close()
+
+
+@pytest.mark.asyncio
+async def test_top_sketch_initiation_unrelated_tree_change_stays_unknown(tmp_path):
+    bridge = BeginBridge(altered=True)
+    journal = Journal(tmp_path / "intent.sqlite")
+    with pytest.raises(UncertainWrite, match="outcome unknown"):
+        await NativeBackend(bridge, tab_id=17).begin_test_top_sketch(TARGET, journal)
+    assert journal.has_unresolved()
+    journal.close()
+
+
 @pytest.mark.asyncio
 async def test_known_recovery_client_uses_one_authenticated_local_endpoint():
     seen = []
