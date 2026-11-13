@@ -1,0 +1,211 @@
+{
+  "label": "LOCAL PREVIEW / NOT PUSHED",
+  "source": "fixtures/car/basic_car.fs",
+  "kernel": "FSGen local OpenCascade",
+  "geometry": {
+    "parts": 8,
+    "volume_mm3": 525414.5098,
+    "area_mm2": 85598.5828,
+    "bbox_mm": [
+      -57.0,
+      -90.0,
+      1.0,
+      57.0,
+      90.0,
+      65.0
+    ]
+  },
+  "warnings": [],
+  "partial": false,
+  "feature_count": 22,
+  "feature_kinds": [
+    "assignVariable",
+    "cPlane",
+    "extrude",
+    "newSketch"
+  ],
+  "simulated_plan": {
+    "baseline": "simulated empty Part Studio, not a remote read",
+    "operation_count": 22,
+    "operations": [
+      {
+        "action": "create",
+        "logical_id": "#length",
+        "kind": "assignVariable",
+        "depends_on": []
+      },
+      {
+        "action": "create",
+        "logical_id": "#width",
+        "kind": "assignVariable",
+        "depends_on": []
+      },
+      {
+        "action": "create",
+        "logical_id": "#bodyHeight",
+        "kind": "assignVariable",
+        "depends_on": []
+      },
+      {
+        "action": "create",
+        "logical_id": "#wheelbase",
+        "kind": "assignVariable",
+        "depends_on": []
+      },
+      {
+        "action": "create",
+        "logical_id": "#wheelRadius",
+        "kind": "assignVariable",
+        "depends_on": []
+      },
+      {
+        "action": "create",
+        "logical_id": "#wheelThickness",
+        "kind": "assignVariable",
+        "depends_on": []
+      },
+      {
+        "action": "create",
+        "logical_id": "#axleRadius",
+        "kind": "assignVariable",
+        "depends_on": []
+      },
+      {
+        "action": "create",
+        "logical_id": "Chassis height",
+        "kind": "cPlane",
+        "depends_on": []
+      },
+      {
+        "action": "create",
+        "logical_id": "Chassis sketch",
+        "kind": "newSketch",
+        "depends_on": [
+          "#length",
+          "#width",
+          "Chassis height"
+        ]
+      },
+      {
+        "action": "create",
+        "logical_id": "Chassis",
+        "kind": "extrude",
+        "depends_on": [
+          "Chassis sketch"
+        ]
+      },
+      {
+        "action": "create",
+        "logical_id": "Body height",
+        "kind": "cPlane",
+        "depends_on": []
+      },
+      {
+        "action": "create",
+        "logical_id": "Body sketch",
+        "kind": "newSketch",
+        "depends_on": [
+          "Body height"
+        ]
+      },
+      {
+        "action": "create",
+        "logical_id": "Body",
+        "kind": "extrude",
+        "depends_on": [
+          "#bodyHeight",
+          "Body sketch"
+        ]
+      },
+      {
+        "action": "create",
+        "logical_id": "Axle left plane",
+        "kind": "cPlane",
+        "depends_on": []
+      },
+      {
+        "action": "create",
+        "logical_id": "Axle sketch",
+        "kind": "newSketch",
+        "depends_on": [
+          "#wheelbase",
+          "#axleRadius",
+          "Axle left plane"
+        ]
+      },
+      {
+        "action": "create",
+        "logical_id": "Axles",
+        "kind": "extrude",
+        "depends_on": [
+          "Axle sketch"
+        ]
+      },
+      {
+        "action": "create",
+        "logical_id": "Wheel left plane",
+        "kind": "cPlane",
+        "depends_on": [
+          "#width",
+          "#wheelThickness"
+        ]
+      },
+      {
+        "action": "create",
+        "logical_id": "Left wheel sketch",
+        "kind": "newSketch",
+        "depends_on": [
+          "#wheelbase",
+          "#wheelRadius",
+          "Wheel left plane"
+        ]
+      },
+      {
+        "action": "create",
+        "logical_id": "Left wheels",
+        "kind": "extrude",
+        "depends_on": [
+          "#wheelThickness",
+          "Left wheel sketch"
+        ]
+      },
+      {
+        "action": "create",
+        "logical_id": "Wheel right plane",
+        "kind": "cPlane",
+        "depends_on": [
+          "#width"
+        ]
+      },
+      {
+        "action": "create",
+        "logical_id": "Right wheel sketch",
+        "kind": "newSketch",
+        "depends_on": [
+          "#wheelbase",
+          "#wheelRadius",
+          "Wheel right plane"
+        ]
+      },
+      {
+        "action": "create",
+        "logical_id": "Right wheels",
+        "kind": "extrude",
+        "depends_on": [
+          "#wheelThickness",
+          "Right wheel sketch"
+        ]
+      }
+    ],
+    "conflicts": [],
+    "executable_with_current_native_backend": false
+  },
+  "parameter_edit_check": {
+    "bodyHeight_before_mm": 37,
+    "bodyHeight_after_mm": 42,
+    "body_count_after": 8,
+    "volume_delta_mm3": 48000.0
+  },
+  "remote_regeneration": "not_run",
+  "native_editability": "not_run"
+}
