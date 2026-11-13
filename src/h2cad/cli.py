@@ -38,6 +38,10 @@ def build_parser() -> argparse.ArgumentParser:
     _add_target(compile_cmd)
     compile_cmd.add_argument("--revision", default="local")
     compile_cmd.add_argument("--output", type=Path)
+    blueprint_cmd = commands.add_parser("native-blueprint", help="normalize a literal sketch and extrusion plan offline")
+    blueprint_cmd.add_argument("source")
+    _add_target(blueprint_cmd)
+    blueprint_cmd.add_argument("--output", type=Path)
     validate_cmd = commands.add_parser("validate", help="run FSGen local geometry validation")
     validate_cmd.add_argument("source")
     plan_cmd = commands.add_parser("plan", help="three-way dry-run plan from JSON snapshots")
@@ -55,6 +59,11 @@ def build_parser() -> argparse.ArgumentParser:
     probe_cmd.add_argument("--bridge-config", type=Path, required=True)
     probe_cmd.add_argument("--tab-id", type=int)
     probe_cmd.add_argument("--output", type=Path)
+    creation_probe = commands.add_parser("native-create-probe", help="read editor allocation method names without creating CAD")
+    _add_target(creation_probe)
+    creation_probe.add_argument("--bridge-config", type=Path, required=True)
+    creation_probe.add_argument("--tab-id", type=int, required=True)
+    creation_probe.add_argument("--output", type=Path)
     reconcile_cmd = commands.add_parser("reconcile", help="read-only check of an uncertain journal operation")
     reconcile_cmd.add_argument("op_id")
     reconcile_cmd.add_argument("--journal", type=Path, required=True)
@@ -105,6 +114,8 @@ async def _bridge_action(args: argparse.Namespace) -> tuple[object, int]:
             return await backend.raw_state(_target(args)), 0
         if args.command == "native-probe":
             return await backend.modeling_probe(_target(args)), 0
+        if args.command == "native-create-probe":
+            return await backend.creation_probe(_target(args)), 0
         if args.command == "experimental-depth-edit":
             journal = Journal(args.journal)
             try:
@@ -136,6 +147,10 @@ def main(argv: list[str] | None = None) -> int:
         if args.command == "compile":
             from .fsgen import compile_fsgen
             value = compile_fsgen(Path(args.source), _target(args), revision=args.revision).to_dict()
+        elif args.command == "native-blueprint":
+            from .fsgen import compile_fsgen
+            from .native import stage_minimal_pair
+            value = stage_minimal_pair(compile_fsgen(Path(args.source), _target(args))).to_dict()
         elif args.command == "validate":
             from .validation import validate_fsgen
             value = validate_fsgen(Path(args.source)).to_dict()

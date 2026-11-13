@@ -74,6 +74,22 @@ async def test_modeling_probe_reads_runtime_evidence_without_writes():
     await bridge.close()
 
 
+@pytest.mark.asyncio
+async def test_creation_probe_uses_read_only_editor_channel():
+    seen = []
+    def handler(request):
+        job = json.loads(request.content)
+        seen.append(job)
+        return httpx.Response(200, json={"target": job["target"], "element_microversion": E,
+            "methodNames": {"controller": ["getFeatureIdGenerator"]},
+            "generatedNodes": {"bsedit.GBTMSketch": {"unique_node_ids": True}}})
+    bridge = NativeBridge("x" * 32, transport=httpx.MockTransport(handler))
+    result = await NativeBackend(bridge, tab_id=7).creation_probe(T)
+    assert result["methodNames"]["controller"] == ["getFeatureIdGenerator"]
+    assert seen == [{"kind": "creation_probe", "target": T.to_dict(), "tab_id": 7}]
+    await bridge.close()
+
+
 def test_rectangle_compiles_only_with_runtime_schema_and_live_bindings():
     feature = Feature("s", "sketch", {}, structure={"sketch": {"rectangle":
                       {"x0": 0.0, "y0": 0.0, "x1": .04, "y1": .02}}})

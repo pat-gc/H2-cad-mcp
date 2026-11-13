@@ -33,6 +33,66 @@ class PreparedCommand:
     evidence: str
 
 
+@dataclass(frozen=True)
+class NativePairBlueprint:
+    """Validated semantics for one literal Top-plane rectangle and blind solid."""
+
+    sketch_logical_id: str
+    extrusion_logical_id: str
+    plane_name: str
+    rectangle_m: tuple[float, float, float, float]
+    depth_mm: float
+
+    def to_dict(self) -> dict[str, Any]:
+        return {"sketch_logical_id": self.sketch_logical_id,
+                "extrusion_logical_id": self.extrusion_logical_id,
+                "plane_name": self.plane_name,
+                "rectangle_m": list(self.rectangle_m), "depth_mm": self.depth_mm,
+                "write_ready": False,
+                "missing_live_bindings": ["fresh feature ID allocator", "Top plane query binding",
+                                          "sketch region query binding", "native feature regeneration proof"]}
+
+
+def stage_minimal_pair(snapshot: Snapshot) -> NativePairBlueprint:
+    """Normalize the first real FSGen plan without treating REST JSON as RPC."""
+    if not snapshot.complete or len(snapshot.features) != 2:
+        raise Unsupported("First native pair requires exactly one sketch and one extrusion")
+    sketch, extrusion = snapshot.features
+    if (sketch.kind != "newSketch" or extrusion.kind != "extrude"
+            or extrusion.dependencies != (sketch.logical_id,)
+            or sketch.dependencies or sketch.native_id or extrusion.native_id):
+        raise Unsupported("First native pair requires new sketch then dependent extrusion")
+    shape = sketch.structure.get("sketch")
+    rectangle = shape.get("rectangle") if isinstance(shape, dict) else None
+    if not isinstance(rectangle, dict) or shape.get("plane_name") != "Top":
+        raise Unsupported("First native pair requires a Top-plane rectangle")
+    xy = tuple(rectangle.get(key) for key in ("x0", "y0", "x1", "y1"))
+    if (any(type(v) not in (int, float) or not math.isfinite(v) for v in xy)
+            or not xy[0] < xy[2] or not xy[1] < xy[3]
+            or rectangle.get("construction") is not False):
+        raise Unsupported("Rectangle coordinates must be finite, ordered, and nonconstruction")
+    sketch_body = sketch.structure.get("fsgen_native")
+    if (not isinstance(sketch_body, dict) or sketch_body.get("featureType") != "newSketch"
+            or len(sketch_body.get("entities", [])) != 4
+            or not isinstance(sketch_body.get("constraints"), list)
+            or sketch.parameters.get("sketchPlane") != ['query=qCreatedBy(makeId("Top"), EntityType.FACE);']):
+        raise Unsupported("FSGen sketch entities, constraints, or Top query differ")
+    if (sketch.structure.get("parameter_schema", {}).get("sketchPlane", {}).get("btType") != "BTMParameterQueryList-148"
+            or extrusion.structure.get("parameter_schema", {}).get("entities", {}).get("btType") != "BTMParameterQueryList-148"
+            or extrusion.structure.get("parameter_schema", {}).get("depth", {}).get("btType") != "BTMParameterQuantity-147"):
+        raise Unsupported("FSGen parameter schema differs from the supported pair")
+    if (extrusion.parameters.get("bodyType") != "SOLID"
+            or extrusion.parameters.get("operationType") != "NEW"
+            or extrusion.parameters.get("endBound") != "BLIND"
+            or extrusion.parameters.get("entities") != [f'query=qSketchRegion(makeId("{sketch.logical_id}"));']):
+        raise Unsupported("Extrusion mode or sketch-region dependency differs")
+    depth = extrusion.parameters.get("depth")
+    match = re.fullmatch(r"(\d+(?:\.\d+)?) mm", depth) if isinstance(depth, str) else None
+    if not match or not 0 < (depth_mm := float(match.group(1))) <= 1000:
+        raise Unsupported("First native pair requires a literal positive millimeter depth")
+    return NativePairBlueprint(sketch.logical_id, extrusion.logical_id, "Top", xy, depth_mm)
+
+
 class NativeBridge:
     """HTTP client for an already running, separately installed companion."""
 
@@ -76,7 +136,7 @@ class NativeBridge:
         return data
 
     async def command(self, job: dict[str, Any]) -> dict[str, Any]:
-        if job.get("kind") not in {"state", "schema", "native", "partstudio_depth_edit"}:
+        if job.get("kind") not in {"state", "schema", "creation_probe", "native", "partstudio_depth_edit"}:
             raise Unsupported("Browser-mode adapter permits only native editor jobs")
         try:
             response = await self.http.post("/command", json=job)
@@ -203,6 +263,16 @@ class NativeBackend:
         if self.tab_id is not None:
             job["tab_id"] = self.tab_id
         return await self.bridge.command(job)
+
+    async def creation_probe(self, target: Target) -> dict[str, Any]:
+        """Inspect loaded editor allocator surfaces without invoking them."""
+        job: dict[str, Any] = {"kind": "creation_probe", "target": _target(target)}
+        if self.tab_id is not None:
+            job["tab_id"] = self.tab_id
+        result = await self.bridge.command(job)
+        if result.get("target") != job["target"] or not _ID.fullmatch(str(result.get("element_microversion", ""))):
+            raise BackendError("Creation probe target or element revision unavailable")
+        return result
 
     async def feature_settings(self, target: Target, feature_key: str) -> dict[str, Any]:
         if feature_key not in {"::newSketch", "::extrude"}:

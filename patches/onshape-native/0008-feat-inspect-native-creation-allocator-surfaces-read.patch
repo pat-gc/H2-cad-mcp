@@ -1,0 +1,145 @@
+From 1e90135d3d7752d531f16a0a8c78c1bac3ab2720 Mon Sep 17 00:00:00 2001
+From: patcybermind <pato.gonzalezcabrera@gmail.com>
+Date: Fri, 13 Nov 2026 11:55:03 -0500
+Subject: [PATCH] feat: inspect native creation allocator surfaces read only
+
+---
+ extension/connection.js   |  2 +-
+ extension/page-adapter.js | 32 ++++++++++++++++++++++++++++++++
+ onshape_native/bridge.py  |  6 +++---
+ tests/adapter.test.mjs    | 10 ++++++++++
+ tests/test_bridge.py      | 10 ++++++++++
+ 5 files changed, 56 insertions(+), 4 deletions(-)
+
+diff --git a/extension/connection.js b/extension/connection.js
+index 01ec8db..e50ed6a 100644
+--- a/extension/connection.js
++++ b/extension/connection.js
+@@ -7,7 +7,7 @@ export function createConnection({browser, token, execute, Socket = WebSocket,
+   let enabled = false, connected = false, inFlight = false, error = '', delay = 1000;
+   const orphanedReads = new Set();
+   const readOnly = job => job && (
+-    ['state', 'schema', 'tabs', 'ui_inspect'].includes(job.kind) ||
++    ['state', 'schema', 'creation_probe', 'tabs', 'ui_inspect'].includes(job.kind) ||
+     (job.kind === 'editor_tab' && job.action === 'status') ||
+     (job.kind === 'native' && ['ui.GBTUiGetFeatureSettingsCall',
+       'ui.sketch.GBTUiSketchGetConstraintGraphCall', 'ui.sketch.GBTUiSketchGetProjectionCall'].includes(job.command)));
+diff --git a/extension/page-adapter.js b/extension/page-adapter.js
+index 0c92c93..4ef441e 100644
+--- a/extension/page-adapter.js
++++ b/extension/page-adapter.js
+@@ -306,6 +306,38 @@ export async function pageCommand(job) {
+     if (!Type) throw new Error("Unknown native message type.");
+     return bounded({name: job.name, defaults: plain(new Type()), classId: new Type().getClassId()});
+   }
++  if (job.kind === "creation_probe") {
++    // Read method names only from objects already used by native_state. Do not
++    // invoke candidate allocators or create a feature during discovery.
++    const methods = value => {
++      const found = new Set(); let current = value;
++      for (let level = 0; level < 4 && current && current !== Object.prototype; level++, current = Object.getPrototypeOf(current)) {
++        for (const [name, descriptor] of Object.entries(Object.getOwnPropertyDescriptors(current)).slice(0, 300)) {
++          if (typeof descriptor.value === "function" && /id|feature|sketch|insert|query|tree|edit/i.test(name)) found.add(name);
++        }
++      }
++      return [...found].sort().slice(0, 100);
++    };
++    const cache = controller.documentClientCache;
++    const treeState = cache?.getModelTreeState(target.eid);
++    const constructorsToCheck = ["bsedit.GBTMSketch", "bsedit.GBTMFeature", "bsedit.GBTMParameterQueryList"];
++    const generatedNodes = Object.fromEntries(constructorsToCheck.map(name => {
++      const Type = constructors.get(name);
++      if (!Type) return [name, {available:false}];
++      const first = new Type(), second = new Type();
++      return [name, {available:true, unique_node_ids:typeof first.nodeId === "string" &&
++        first.nodeId.length > 0 && first.nodeId !== second.nodeId,
++        feature_id_blank:first.featureId === "", parameter_id_blank:first.parameterId === ""}];
++    }));
++    return bounded({target, element_microversion:getElementMicroversion(),
++      connected:controller.connection?.isClosed?.() === false,
++      editingFeatureId:elementModel?.get("idEditingFeature") || null,
++      methodNames:{controller:methods(controller), elementModel:methods(elementModel),
++        documentClientCache:methods(cache), modelTreeState:methods(treeState),
++        diffableModelTree:methods(treeState?.diffableModelTree)},
++      generatedNodes,
++      note:"Method names and constructor defaults are read-only evidence; no allocator or query binding was invoked."});
++  }
+   if (job.kind === "partstudio_depth_edit") {
+     // Experimental isolated-target operation. Keep the whole native edit
+     // lifecycle inside one editor invocation so no bridge call can interleave.
+diff --git a/onshape_native/bridge.py b/onshape_native/bridge.py
+index 1634dc1..168c89e 100644
+--- a/onshape_native/bridge.py
++++ b/onshape_native/bridge.py
+@@ -40,7 +40,7 @@ class BridgeError(Exception):
+ def is_cad_read(job):
+     """An exhaustive read allowlist; unknown jobs are treated as mutations."""
+     kind = job.get("kind")
+-    return (kind in {"state", "schema", "tabs", "ui_inspect", "viewer_mesh"}
++    return (kind in {"state", "schema", "creation_probe", "tabs", "ui_inspect", "viewer_mesh"}
+             or kind == "rest" and job.get("method") == "GET"
+             or kind == "native" and job.get("command") in READS
+             or kind == "editor_tab" and job.get("action") == "status")
+@@ -77,7 +77,7 @@ def validate_job(job):
+     if not isinstance(job, dict):
+         raise BridgeError("Expected a JSON object.")
+     kind = job.get("kind")
+-    if not isinstance(kind, str) or kind not in {"rest", "native", "state", "schema", "tabs", "open", "editor_tab", "ui_inspect", "ui_action", "display", "viewer_mesh", "partstudio_depth_edit"}:
++    if not isinstance(kind, str) or kind not in {"rest", "native", "state", "schema", "creation_probe", "tabs", "open", "editor_tab", "ui_inspect", "ui_action", "display", "viewer_mesh", "partstudio_depth_edit"}:
+         raise BridgeError("Unknown command kind.")
+     if kind == "rest":
+         path = job.get("path", "")
+@@ -122,7 +122,7 @@ def validate_job(job):
+         if args["action"] == "read" and any(not isinstance(args.get(k), str) for k in
+                 ("expected_microversion", "full_element_id", "occurrence_path", "body_id")):
+             raise BridgeError("Viewer mesh read requires exact part reference and revision.")
+-    if kind in {"native", "state", "schema", "open", "editor_tab", "ui_inspect", "ui_action", "display", "viewer_mesh", "partstudio_depth_edit"}:
++    if kind in {"native", "state", "schema", "creation_probe", "open", "editor_tab", "ui_inspect", "ui_action", "display", "viewer_mesh", "partstudio_depth_edit"}:
+         target = job.get("target", {})
+         if not isinstance(target, dict) or set(target) != {"did", "wid", "eid"} or any(not isinstance(x, str) or not re.fullmatch(r"[a-f0-9]{24}", x) for x in target.values()):
+             raise BridgeError("Native commands require exact did, wid, eid target IDs.")
+diff --git a/tests/adapter.test.mjs b/tests/adapter.test.mjs
+index 104e5fc..9113c06 100644
+--- a/tests/adapter.test.mjs
++++ b/tests/adapter.test.mjs
+@@ -68,6 +68,16 @@ test('state returns the native tree and microversion without HTTP',async()=>{
+   setup();const state=await pageCommand({kind:'state',target});assert.equal(state.microversion,micro);assert.deepEqual(state.tree,{children:[]});assert.equal(sent.length,0);
+   assert.deepEqual(state.h2DepthEdit,{contract:'h2-depth-edit-page-v1',supported:true});
+ });
++test('creation probe reports method names and constructor ID behavior without sending RPC',async()=>{
++  const Node=class {constructor(){this.nodeId=crypto.randomUUID();this.featureId='';}getMessageName(){return 'bsedit.GBTMSketch';}};
++  setup(undefined,false,'e'.repeat(24),{children:[]},{Node});
++  const result=await pageCommand({kind:'creation_probe',target});
++  assert.equal(result.element_microversion,'e'.repeat(24));
++  assert.equal(result.generatedNodes['bsedit.GBTMSketch'].unique_node_ids,true);
++  assert.equal(result.generatedNodes['bsedit.GBTMSketch'].feature_id_blank,true);
++  assert.ok(result.methodNames.controller.includes('getActiveElementTabId'));
++  assert.equal(sent.length,0);
++});
+ 
+ test('isolated native extrusion depth edit preserves exact feature identities and definition',async()=>{
+   const Type=(name,defaults)=>class {
+diff --git a/tests/test_bridge.py b/tests/test_bridge.py
+index a35d353..7c300b2 100644
+--- a/tests/test_bridge.py
++++ b/tests/test_bridge.py
+@@ -7,6 +7,16 @@ from starlette.testclient import TestClient
+ from starlette.websockets import WebSocketDisconnect
+ 
+ from onshape_native.bridge import Broker, BridgeError, create_app, validate_job
++from onshape_native.bridge import is_cad_read
++
++
++def test_creation_probe_is_exact_target_read_only():
++    target = {"did": "a" * 24, "wid": "b" * 24, "eid": "c" * 24}
++    job = {"kind": "creation_probe", "target": target, "tab_id": 7}
++    assert validate_job(job) == job
++    assert is_cad_read(job)
++    with pytest.raises(BridgeError):
++        validate_job({**job, "target": {"did": "a" * 24}})
+ 
+ 
+ def test_disposable_depth_edit_validation_is_exact_and_finite():
+-- 
+2.54.0.windows.1
+
