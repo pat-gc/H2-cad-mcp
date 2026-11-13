@@ -78,17 +78,19 @@ def solved_graph():
 
 
 class Bridge:
-    def __init__(self, *, changed=False, capabilities=True, unanchored=False, pre_dispatch=False):
+    def __init__(self, *, changed=False, capabilities=True, old_page=False, unanchored=False, pre_dispatch=False):
         self.calls = []
         self.changed = changed
         self.capabilities = capabilities
+        self.old_page = old_page
         self.unanchored = unanchored
         self.pre_dispatch = pre_dispatch
 
     async def health(self):
         return {"extension_connected": True,
                 "capabilities": ["h2_native_sketch_populate_server_v1"] if self.capabilities else [],
-                "extension": {"capabilities": ["h2_native_sketch_populate_page_v1"]}}
+                "extension": {"capabilities": ["h2_native_sketch_populate_page_v1"] +
+                              ([] if self.old_page else ["h2_native_fixed_origin_page_v1"])}}
 
     async def command(self, job):
         self.calls.append(copy.deepcopy(job))
@@ -150,6 +152,16 @@ async def test_unbound_origin_graph_never_confirms_sketch(tmp_path):
 @pytest.mark.asyncio
 async def test_missing_loaded_capability_stops_before_journal_or_write(tmp_path):
     bridge = Bridge(capabilities=False)
+    journal = Journal(tmp_path / "intent.sqlite")
+    with pytest.raises(Unsupported, match="both advertise"):
+        await NativeBackend(bridge, tab_id=17).populate_test_sketch(TARGET, SOURCE, journal)
+    assert bridge.calls == [] and not journal.has_unresolved()
+    journal.close()
+
+
+@pytest.mark.asyncio
+async def test_old_loaded_page_cannot_submit_fixed_origin_candidate(tmp_path):
+    bridge = Bridge(old_page=True)
     journal = Journal(tmp_path / "intent.sqlite")
     with pytest.raises(Unsupported, match="both advertise"):
         await NativeBackend(bridge, tab_id=17).populate_test_sketch(TARGET, SOURCE, journal)

@@ -1,0 +1,65 @@
+From 733f19116981c9486074c157137e2f33725c5fbb Mon Sep 17 00:00:00 2001
+From: patcybermind <pato.gonzalezcabrera@gmail.com>
+Date: Fri, 13 Nov 2026 14:00:02 -0500
+Subject: [PATCH] fix: gate fixed origin sketch on loaded page capability
+
+---
+ extension/connection.js  | 2 +-
+ onshape_native/bridge.py | 2 ++
+ tests/test_bridge.py     | 7 ++++++-
+ 3 files changed, 9 insertions(+), 2 deletions(-)
+
+diff --git a/extension/connection.js b/extension/connection.js
+index a937a26..b8c6a46 100644
+--- a/extension/connection.js
++++ b/extension/connection.js
+@@ -74,7 +74,7 @@ export function createConnection({browser, token, execute, Socket = WebSocket,
+       if (socket !== current) return;
+       current.send(JSON.stringify({type: 'hello', token, version: browser.runtime.getManifest().version,
+         runtime_id: browser.runtime.id, instance_id: instanceId, build: 'h2-extension-reload-v1',
+-        capabilities: ['tab_context_v1', 'assembly_sidebar_map_v1', 'display_v1', 'native_modeling_v1', 'element_revision_v1', 'editor_tabs_v1', 'ui_exports_v1', 'chunked_upload_v1', 'chunked_response_v1', 'viewer_mesh_v1', 'h2_depth_edit_page_v1', 'h2_native_begin_top_sketch_page_v1', 'h2_native_sketch_populate_page_v1', 'h2_native_extrude_populate_page_v1', 'h2_extension_reload_v1']}));
++        capabilities: ['tab_context_v1', 'assembly_sidebar_map_v1', 'display_v1', 'native_modeling_v1', 'element_revision_v1', 'editor_tabs_v1', 'ui_exports_v1', 'chunked_upload_v1', 'chunked_response_v1', 'viewer_mesh_v1', 'h2_depth_edit_page_v1', 'h2_native_begin_top_sketch_page_v1', 'h2_native_sketch_populate_page_v1', 'h2_native_fixed_origin_page_v1', 'h2_native_extrude_populate_page_v1', 'h2_extension_reload_v1']}));
+     };
+     let lastPong = now(), chunkedResponses = false;
+     current.onmessage = async event => {
+diff --git a/onshape_native/bridge.py b/onshape_native/bridge.py
+index ea654d6..e91f966 100644
+--- a/onshape_native/bridge.py
++++ b/onshape_native/bridge.py
+@@ -299,6 +299,8 @@ class Broker:
+                 raise BridgeError("Loaded extension lacks h2_native_begin_top_sketch_page_v1; reload and reconnect before editing.")
+             if job.get("kind") == "partstudio_populate_sketch" and "h2_native_sketch_populate_page_v1" not in capabilities:
+                 raise BridgeError("Loaded extension lacks h2_native_sketch_populate_page_v1; reload and reconnect before editing.")
++            if job.get("kind") == "partstudio_populate_sketch" and "h2_native_fixed_origin_page_v1" not in capabilities:
++                raise BridgeError("Loaded extension lacks h2_native_fixed_origin_page_v1; reload and reconnect before editing.")
+             if job.get("kind") == "partstudio_populate_extrude" and "h2_native_extrude_populate_page_v1" not in capabilities:
+                 raise BridgeError("Loaded extension lacks h2_native_extrude_populate_page_v1; reload and reconnect before editing.")
+             if job.get("kind") == "partstudio_depth_edit" and "h2_depth_edit_page_v1" not in capabilities:
+diff --git a/tests/test_bridge.py b/tests/test_bridge.py
+index cbebdbe..1b39508 100644
+--- a/tests/test_bridge.py
++++ b/tests/test_bridge.py
+@@ -51,6 +51,10 @@ async def test_sketch_population_broker_rejects_old_loaded_extension_before_send
+     with pytest.raises(BridgeError, match="h2_native_sketch_populate_page_v1"):
+         await broker.dispatch(job)
+     assert not broker.extension.sent and not broker.pending
++    broker.extension_info = {"capabilities": ["h2_native_sketch_populate_page_v1", "element_revision_v1"]}
++    with pytest.raises(BridgeError, match="h2_native_fixed_origin_page_v1"):
++        await broker.dispatch(job)
++    assert not broker.extension.sent and not broker.pending
+ 
+ 
+ @pytest.mark.asyncio
+@@ -60,7 +64,8 @@ async def test_trusted_pre_dispatch_sketch_rejection_clears_broker_unknown_write
+         async def send_json(self, data):
+             broker.pending[data["id"]].set_result({"error": "Invalid native field.", "write_stage": "pre_dispatch"})
+     broker.extension = Connection()
+-    broker.extension_info = {"capabilities": ["h2_native_sketch_populate_page_v1", "element_revision_v1"]}
++    broker.extension_info = {"capabilities": ["h2_native_sketch_populate_page_v1",
++                                              "h2_native_fixed_origin_page_v1", "element_revision_v1"]}
+     job = {"kind": "partstudio_populate_sketch",
+            "target": {"did": "4e078dec822b4e509616b1cb", "wid": "af0627de07264acf086e646a", "eid": "9a062f0eef8bb961f8c84f8e"},
+            "expected_element_microversion": "a" * 24,
+-- 
+2.54.0.windows.1
+

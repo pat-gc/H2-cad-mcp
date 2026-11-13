@@ -676,7 +676,8 @@ class NativeBackend:
             health = await self.bridge.health()
             if (health.get("extension_connected") is not True
                     or "h2_native_sketch_populate_server_v1" not in (health.get("capabilities") or [])
-                    or "h2_native_sketch_populate_page_v1" not in ((health.get("extension") or {}).get("capabilities") or [])):
+                    or "h2_native_sketch_populate_page_v1" not in ((health.get("extension") or {}).get("capabilities") or [])
+                    or "h2_native_fixed_origin_page_v1" not in ((health.get("extension") or {}).get("capabilities") or [])):
                 raise Unsupported("Installed bridge and loaded extension must both advertise native sketch support")
             before = await self.raw_state(target)
             tree = before["tree"]

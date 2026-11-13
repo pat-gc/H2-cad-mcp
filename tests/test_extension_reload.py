@@ -75,5 +75,5 @@ def test_reviewed_native_patch_replays_to_pinned_tree(tmp_path):
     spec.loader.exec_module(module)
     result = module.bootstrap(tmp_path, with_fsgen=False, dry_run=False, python="python", sources_only=True)
     assert result["status"] == "sources_ready"
-    assert module.native_checkout_reviewed(checkout, module.git_state(checkout)) == 14
-    assert subprocess.check_output(["git", "rev-parse", "HEAD^{tree}"], cwd=checkout, text=True).strip() == module.NATIVE_PATCH14_TREE
+    assert module.native_checkout_reviewed(checkout, module.git_state(checkout)) == 15
+    assert subprocess.check_output(["git", "rev-parse", "HEAD^{tree}"], cwd=checkout, text=True).strip() == module.NATIVE_PATCH15_TREE
