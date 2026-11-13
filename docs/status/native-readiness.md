@@ -1,5 +1,9 @@
 # Native integration readiness — 2026-11-10
 
+Historical offline readiness snapshot. Its blocked/live claims describe the
+2026-11-10 state and are superseded by [current development status](../STATUS.md).
+Keep this report as evidence for the pinned foundation and original test scope.
+
 ## Verified offline foundation
 
 The pinned FSGen compiler creates a semantic feature snapshot from supported

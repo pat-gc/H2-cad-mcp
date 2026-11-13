@@ -1,20 +1,21 @@
 # Development roadmap
 
-Technical lead: GPT-6 Astra, high reasoning. Implementation and independent
-verification: genuine GPT-6 Sol workers, medium reasoning.
+This is the planned milestone sequence. For the verified result, active target,
+current owners, and next action, use the canonical [development status](STATUS.md).
+Status labels in earlier revisions were superseded by live testing on 2026-11-13.
 
 ## Acceptance milestones
 
-0. Audit and pin upstream repositories; run baseline tests — in progress.
-1. Browser-backed editable native sketch and extrusion — pending; live acceptance requires an explicit test target and browser access.
-2. FSGen plan integration with local validation — pending.
-3. Reference model parity — pending.
-4. Identity-preserving incremental modification — pending.
-5. Three-way collaborative synchronization — pending.
-6. Journaled recovery and revision guards — pending.
-7. Expand evidenced feature coverage — pending.
-8. Benchmarks and Windows hardening — pending.
-9. Reproducible usable delivery — pending.
+0. Audit and pin upstream repositories; run baseline tests.
+1. Browser-backed editable native sketch and extrusion.
+2. FSGen plan integration with local validation.
+3. Reference model parity.
+4. Identity-preserving incremental modification.
+5. Three-way collaborative synchronization.
+6. Journaled recovery and revision guards.
+7. Expand evidenced feature coverage.
+8. Benchmarks and Windows hardening.
+9. Reproducible usable delivery.
 
 ## Invariants
 
@@ -27,7 +28,5 @@ verification: genuine GPT-6 Sol workers, medium reasoning.
 
 ## Work organization
 
-Two independent workers run at a time because the root coordination chat and Astra
-occupy the other two runtime slots. Isolated git worktrees protect concurrent
-implementation. Roles rotate between generation, browser runtime, graph/sync,
-execution, independent verification, and integration.
+The [status page](STATUS.md#owners-and-handoff) records current owners and the
+live handoff. Isolated Git worktrees protect concurrent implementation.

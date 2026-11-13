@@ -1,5 +1,9 @@
 # Disposable Part Studio depth edit handoff
 
+Historical handoff for the earlier isolated depth-edit experiment. The current
+native car creation target, owner, and acceptance state are in [development
+status](STATUS.md); this procedure is not the active source-extrusion plan.
+
 This is a candidate for the designated live testing agent only. It changes the
 saved `Extrude 1` depth from 25 mm to 5 mm in the authorized disposable Part
 Studio. It does not create features or establish full native geometry status.
