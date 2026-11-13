@@ -77,6 +77,12 @@ def build_parser() -> argparse.ArgumentParser:
     depth_cmd.add_argument("--feature-id", required=True)
     depth_cmd.add_argument("--from-mm", type=float, required=True)
     depth_cmd.add_argument("--to-mm", type=float, required=True)
+    sketch_cmd = commands.add_parser("experimental-sketch-populate", help="populate one UI-allocated blank sketch in the temporary native test studio")
+    sketch_cmd.add_argument("source", type=Path)
+    _add_target(sketch_cmd)
+    sketch_cmd.add_argument("--bridge-config", type=Path, required=True)
+    sketch_cmd.add_argument("--tab-id", type=int, required=True)
+    sketch_cmd.add_argument("--journal", type=Path, required=True)
     reload_cmd = commands.add_parser("extension-reload", help="request one paired Native extension reload after journal preflight")
     reload_cmd.add_argument("--bridge-config", type=Path, required=True)
     reload_cmd.add_argument("--journal", type=Path, required=True)
@@ -84,7 +90,7 @@ def build_parser() -> argparse.ArgumentParser:
 
 
 async def _bridge_action(args: argparse.Namespace) -> tuple[object, int]:
-    if args.command in {"extension-reload", "experimental-depth-edit"}:
+    if args.command in {"extension-reload", "experimental-depth-edit", "experimental-sketch-populate"}:
         config = json.loads(args.bridge_config.read_text(encoding="utf-8"))
         pinned = config.get("h2cad_journal")
         if (not isinstance(pinned, str) or
@@ -124,10 +130,19 @@ async def _bridge_action(args: argparse.Namespace) -> tuple[object, int]:
                     from_mm=args.from_mm, to_mm=args.to_mm, journal=journal), 0
             finally:
                 journal.close()
+        if args.command == "experimental-sketch-populate":
+            journal = Journal(args.journal)
+            try:
+                return await backend.populate_test_sketch(_target(args), args.source, journal), 0
+            finally:
+                journal.close()
         from .executor import Executor
         journal = Journal(args.journal)
         try:
             row = journal.get(args.op_id)
+            if row and row["action"] == "experimental_sketch_populate":
+                outcome = await backend.reconcile_test_sketch(args.op_id, journal)
+                return outcome, 0 if outcome["status"] == "verified" else 2
             if row and row["action"] == "experimental_depth_edit":
                 outcome = await backend.reconcile_disposable_extrude_depth(args.op_id, journal)
                 return outcome, 0 if outcome["status"] == "verified" else 2

@@ -1,0 +1,333 @@
+From 734a50c5bd75b81e241bf5229e1282610a680cbf Mon Sep 17 00:00:00 2001
+From: patcybermind <pato.gonzalezcabrera@gmail.com>
+Date: Fri, 13 Nov 2026 12:41:36 -0500
+Subject: [PATCH] feat: populate one UI-allocated native sketch from source
+ rectangle
+
+---
+ extension/connection.js   |   2 +-
+ extension/page-adapter.js | 102 ++++++++++++++++++++++++++++++++++++++
+ onshape_native/bridge.py  |  22 ++++++--
+ tests/adapter.test.mjs    |  68 +++++++++++++++++++++++--
+ tests/test_bridge.py      |  33 ++++++++++++
+ 5 files changed, 220 insertions(+), 7 deletions(-)
+
+diff --git a/extension/connection.js b/extension/connection.js
+index e50ed6a..36ac149 100644
+--- a/extension/connection.js
++++ b/extension/connection.js
+@@ -74,7 +74,7 @@ export function createConnection({browser, token, execute, Socket = WebSocket,
+       if (socket !== current) return;
+       current.send(JSON.stringify({type: 'hello', token, version: browser.runtime.getManifest().version,
+         runtime_id: browser.runtime.id, instance_id: instanceId, build: 'h2-extension-reload-v1',
+-        capabilities: ['tab_context_v1', 'assembly_sidebar_map_v1', 'display_v1', 'native_modeling_v1', 'element_revision_v1', 'editor_tabs_v1', 'ui_exports_v1', 'chunked_upload_v1', 'chunked_response_v1', 'viewer_mesh_v1', 'h2_depth_edit_page_v1', 'h2_extension_reload_v1']}));
++        capabilities: ['tab_context_v1', 'assembly_sidebar_map_v1', 'display_v1', 'native_modeling_v1', 'element_revision_v1', 'editor_tabs_v1', 'ui_exports_v1', 'chunked_upload_v1', 'chunked_response_v1', 'viewer_mesh_v1', 'h2_depth_edit_page_v1', 'h2_native_sketch_populate_page_v1', 'h2_extension_reload_v1']}));
+     };
+     let lastPong = now(), chunkedResponses = false;
+     current.onmessage = async event => {
+diff --git a/extension/page-adapter.js b/extension/page-adapter.js
+index 15b1db4..6e9f839 100644
+--- a/extension/page-adapter.js
++++ b/extension/page-adapter.js
+@@ -324,6 +324,108 @@ export async function pageCommand(job) {
+       generatedNodes,
+       note:"Local constructor defaults only; no editor object traversal, allocator, query binding, or modeling RPC was invoked."});
+   }
++  if (job.kind === "partstudio_populate_sketch") {
++    const edit = job.sketch_edit;
++    if (target.did !== "4e078dec822b4e509616b1cb" ||
++        target.wid !== "af0627de07264acf086e646a" ||
++        target.eid !== "9a062f0eef8bb961f8c84f8e")
++      throw new Error("Native sketch creation is limited to the authorized temporary Part Studio.");
++    if (!job.expected_element_microversion || getElementMicroversion() !== job.expected_element_microversion)
++      throw new Error("Native element revision changed. Read state again.");
++    if (controller.connection?.isClosed?.() !== false || controller.__onshapeNativeIncompleteFeatureEdit ||
++        elementModel?.get("idEditingFeature") !== edit?.feature_id)
++      throw new Error("Exact sketch is not the active connected editor feature.");
++    if (!/^[A-Za-z][A-Za-z0-9_.]{0,63}$/.test(edit?.entity_prefix || "") ||
++        !Array.isArray(edit?.rectangle_m) || edit.rectangle_m.length !== 4 ||
++        edit.rectangle_m.some(v => !Number.isFinite(v)) ||
++        edit.rectangle_m[0] !== 0 || edit.rectangle_m[1] !== 0 ||
++        !(edit.rectangle_m[2] > 0 && edit.rectangle_m[2] <= 1) ||
++        !(edit.rectangle_m[3] > 0 && edit.rectangle_m[3] <= 1))
++      throw new Error("Expected one bounded origin-anchored rectangle in meters.");
++    const [x0,y0,x1,y1] = edit.rectangle_m;
++    const cache = controller.documentClientCache;
++    const root = () => cache?.getModelTreeState(target.eid)?.diffableModelTree?.getRoot();
++    const tree = root();
++    const siblings = Array.isArray(tree?.children) ? tree.children : [];
++    const matches = siblings.filter(node => node?.featureId === edit.feature_id && node.featureType === "newSketch");
++    if (matches.length !== 1 || !matches[0].nodeId || matches[0].entities?.length || matches[0].constraints?.length)
++      throw new Error("Expected one empty, newly initiated native sketch.");
++    const sketch = matches[0];
++    const plane = sketch.parameters?.filter(p => p.parameterId === "sketchPlane");
++    if (plane?.length !== 1 || plane[0].getMessageName?.() !== "bsedit.GBTMParameterQueryList" ||
++        plane[0].queries?.length !== 1 || !plane[0].queries[0].deterministicIds?.length)
++      throw new Error("Sketch plane must be selected by the current editor.");
++    const make = (name, fields={}) => hydrate({$type:name, ...fields});
++    const prefix = edit.entity_prefix;
++    const line = (side, px, py, dx, dy, distance) => make("bsedit.GBTMSketchCurveSegment", {
++      entityId:`${prefix}.${side}`, startPointId:`${prefix}.${side}.start`,
++      endPointId:`${prefix}.${side}.end`, isConstruction:false,
++      startParam:-distance / 2, endParam:distance / 2,
++      geometry:make("bsedit.GBTCurveGeometryLine",{pntX:px,pntY:py,dirX:dx,dirY:dy})});
++    const entities = [line("bottom",(x0+x1)/2,y0,1,0,x1-x0), line("right",x1,(y0+y1)/2,0,1,y1-y0),
++      line("top",(x0+x1)/2,y1,1,0,x1-x0), line("left",x0,(y0+y1)/2,0,1,y1-y0)];
++    const str = (id,value) => make("bsedit.GBTMParameterString",{parameterId:id,value});
++    const enumParam = (id,enumName,value) => make("bsedit.GBTMParameterEnum",{parameterId:id,enumName,value});
++    const quantity = (id,value,units,expression="") => make("bsedit.GBTMParameterQuantity",{
++      parameterId:id,value,units,expression});
++    const constraint = (id,type,parameters) => make("bsedit.GBTMSketchConstraint",{
++      entityId:`${prefix}.${id}`,constraintType:type,parameters,index:1});
++    const local = side => `${prefix}.${side}`;
++    const pair = (first,second) => [str("localFirst",first),str("localSecond",second)];
++    const origin = make("bsedit.GBTMParameterQueryList",{parameterId:"externalSecond",
++      queries:[make("bsedit.GBTMIndividualQuery",{deterministicIds:[],queryString:""})]});
++    const dimension = (id,side,mm,labelDistance) => constraint(id,11,[str("localFirst",local(side)),
++      enumParam("direction","DimensionDirection","MINIMUM"),quantity("length",mm,"millimeter",`${mm} mm`),
++      enumParam("alignment","DimensionAlignment","ALIGNED"),quantity("labelRatio",0.5,""),
++      quantity("labelDistance",labelDistance,"meter")]);
++    const constraints = [
++      constraint("firstSnap0",1,[str("localFirst",local("bottom.start")),origin]),
++      constraint("perpendicular",5,pair(local("top"),local("left"))),
++      constraint("parallel.1",2,pair(local("bottom"),local("top"))),
++      constraint("parallel.2",2,pair(local("left"),local("right"))),
++      constraint("horizontal",4,[str("localFirst",local("top"))]),
++      constraint("corner0",1,pair(local("bottom.start"),local("left.start"))),
++      constraint("corner1",1,pair(local("bottom.end"),local("right.start"))),
++      constraint("corner2",1,pair(local("top.start"),local("left.end"))),
++      constraint("corner3",1,pair(local("top.end"),local("right.end"))),
++      dimension("width","top",x1*1000,-Math.max(y1,0.01)/2),
++      dimension("height","right",y1*1000,Math.max(x1,0.01)/2)];
++    const changed = hydrate({...plain(sketch),entities:entities.map(item=>plain(item)),
++      constraints:constraints.map(item=>plain(item))});
++    const change = make("diff.GBTTreeEditChange",{oldNode:make("tree.GBTNodeReference",{nodeId:sketch.nodeId}),
++      newNode:changed});
++    const message = make("ui.GBTUiSpecifyFeature",{elementId:target.eid,featureNodeId:sketch.nodeId,
++      featureChange:change,sequenceId:1,selectionMicroversion:null,
++      inContextEntitiesToAdd:null,editDescription:"Populate H2 rectangle sketch"});
++    const commit = make("ui.GBTUiCommit",{elementId:target.eid,featureNodeId:sketch.nodeId,
++      editDescription:"Insert feature : H2 rectangle sketch"});
++    if (typeof controller.elementConnection?.callAndPromise !== "function")
++      throw new Error("Native editor connection unavailable.");
++    controller.__onshapeNativeIncompleteFeatureEdit = {node_id:sketch.nodeId,stage:"prepared"};
++    for (const [index,command] of [message,commit].entries()) {
++      if (controller.connection?.isClosed?.() !== false || controller.getActiveElementTabId() !== target.eid ||
++          location.pathname !== `/documents/${target.did}/w/${target.wid}/e/${target.eid}`)
++        throw new Error("Sketch editor target changed; outcome unknown.");
++      controller.__onshapeNativeIncompleteFeatureEdit.stage = index === 0 ? "specify" : "commit";
++      const response = await controller.elementConnection.callAndPromise(command);
++      if (response?.error || response?.errorCode || response?.errorEnum)
++        throw new Error("Native sketch command rejected; inspect before another mutation.");
++    }
++    for (let attempt=0;attempt<10;attempt++) {
++      const after = root()?.children?.filter(node => node?.featureId === edit.feature_id);
++      if (after?.length === 1 && after[0].nodeId === sketch.nodeId &&
++          after[0].entities?.length === 4 && after[0].constraints?.length === 11 &&
++          elementModel?.get("idEditingFeature") == null && getElementMicroversion() !== job.expected_element_microversion) {
++        delete controller.__onshapeNativeIncompleteFeatureEdit;
++        return {feature_id:edit.feature_id,feature_node_id:sketch.nodeId,
++          element_microversion_before:job.expected_element_microversion,
++          element_microversion_after:getElementMicroversion(),
++          definition_candidate:true,verification:"Independent state and UI geometry checks required"};
++      }
++      await new Promise(resolve=>setTimeout(resolve,100));
++    }
++    throw new Error("Sketch command acknowledged but saved definition/idle state is unconfirmed; outcome unknown.");
++  }
+   if (job.kind === "partstudio_depth_edit") {
+     // Experimental isolated-target operation. Keep the whole native edit
+     // lifecycle inside one editor invocation so no bridge call can interleave.
+diff --git a/onshape_native/bridge.py b/onshape_native/bridge.py
+index 168c89e..31feb94 100644
+--- a/onshape_native/bridge.py
++++ b/onshape_native/bridge.py
+@@ -77,7 +77,7 @@ def validate_job(job):
+     if not isinstance(job, dict):
+         raise BridgeError("Expected a JSON object.")
+     kind = job.get("kind")
+-    if not isinstance(kind, str) or kind not in {"rest", "native", "state", "schema", "creation_probe", "tabs", "open", "editor_tab", "ui_inspect", "ui_action", "display", "viewer_mesh", "partstudio_depth_edit"}:
++    if not isinstance(kind, str) or kind not in {"rest", "native", "state", "schema", "creation_probe", "tabs", "open", "editor_tab", "ui_inspect", "ui_action", "display", "viewer_mesh", "partstudio_depth_edit", "partstudio_populate_sketch"}:
+         raise BridgeError("Unknown command kind.")
+     if kind == "rest":
+         path = job.get("path", "")
+@@ -122,7 +122,7 @@ def validate_job(job):
+         if args["action"] == "read" and any(not isinstance(args.get(k), str) for k in
+                 ("expected_microversion", "full_element_id", "occurrence_path", "body_id")):
+             raise BridgeError("Viewer mesh read requires exact part reference and revision.")
+-    if kind in {"native", "state", "schema", "creation_probe", "open", "editor_tab", "ui_inspect", "ui_action", "display", "viewer_mesh", "partstudio_depth_edit"}:
++    if kind in {"native", "state", "schema", "creation_probe", "open", "editor_tab", "ui_inspect", "ui_action", "display", "viewer_mesh", "partstudio_depth_edit", "partstudio_populate_sketch"}:
+         target = job.get("target", {})
+         if not isinstance(target, dict) or set(target) != {"did", "wid", "eid"} or any(not isinstance(x, str) or not re.fullmatch(r"[a-f0-9]{24}", x) for x in target.values()):
+             raise BridgeError("Native commands require exact did, wid, eid target IDs.")
+@@ -183,6 +183,20 @@ def validate_job(job):
+                 or any(type(edit[key]) not in (int, float) or not __import__("math").isfinite(edit[key]) or not 0 < edit[key] <= 1000 for key in ("from_mm", "to_mm"))
+                 or edit["from_mm"] == edit["to_mm"]):
+             raise BridgeError("Depth edit requires one exact feature ID and positive bounded millimeter values.")
++    if kind == "partstudio_populate_sketch":
++        if target != {"did": "4e078dec822b4e509616b1cb", "wid": "af0627de07264acf086e646a", "eid": "9a062f0eef8bb961f8c84f8e"}:
++            raise BridgeError("Sketch population is limited to the authorized temporary Part Studio.")
++        if not re.fullmatch(r"[a-f0-9]{24}", str(job.get("expected_element_microversion", ""))):
++            raise BridgeError("Sketch population requires an exact fresh element revision.")
++        edit = job.get("sketch_edit")
++        if (not isinstance(edit, dict) or set(edit) != {"feature_id", "entity_prefix", "rectangle_m"}
++                or not isinstance(edit["feature_id"], str) or not re.fullmatch(r"[A-Za-z0-9_]{4,80}", edit["feature_id"])
++                or not isinstance(edit["entity_prefix"], str) or not re.fullmatch(r"[A-Za-z][A-Za-z0-9_.]{0,63}", edit["entity_prefix"])
++                or not isinstance(edit["rectangle_m"], list) or len(edit["rectangle_m"]) != 4
++                or any(type(x) not in (int, float) or not __import__("math").isfinite(x) for x in edit["rectangle_m"])
++                or edit["rectangle_m"][0:2] != [0, 0]
++                or any(not 0 < x <= 1 for x in edit["rectangle_m"][2:])):
++            raise BridgeError("Sketch population requires one exact active feature and bounded origin rectangle.")
+     return job
+ 
+ 
+@@ -263,6 +277,8 @@ class Broker:
+             if job.get("kind") == "display" and "display_v1" not in (self.extension_info or {}).get("capabilities", []):
+                 raise BridgeError("Loaded extension lacks display_v1. Update/reload version 0.4.0; check bridge_status.")
+             capabilities = (self.extension_info or {}).get("capabilities", [])
++            if job.get("kind") == "partstudio_populate_sketch" and "h2_native_sketch_populate_page_v1" not in capabilities:
++                raise BridgeError("Loaded extension lacks h2_native_sketch_populate_page_v1; reload and reconnect before editing.")
+             if job.get("kind") == "partstudio_depth_edit" and "h2_depth_edit_page_v1" not in capabilities:
+                 raise BridgeError("Loaded extension lacks h2_depth_edit_page_v1; reload and reconnect before editing.")
+             if job.get("kind") == "viewer_mesh" and "viewer_mesh_v1" not in capabilities:
+@@ -544,7 +560,7 @@ def create_app(config=None):
+         return JSONResponse({"protocol": 1, "extension_connected": broker.extension is not None,
+                              "extension": broker.extension_info, "pending": len(broker.pending),
+                              "reload": broker.reload_record,
+-                             "capabilities": ["ui_exports_v1", "chunked_upload_v1", "chunked_response_v1", "artifact_download_v1", "viewer_mesh_v1", "h2_depth_edit_server_v1", "h2_extension_reload_server_v1"]})
++                             "capabilities": ["ui_exports_v1", "chunked_upload_v1", "chunked_response_v1", "artifact_download_v1", "viewer_mesh_v1", "h2_depth_edit_server_v1", "h2_native_sketch_populate_server_v1", "h2_extension_reload_server_v1"]})
+ 
+     async def extension_reload(request):
+         denied = await auth(request)
+diff --git a/tests/adapter.test.mjs b/tests/adapter.test.mjs
+index 5665b1a..7beeed6 100644
+--- a/tests/adapter.test.mjs
++++ b/tests/adapter.test.mjs
+@@ -28,11 +28,11 @@ class Location {
+   getMessageName(){return 'tree.GBTInsertionLocation';}
+ }
+ let sent=[];
+-function setup(definition, current=false, elementMicro=null, root={children:[]}, extraTypes={}, onCall=null){
++function setup(definition, current=false, elementMicro=null, root={children:[]}, extraTypes={}, onCall=null, activeTarget=target){
+   globalThis.crypto ||= webcrypto;
+-  globalThis.location = {origin:'https://cad.onshape.com',pathname:`/documents/${target.did}/w/${target.wid}/e/${target.eid}`};
++  globalThis.location = {origin:'https://cad.onshape.com',pathname:`/documents/${activeTarget.did}/w/${activeTarget.wid}/e/${activeTarget.eid}`};
+   sent=[];
+-  const controller = {getActiveElementTabId:()=>target.eid,
++  const controller = {getActiveElementTabId:()=>activeTarget.eid,
+     connection:{isClosed:()=>false},
+     documentModel:{get:k=>k==='microversionId'?{theId:micro}:{get:k=>k==='microversionId'?elementMicro:null,definition}},
+     documentClientCache:{getModelTreeState:()=>({diffableModelTree:{getRoot:()=>root}})},
+@@ -79,6 +79,68 @@ test('creation probe checks constructor ID behavior without editor traversal or
+   assert.equal(sent.length,0);
+ });
+ 
++test('source rectangle populates an editor allocated blank sketch with typed native definitions',async()=>{
++  const temp={did:'4e078dec822b4e509616b1cb',wid:'af0627de07264acf086e646a',eid:'9a062f0eef8bb961f8c84f8e'};
++  const Type=(name,defaults)=>class {
++    constructor(){Object.assign(this,{nodeId:crypto.randomUUID(),...defaults});}
++    getMessageName(){return name;}
++    getClassId(){return 1;}
++  };
++  const Sketch=Type('bsedit.GBTMSketch',{featureId:'',featureType:'newSketch',name:'',parameters:[],entities:[],constraints:[]});
++  const Query=Type('bsedit.GBTMIndividualQuery',{deterministicIds:[],queryString:''});
++  const QueryList=Type('bsedit.GBTMParameterQueryList',{parameterId:'',queries:[]});
++  const Segment=Type('bsedit.GBTMSketchCurveSegment',{entityId:'',startPointId:'',endPointId:'',
++    isConstruction:false,startParam:0,endParam:0,geometry:null});
++  const Geometry=Type('bsedit.GBTCurveGeometryLine',{pntX:0,pntY:0,dirX:0,dirY:0});
++  const Constraint=Type('bsedit.GBTMSketchConstraint',{entityId:'',constraintType:0,parameters:[],index:0});
++  const StringParam=Type('bsedit.GBTMParameterString',{parameterId:'',value:''});
++  const EnumParam=Type('bsedit.GBTMParameterEnum',{parameterId:'',enumName:'',value:''});
++  const Quantity=Type('bsedit.GBTMParameterQuantity',{parameterId:'',value:0,units:'',expression:''});
++  const Change=Type('diff.GBTTreeEditChange',{oldNode:null,newNode:null});
++  const Reference=Type('tree.GBTNodeReference',{nodeId:''});
++  const Specify=Type('ui.GBTUiSpecifyFeature',{elementId:'',featureNodeId:'',featureChange:null,
++    sequenceId:0,selectionMicroversion:null,inContextEntitiesToAdd:null,editDescription:''});
++  const Commit=Type('ui.GBTUiCommit',{elementId:'',featureNodeId:'',editDescription:''});
++  const sketch=new Sketch();sketch.featureId='newlyAllocated_0';sketch.nodeId='fresh-sketch-node';
++  const plane=new QueryList();plane.parameterId='sketchPlane';
++  const query=new Query();query.deterministicIds=['editor-bound-top'];plane.queries=[query];sketch.parameters=[plane];
++  const root={children:[{featureId:'existing',nodeId:'prior',featureType:'datum'},sketch]};
++  let revision='a'.repeat(24), editing=sketch.featureId;
++  const types={Sketch,Query,QueryList,Segment,Geometry,Constraint,StringParam,EnumParam,Quantity,Change,Reference,Specify,Commit};
++  const modules=setup(undefined,false,revision,root,types,m=>{
++    if(m.getMessageName()==='ui.GBTUiSpecifyFeature') root.children[1]=m.featureChange.newNode;
++    if(m.getMessageName()==='ui.GBTUiCommit'){revision='b'.repeat(24);editing=null;}
++    return {errorEnum:0};
++  },temp);
++  modules.__controller.documentModel.get=k=>k==='microversionId'?{theId:micro}:
++    {get:x=>x==='microversionId'?revision:x==='idEditingFeature'?editing:null};
++  const result=await pageCommand({kind:'partstudio_populate_sketch',target:temp,
++    expected_element_microversion:'a'.repeat(24),sketch_edit:{feature_id:'newlyAllocated_0',
++      entity_prefix:'box',rectangle_m:[0,0,.04,.02]}});
++  assert.equal(result.definition_candidate,true,JSON.stringify(result));
++  assert.deepEqual(sent.map(m=>m.getMessageName()),['ui.GBTUiSpecifyFeature','ui.GBTUiCommit']);
++  assert.equal(root.children[0].featureId,'existing');
++  assert.equal(root.children[1].parameters[0].queries[0].deterministicIds[0],'editor-bound-top');
++  assert.deepEqual(root.children[1].entities.map(x=>x.entityId),
++    ['box.bottom','box.right','box.top','box.left']);
++  assert.equal(new Set(root.children[1].entities.map(x=>x.nodeId)).size,4);
++  assert.equal(root.children[1].constraints.length,11);
++  assert.deepEqual(root.children[1].constraints.filter(x=>x.constraintType===11)
++    .map(x=>x.parameters.find(p=>p.parameterId==='length').expression),['40 mm','20 mm']);
++});
++
++test('native sketch population rejects stale or unbound editor state before any RPC',async()=>{
++  const temp={did:'4e078dec822b4e509616b1cb',wid:'af0627de07264acf086e646a',eid:'9a062f0eef8bb961f8c84f8e'};
++  const sketch={featureId:'newlyAllocated_0',featureType:'newSketch',nodeId:'fresh-node',
++    entities:[],constraints:[],parameters:[]};
++  setup(undefined,false,'a'.repeat(24),{children:[sketch]}, {},null,temp);
++  const job={kind:'partstudio_populate_sketch',target:temp,expected_element_microversion:'b'.repeat(24),
++    sketch_edit:{feature_id:'newlyAllocated_0',entity_prefix:'box',rectangle_m:[0,0,.04,.02]}};
++  assert.match((await pageCommand(job)).error,/revision changed/);
++  assert.match((await pageCommand({...job,expected_element_microversion:'a'.repeat(24)})).error,/active connected editor/);
++  assert.equal(sent.length,0);
++});
++
+ test('isolated native extrusion depth edit preserves exact feature identities and definition',async()=>{
+   const Type=(name,defaults)=>class {
+     constructor(){Object.assign(this,defaults);}
+diff --git a/tests/test_bridge.py b/tests/test_bridge.py
+index 7c300b2..1b34123 100644
+--- a/tests/test_bridge.py
++++ b/tests/test_bridge.py
+@@ -19,6 +19,39 @@ def test_creation_probe_is_exact_target_read_only():
+         validate_job({**job, "target": {"did": "a" * 24}})
+ 
+ 
++def test_sketch_population_is_exact_target_and_revision_bound():
++    target = {"did": "4e078dec822b4e509616b1cb", "wid": "af0627de07264acf086e646a", "eid": "9a062f0eef8bb961f8c84f8e"}
++    job = {"kind": "partstudio_populate_sketch", "target": target,
++           "expected_element_microversion": "a" * 24,
++           "sketch_edit": {"feature_id": "freshSketch_0", "entity_prefix": "box",
++                           "rectangle_m": [0, 0, 0.04, 0.02]}}
++    assert validate_job(job) == job
++    with pytest.raises(BridgeError):
++        validate_job({**job, "target": {**target, "eid": "b" * 24}})
++    with pytest.raises(BridgeError):
++        validate_job({**job, "expected_element_microversion": "stale"})
++    with pytest.raises(BridgeError):
++        validate_job({**job, "sketch_edit": {**job["sketch_edit"], "rectangle_m": [0, 0, float("nan"), 0.02]}})
++    assert not is_cad_read(job)
++
++
++@pytest.mark.asyncio
++async def test_sketch_population_broker_rejects_old_loaded_extension_before_send():
++    broker = Broker({"token": "x" * 32})
++    class Connection:
++        sent = []
++        async def send_json(self, data): self.sent.append(data)
++    broker.extension = Connection()
++    broker.extension_info = {"capabilities": []}
++    job = {"kind": "partstudio_populate_sketch",
++           "target": {"did": "4e078dec822b4e509616b1cb", "wid": "af0627de07264acf086e646a", "eid": "9a062f0eef8bb961f8c84f8e"},
++           "expected_element_microversion": "a" * 24,
++           "sketch_edit": {"feature_id": "freshSketch_0", "entity_prefix": "box", "rectangle_m": [0, 0, .04, .02]}}
++    with pytest.raises(BridgeError, match="h2_native_sketch_populate_page_v1"):
++        await broker.dispatch(job)
++    assert not broker.extension.sent and not broker.pending
++
++
+ def test_disposable_depth_edit_validation_is_exact_and_finite():
+     target = {"did": "f5a8353dc826a9ec52106138", "wid": "a3baadfcc7e36a50134951d6", "eid": "a2761fa52794bee99354ae96"}
+     job = {"kind": "partstudio_depth_edit", "target": target,

@@ -23,6 +23,7 @@ from .journal import Journal
 
 _ID = re.compile(r"[a-f0-9]{24}\Z")
 _DISPOSABLE = {"did": "f5a8353dc826a9ec52106138", "wid": "a3baadfcc7e36a50134951d6", "eid": "a2761fa52794bee99354ae96"}
+_NATIVE_CREATE_TEST = {"did": "4e078dec822b4e509616b1cb", "wid": "af0627de07264acf086e646a", "eid": "9a062f0eef8bb961f8c84f8e"}
 
 
 @dataclass(frozen=True)
@@ -191,6 +192,132 @@ def stage_minimal_pair(snapshot: Snapshot) -> NativePairBlueprint:
     return NativePairBlueprint(sketch.logical_id, extrusion.logical_id, "Top", xy, depth_mm)
 
 
+def _live_rectangle_feature(state: dict[str, Any], blueprint: NativePairBlueprint,
+                            *, feature_id: str | None = None) -> dict[str, Any]:
+    """Bind an active editor sketch and evaluate its four native line segments."""
+    tree = state.get("tree")
+    if (state.get("connected") is not True or not isinstance(tree, dict)
+            or tree.get("$type") != "bsedit.GBTMModel" or not isinstance(tree.get("children"), list)):
+        raise Unsupported("Active Part Studio tree is unavailable")
+    feature_id = feature_id or state.get("editingFeatureId")
+    matches = [node for node in tree["children"] if isinstance(node, dict)
+               and node.get("featureId") == feature_id and node.get("featureType") == "newSketch"]
+    if len(matches) != 1 or not isinstance(feature_id, str) or not feature_id or not matches[0].get("nodeId"):
+        raise Unsupported("Exactly one active native sketch is required")
+    sketch = matches[0]
+    plane = [p for p in sketch.get("parameters", []) if isinstance(p, dict) and p.get("parameterId") == "sketchPlane"]
+    if (len(plane) != 1 or plane[0].get("$type") != "bsedit.GBTMParameterQueryList"
+            or not isinstance(plane[0].get("queries"), list) or len(plane[0]["queries"]) != 1
+            or not isinstance(plane[0]["queries"][0], dict)
+            or plane[0]["queries"][0].get("$type") != "bsedit.GBTMIndividualQuery"
+            or not plane[0]["queries"][0].get("deterministicIds")):
+        raise Unsupported("Active sketch lacks one editor-bound plane query")
+    entities = sketch.get("entities")
+    if not isinstance(entities, list) or len(entities) != 4:
+        raise Unsupported("Active sketch requires exactly four native line entities")
+    prefix = None
+    x0, y0, x1, y1 = blueprint.rectangle_m
+    expected = {"bottom": ((x0, y0), (x1, y0)), "right": ((x1, y0), (x1, y1)),
+                "top": ((x0, y1), (x1, y1)), "left": ((x0, y0), (x0, y1))}
+    seen: set[str] = set()
+    for entity in entities:
+        if not isinstance(entity, dict) or entity.get("$type") != "bsedit.GBTMSketchCurveSegment" or entity.get("isConstruction") is not False:
+            raise Unsupported("Native rectangle contains an unsupported entity")
+        ident = entity.get("entityId")
+        if not isinstance(ident, str) or "." not in ident:
+            raise Unsupported("Native rectangle entity ID is absent")
+        current_prefix, side = ident.rsplit(".", 1)
+        if (prefix is not None and current_prefix != prefix) or side not in expected or side in seen:
+            raise Unsupported("Native rectangle entity IDs do not form one rectangle")
+        prefix = current_prefix
+        seen.add(side)
+        geometry = entity.get("geometry")
+        if not isinstance(geometry, dict) or geometry.get("$type") != "bsedit.GBTCurveGeometryLine":
+            raise Unsupported("Native rectangle line geometry is unavailable")
+        values = [geometry.get(k) for k in ("pntX", "pntY", "dirX", "dirY")] + [entity.get(k) for k in ("startParam", "endParam")]
+        if any(type(v) not in (int, float) or not math.isfinite(v) for v in values):
+            raise Unsupported("Native rectangle line coordinates are invalid")
+        px, py, dx, dy, start, end = values
+        endpoints = ((px + start*dx, py + start*dy), (px + end*dx, py + end*dy))
+        if not all(math.isclose(actual[0], wanted[0], rel_tol=0, abs_tol=1e-8)
+                   and math.isclose(actual[1], wanted[1], rel_tol=0, abs_tol=1e-8)
+                   for actual, wanted in zip(sorted(endpoints), sorted(expected[side]))):
+            raise Unsupported("Native rectangle endpoints differ from FSGen plan")
+    if seen != set(expected):
+        raise Unsupported("Native rectangle is incomplete")
+    return sketch
+
+
+def _native_rectangle_constraints(sketch: dict[str, Any], blueprint: NativePairBlueprint) -> None:
+    """Check native equivalent geometry constraints and editable dimensions."""
+    entities = sketch["entities"]
+    prefix = entities[0]["entityId"].rsplit(".", 1)[0]
+    constraints = sketch.get("constraints")
+    if not isinstance(constraints, list) or len(constraints) != 11:
+        raise Unsupported("Native rectangle lacks eleven editor constraints")
+    observed: set[tuple[Any, ...]] = set()
+    ids: set[str] = set()
+    for constraint in constraints:
+        if not isinstance(constraint, dict) or constraint.get("$type") != "bsedit.GBTMSketchConstraint":
+            raise Unsupported("Native constraint type unavailable")
+        ident = constraint.get("entityId")
+        if not isinstance(ident, str) or not ident.startswith(prefix + ".") or ident in ids:
+            raise Unsupported("Native constraint identity duplicated or outside sketch")
+        ids.add(ident)
+        params = constraint.get("parameters")
+        if not isinstance(params, list) or any(not isinstance(p, dict) for p in params):
+            raise Unsupported("Native constraint parameters unavailable")
+        by_id = {p.get("parameterId"): p for p in params}
+        if len(by_id) != len(params):
+            raise Unsupported("Native constraint parameter IDs duplicated")
+        kind = constraint.get("constraintType")
+        first = by_id.get("localFirst")
+        second = by_id.get("localSecond")
+        if not isinstance(first, dict) or first.get("$type") != "bsedit.GBTMParameterString":
+            raise Unsupported("Native local constraint reference unavailable")
+        if second is not None and second.get("$type") != "bsedit.GBTMParameterString":
+            raise Unsupported("Native second constraint reference unavailable")
+        if kind in {1, 2, 4, 5}:
+            if kind == 1 and "externalSecond" in by_id:
+                origin = by_id["externalSecond"]
+                if (set(by_id) != {"localFirst", "externalSecond"}
+                        or origin.get("$type") != "bsedit.GBTMParameterQueryList"
+                        or len(origin.get("queries", [])) != 1
+                        or origin["queries"][0].get("$type") != "bsedit.GBTMIndividualQuery"):
+                    raise Unsupported("Native origin anchor differs")
+                observed.add(("origin", first.get("value")))
+            else:
+                if set(by_id) != ({"localFirst", "localSecond"} if second else {"localFirst"}):
+                    raise Unsupported("Native geometric constraint has extra fields")
+                observed.add((kind, first.get("value"), second.get("value") if second else None))
+        elif kind == 11:
+            if set(by_id) != {"localFirst", "direction", "length", "alignment", "labelRatio", "labelDistance"}:
+                raise Unsupported("Native dimension schema differs")
+            length = by_id["length"]
+            if (length.get("$type") != "bsedit.GBTMParameterQuantity"
+                    or length.get("units") != "millimeter"
+                    or by_id["direction"].get("value") != "MINIMUM"
+                    or by_id["alignment"].get("value") != "ALIGNED"):
+                raise Unsupported("Native editable dimension differs")
+            observed.add(("dimension", first.get("value"), length.get("value"), length.get("expression")))
+        else:
+            raise Unsupported("Native rectangle contains unsupported constraint")
+    x0, y0, x1, y1 = blueprint.rectangle_m
+    expected = {("origin", f"{prefix}.bottom.start"),
+                (5, f"{prefix}.top", f"{prefix}.left"),
+                (2, f"{prefix}.bottom", f"{prefix}.top"),
+                (2, f"{prefix}.left", f"{prefix}.right"),
+                (4, f"{prefix}.top", None),
+                (1, f"{prefix}.bottom.start", f"{prefix}.left.start"),
+                (1, f"{prefix}.bottom.end", f"{prefix}.right.start"),
+                (1, f"{prefix}.top.start", f"{prefix}.left.end"),
+                (1, f"{prefix}.top.end", f"{prefix}.right.end"),
+                ("dimension", f"{prefix}.top", (x1-x0)*1000, f"{(x1-x0)*1000:g} mm"),
+                ("dimension", f"{prefix}.right", (y1-y0)*1000, f"{(y1-y0)*1000:g} mm")}
+    if observed != expected:
+        raise Unsupported("Native constraints or dimensions differ from FSGen rectangle")
+
+
 class NativeBridge:
     """HTTP client for an already running, separately installed companion."""
 
@@ -234,7 +361,7 @@ class NativeBridge:
         return data
 
     async def command(self, job: dict[str, Any]) -> dict[str, Any]:
-        if job.get("kind") not in {"state", "schema", "creation_probe", "native", "partstudio_depth_edit"}:
+        if job.get("kind") not in {"state", "schema", "creation_probe", "native", "partstudio_depth_edit", "partstudio_populate_sketch"}:
             raise Unsupported("Browser-mode adapter permits only native editor jobs")
         try:
             response = await self.http.post("/command", json=job)
@@ -242,7 +369,7 @@ class NativeBridge:
         except (httpx.HTTPError, ValueError) as exc:
             raise UncertainWrite("Native bridge response unavailable; inspect before further mutation") from exc
         if isinstance(data, dict) and data.get("error"):
-            if job.get("kind") == "partstudio_depth_edit":
+            if job.get("kind") in {"partstudio_depth_edit", "partstudio_populate_sketch"}:
                 raise UncertainWrite(str(data["error"]))
             raise BackendError(str(data["error"]))
         if response.status_code != 200 or not isinstance(data, dict):
@@ -402,6 +529,106 @@ class NativeBackend:
 
     async def apply(self, operation: Operation, target: Target, expected_revision: str) -> Receipt:
         raise Unsupported("Native sketch/extrusion transaction lacks proven live ID allocation and complete readback")
+
+    async def populate_test_sketch(self, target: Target, source: str | Path, journal: Journal) -> dict[str, Any]:
+        """Populate one UI-allocated blank sketch from an exact FSGen source pair.
+
+        This experimental slice is confined to the named temporary Part Studio.
+        A returned definition observation does not prove solid regeneration.
+        """
+        if _target(target) != _NATIVE_CREATE_TEST or self.tab_id is None:
+            raise Unsupported("Native sketch population requires the authorized temporary tab")
+        from .fsgen import compile_fsgen
+        snapshot = compile_fsgen(source, target)
+        blueprint = stage_minimal_pair(snapshot)
+        entities = snapshot.features[0].structure["fsgen_native"]["entities"]
+        prefix = entities[0]["entityId"].rsplit(".", 1)[0]
+        key = f"{target.did}/{target.wid}/{target.eid}"
+        with journal.target_lock(key):
+            if journal.unresolved(key):
+                raise UncertainWrite("Prior target write unresolved; inspect before mutation")
+            health = await self.bridge.health()
+            if (health.get("extension_connected") is not True
+                    or "h2_native_sketch_populate_server_v1" not in (health.get("capabilities") or [])
+                    or "h2_native_sketch_populate_page_v1" not in ((health.get("extension") or {}).get("capabilities") or [])):
+                raise Unsupported("Installed bridge and loaded extension must both advertise native sketch support")
+            before = await self.raw_state(target)
+            tree = before["tree"]
+            if (before.get("connected") is not True or before.get("h2Readback", {}).get("contract") != "h2-readback-probe-v1"
+                    or tree.get("$type") != "bsedit.GBTMModel" or not isinstance(tree.get("children"), list)):
+                raise Unsupported("Connected native Part Studio tree unavailable")
+            feature_id = before.get("editingFeatureId")
+            matches = [node for node in tree["children"] if isinstance(node, dict) and node.get("featureId") == feature_id]
+            if (not isinstance(feature_id, str) or not feature_id or len(matches) != 1
+                    or matches[0].get("featureType") != "newSketch" or not matches[0].get("nodeId")
+                    or matches[0].get("entities") != [] or matches[0].get("constraints") != []):
+                raise Unsupported("One empty UI-allocated sketch must be actively edited")
+            plane = [p for p in matches[0].get("parameters", []) if isinstance(p, dict) and p.get("parameterId") == "sketchPlane"]
+            if (len(plane) != 1 or plane[0].get("$type") != "bsedit.GBTMParameterQueryList"
+                    or len(plane[0].get("queries", [])) != 1
+                    or not plane[0]["queries"][0].get("deterministicIds")):
+                raise Unsupported("Editor has not bound a sketch plane")
+            op_id = "sketch-" + uuid4().hex
+            journal.prepare(op_id=op_id, target=key, expected_revision=before["element_microversion"],
+                            action="experimental_sketch_populate", logical_id=blueprint.sketch_logical_id,
+                            intent={"before_state": before, "feature_id": feature_id,
+                                    "blueprint": blueprint.to_dict(), "entity_prefix": prefix})
+            job: dict[str, Any] = {"kind": "partstudio_populate_sketch", "target": _NATIVE_CREATE_TEST,
+                                   "tab_id": self.tab_id, "expected_element_microversion": before["element_microversion"],
+                                   "sketch_edit": {"feature_id": feature_id, "entity_prefix": prefix,
+                                                   "rectangle_m": list(blueprint.rectangle_m)}}
+            try:
+                response = await self.bridge.command(job)
+            except Exception as exc:
+                journal.transition(op_id, "unknown", error=str(exc))
+                raise UncertainWrite(f"Sketch population outcome unknown; journal operation {op_id}") from exc
+            journal.transition(op_id, "sent", receipt=response)
+            try:
+                after = await self.raw_state(target)
+                result = _live_rectangle_feature(after, blueprint, feature_id=feature_id)
+                _native_rectangle_constraints(result, blueprint)
+                previous = tree["children"]
+                current = after["tree"].get("children", [])
+                pos = next(i for i, node in enumerate(previous) if node.get("featureId") == feature_id)
+                if (response.get("definition_candidate") is not True
+                        or after.get("connected") is not True or after.get("editingFeatureId") is not None
+                        or after["element_microversion"] == before["element_microversion"]
+                        or len(current) != len(previous) or current[pos].get("nodeId") != matches[0]["nodeId"]
+                        or result.get("parameters") != matches[0].get("parameters")
+                        or any(current[i] != previous[i] for i in range(len(previous)) if i != pos)):
+                    raise UncertainWrite("Independent sketch readback or unrelated tree differs")
+            except Exception as exc:
+                journal.transition(op_id, "unknown", error=str(exc))
+                raise UncertainWrite(f"Sketch population outcome unknown; journal operation {op_id}") from exc
+            evidence = {"op_id": op_id, "feature_id": feature_id,
+                        "revision_before": before["element_microversion"], "revision_after": after["element_microversion"],
+                        "definition_verified": True, "geometry_verified": False,
+                        "constraint_graph_verified": False, "ui_editability_verified": False}
+            journal.transition(op_id, "observed", observation=evidence)
+            return evidence
+
+    async def reconcile_test_sketch(self, op_id: str, journal: Journal) -> dict[str, Any]:
+        """Inspect an uncertain sketch write without retrying or declaring completion."""
+        row = journal.get(op_id)
+        if row is None or row["action"] != "experimental_sketch_populate":
+            raise Unsupported("Journal operation is not a native sketch population")
+        if row["state"] == "observed":
+            return {"op_id": op_id, "status": "verified", "evidence": json.loads(row["observation"] or "{}")}
+        if row["state"] == "rejected":
+            return {"op_id": op_id, "status": "rejected", "reason": row["error"]}
+        fields = row["target"].split("/")
+        if len(fields) != 3 or dict(zip(("did", "wid", "eid"), fields)) != _NATIVE_CREATE_TEST:
+            raise Unsupported("Experimental sketch journal target differs from the authorized studio")
+        try:
+            state = await self.raw_state(Target(*fields))
+        except Exception as exc:
+            return {"op_id": op_id, "status": "unknown", "reason": f"Read-only inspection failed: {exc}"}
+        before = json.loads(row["intent"]).get("before_state", {})
+        return {"op_id": op_id, "status": "unknown", "reason":
+                "Sketch write needs independent definition and constraint-graph review; no command was replayed",
+                "revision_before": before.get("element_microversion"),
+                "revision_now": state.get("element_microversion"),
+                "editing_feature_id": state.get("editingFeatureId")}
 
     async def edit_disposable_extrude_depth(self, target: Target, *, feature_id: str,
                                             from_mm: int | float, to_mm: int | float,

@@ -9,7 +9,7 @@ from h2cad.backend import Unsupported
 from h2cad.cli import main
 from h2cad.fsgen import compile_fsgen
 from h2cad.model import Target
-from h2cad.native import stage_minimal_pair
+from h2cad.native import _live_rectangle_feature, stage_minimal_pair
 
 
 SOURCE = Path(__file__).resolve().parents[1] / "fixtures" / "native" / "minimal_plate.fs"
@@ -33,6 +33,29 @@ def test_blueprint_cli_uses_same_fsgen_source_without_browser(capsys):
     assert output["depth_mm"] == 5
     assert output["rectangle_m"] == [0, 0, .04, .02]
     assert not output["write_ready"]
+
+
+def test_active_native_rectangle_endpoints_match_fsgen_plan():
+    blueprint = stage_minimal_pair(compile_fsgen(SOURCE, Target("d", "w", "e")))
+    lines = [("bottom", .02, 0, 1, 0, -.02, .02),
+             ("right", .04, .01, 0, 1, -.01, .01),
+             ("top", .02, .02, 1, 0, -.02, .02),
+             ("left", 0, .01, 0, 1, -.01, .01)]
+    entities = [{"$type": "bsedit.GBTMSketchCurveSegment", "entityId": "fresh." + side,
+                 "isConstruction": False, "startParam": start, "endParam": end,
+                 "geometry": {"$type": "bsedit.GBTCurveGeometryLine", "pntX": px,
+                              "pntY": py, "dirX": dx, "dirY": dy}}
+                for side, px, py, dx, dy, start, end in lines]
+    feature = {"featureId": "fresh-sketch", "featureType": "newSketch", "nodeId": "fresh-node",
+               "entities": entities, "parameters": [{"$type": "bsedit.GBTMParameterQueryList",
+                 "parameterId": "sketchPlane", "queries": [{"$type": "bsedit.GBTMIndividualQuery",
+                 "deterministicIds": ["live-top"]}]}]}
+    state = {"connected": True, "editingFeatureId": "fresh-sketch",
+             "tree": {"$type": "bsedit.GBTMModel", "children": [feature]}}
+    assert _live_rectangle_feature(state, blueprint) is feature
+    entities[1]["endParam"] = .0102
+    with pytest.raises(Unsupported, match="endpoints"):
+        _live_rectangle_feature(state, blueprint)
 
 
 @pytest.mark.parametrize("mutation", [
