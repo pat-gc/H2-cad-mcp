@@ -1,0 +1,15 @@
+{
+  "tab_id": 941740749,
+  "window_id": 941740192,
+  "url": "https://cad.onshape.com/documents/4e078dec822b4e509616b1cb/w/af0627de07264acf086e646a/e/9a062f0eef8bb961f8c84f8e",
+  "managed": false,
+  "mode": "existing",
+  "close_after_work": false,
+  "ready": true,
+  "stale": false,
+  "reason": "connected",
+  "busy": true,
+  "microversion": "173add483354f185892c6310",
+  "element_microversion": "067dc0664629241c05686f7b",
+  "next": "Use this exact tab_id for native tools. Verify saved work, restore previews, then call editor_tab(action=\"finish\")."
+}

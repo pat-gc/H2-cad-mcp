@@ -1,0 +1,33 @@
+{
+  "microversion_after": "173add483354f185892c6310",
+  "microversion_before": "173add483354f185892c6310",
+  "next": "Read native_state and check regeneration; an acknowledgement alone does not prove correct geometry.",
+  "result": {
+    "$type": "ui.GBTUiGetQueryDataResponse",
+    "queryData": [
+      {
+        "$type": "display.GBTQueryData",
+        "deterministicIds": [
+          "JDC"
+        ],
+        "evaluationDetails": {
+          "$type": "display.GBTQueryEvaluationDetails",
+          "candidates": [],
+          "entityType": 2,
+          "fidelity": 1,
+          "fullOperationId": "Top.planeOp",
+          "outsideExactDependencies": false,
+          "status": 0
+        },
+        "featureId": "Top",
+        "hasErrorEntity": false,
+        "isTemporaryFakeDataForSelection": false,
+        "nodeId": "",
+        "queryVariableName": "",
+        "selectionName": "Face",
+        "specializedPurpose": 0
+      }
+    ]
+  },
+  "tab_id": 941740749
+}
