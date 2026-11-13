@@ -1,0 +1,5 @@
+# Index only the H2 CAD implementation, scripts, and tests.
+/*
+!/src/
+!/scripts/
+!/tests/
