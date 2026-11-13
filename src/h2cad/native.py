@@ -358,6 +358,16 @@ def _verify_rectangle_graph(payload: dict[str, Any], prefix: str) -> None:
         raise Unsupported("Native rectangle start is not solved at the origin")
 
 
+def _native_model_metadata(tree: dict[str, Any]) -> dict[str, Any]:
+    """Compare CAD model metadata while ignoring one observed per-tab schema ID."""
+    metadata = copy.deepcopy({key: value for key, value in tree.items() if key != "children"})
+    annotations = metadata.get("modelAnnotations")
+    tolerance = annotations.get("toleranceSchemaForParts") if isinstance(annotations, dict) else None
+    if isinstance(tolerance, dict) and isinstance(tolerance.get("nodeId"), str) and tolerance["nodeId"]:
+        tolerance["nodeId"] = "<per-tab-tolerance-schema-node>"
+    return metadata
+
+
 class NativeBridge:
     """HTTP client for an already running, separately installed companion."""
 
@@ -810,8 +820,7 @@ class NativeBackend:
                     or len(previous) != len(current)
                     or any(a != b for a, b in zip(previous, current) if a.get("featureId") != feature_id)
                     or prior_feature is None or feature.get("parameters") != prior_feature.get("parameters")
-                    or {k: v for k, v in before["tree"].items() if k != "children"}
-                       != {k: v for k, v in after["tree"].items() if k != "children"}):
+                    or _native_model_metadata(before["tree"]) != _native_model_metadata(after["tree"])):
                 raise Unsupported("Current failed sketch or unrelated tree differs from the known attempt")
             graph = await self.bridge.command({"kind": "native", "target": _NATIVE_CREATE_TEST,
                                                "tab_id": self.tab_id,

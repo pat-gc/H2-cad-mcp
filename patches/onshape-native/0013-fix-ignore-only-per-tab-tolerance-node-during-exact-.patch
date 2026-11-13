@@ -1,0 +1,76 @@
+From f2b5702abc705edc69ada471ef73b20cbfbf7a2c Mon Sep 17 00:00:00 2001
+From: patcybermind <pato.gonzalezcabrera@gmail.com>
+Date: Fri, 13 Nov 2026 13:34:41 -0500
+Subject: [PATCH] fix: ignore only per-tab tolerance node during exact rollback
+
+---
+ onshape_native/bridge.py | 15 +++++++++++++--
+ tests/test_bridge.py     | 10 +++++++---
+ 2 files changed, 20 insertions(+), 5 deletions(-)
+
+diff --git a/onshape_native/bridge.py b/onshape_native/bridge.py
+index a5cfdf3..ea654d6 100644
+--- a/onshape_native/bridge.py
++++ b/onshape_native/bridge.py
+@@ -719,12 +719,23 @@ def create_app(config=None):
+                     expected_tree = json.loads(json.dumps(before["tree"]))
+                     expected_tree["children"] = [child for child in expected_tree.get("children", [])
+                                                  if child.get("featureId") != feature_id]
++                    def normalized_tree(tree):
++                        copy = json.loads(json.dumps(tree))
++                        if not isinstance(copy, dict):
++                            raise ValueError("Native model tree unavailable")
++                        annotations = copy.get("modelAnnotations")
++                        tolerance = annotations.get("toleranceSchemaForParts") if isinstance(annotations, dict) else None
++                        if isinstance(tolerance, dict) and isinstance(tolerance.get("nodeId"), str) and tolerance["nodeId"]:
++                            tolerance["nodeId"] = "<per-tab-tolerance-schema-node>"
++                        return copy
+                     if (len(expected_tree["children"]) != len(before["tree"].get("children", [])) - 1
+-                            or live.get("tree") != expected_tree):
++                            or normalized_tree(live.get("tree")) != normalized_tree(expected_tree)):
+                         raise ValueError("Normal editor did not restore the exact prior default tree")
+                     evidence = {**applied, "classification": "applied_invalid_rolled_back",
+                                 "revision_rolled_back": live["element_microversion"],
+-                                "default_tree_restored": True}
++                                "default_tree_restored": True,
++                                "removal_method": "saved_feature_delete" if applied.get("saved_invalid_feature") is True
++                                else "active_edit_cancel"}
+                     db.execute("UPDATE writes SET state='rejected', observation=?, error=?, updated_at=CURRENT_TIMESTAMP WHERE op_id=? AND state='unknown'",
+                                (json.dumps(evidence, sort_keys=True), "Applied-invalid sketch canceled; exact default tree observed", op_id))
+                     db.execute("COMMIT")
+diff --git a/tests/test_bridge.py b/tests/test_bridge.py
+index d2c2a6b..cbebdbe 100644
+--- a/tests/test_bridge.py
++++ b/tests/test_bridge.py
+@@ -127,9 +127,10 @@ async def test_applied_invalid_sketch_guard_releases_only_after_exact_rollback(t
+     rollback = {"$type": "bsedit.GBTMRollback", "nodeId": "rollback"}
+     before = {"target": target, "connected": True, "editingFeatureId": "sourceSketch_0",
+               "element_microversion": "c" * 24,
+-              "tree": {"$type": "bsedit.GBTMModel", "children": [sketch, rollback]}}
++              "tree": {"$type": "bsedit.GBTMModel", "children": [sketch, rollback],
++                       "modelAnnotations": {"toleranceSchemaForParts": {"nodeId": "old-tab-node", "items": [1]}}}}
+     applied = {"classification": "applied_invalid", "feature_id": "sourceSketch_0",
+-               "revision_invalid": "97955554c86d659d57a74a68"}
++               "revision_invalid": "97955554c86d659d57a74a68", "saved_invalid_feature": True}
+     journal = tmp_path / "intent.sqlite"
+     with sqlite3.connect(journal) as db:
+         db.execute("CREATE TABLE writes(op_id TEXT,target TEXT,expected_revision TEXT,action TEXT,logical_id TEXT,intent TEXT,state TEXT,receipt TEXT,observation TEXT,error TEXT,updated_at TEXT)")
+@@ -145,7 +146,8 @@ async def test_applied_invalid_sketch_guard_releases_only_after_exact_rollback(t
+     broker.extension = object()
+     async def dispatch(job):
+         assert job["kind"] == "state" and job["target"] == target
+-        tree = {"$type": "bsedit.GBTMModel", "children": [rollback]}
++        tree = {"$type": "bsedit.GBTMModel", "children": [rollback],
++                "modelAnnotations": {"toleranceSchemaForParts": {"nodeId": "new-tab-node", "items": [1]}}}
+         if changed:
+             tree["children"].append({"featureId": "unexpected"})
+         return {"target": target, "connected": True, "editingFeatureId": None,
+@@ -158,6 +160,8 @@ async def test_applied_invalid_sketch_guard_releases_only_after_exact_rollback(t
+         state = db.execute("SELECT state FROM writes WHERE op_id=?", (op_id,)).fetchone()[0]
+     assert state == ("unknown" if changed else "rejected")
+     assert broker.unknown_write is changed
++    if not changed:
++        assert response.json()["evidence"]["removal_method"] == "saved_feature_delete"
+ 
+ 
+ def test_disposable_depth_edit_validation_is_exact_and_finite():

@@ -197,9 +197,11 @@ async def test_known_applied_invalid_sketch_is_recorded_but_remains_blocking(tmp
     from h2cad.native import stage_minimal_pair
     before = state()
     before["element_microversion"] = "c" * 24
+    before["tree"]["modelAnnotations"] = {"toleranceSchemaForParts": {"nodeId": "old-tab-node", "items": [1]}}
     after = state(populated=True)
     after["element_microversion"] = "97955554c86d659d57a74a68"
     after["editingFeatureId"] = editing
+    after["tree"]["modelAnnotations"] = {"toleranceSchemaForParts": {"nodeId": "new-tab-node", "items": [1]}}
     class InvalidBridge:
         def __init__(self): self.calls = []
         async def command(self, job):
