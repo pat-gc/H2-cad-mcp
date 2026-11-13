@@ -1,0 +1,169 @@
+From de340972bbcfeb68e61df8577b988c489902d952 Mon Sep 17 00:00:00 2001
+From: patcybermind <pato.gonzalezcabrera@gmail.com>
+Date: Fri, 13 Nov 2026 13:49:52 -0500
+Subject: [PATCH] fix: anchor source rectangle with an internal fixed point
+
+---
+ extension/page-adapter.js | 33 ++++++++++++++++++++++-----
+ tests/adapter.test.mjs    | 48 +++++++++++++++++++++++++++++++++++----
+ 2 files changed, 71 insertions(+), 10 deletions(-)
+
+diff --git a/extension/page-adapter.js b/extension/page-adapter.js
+index d83c340..0767c66 100644
+--- a/extension/page-adapter.js
++++ b/extension/page-adapter.js
+@@ -433,14 +433,12 @@ export async function pageCommand(job) {
+       entityId:`${prefix}.${id}`,constraintType:type,parameters,index:1});
+     const local = side => `${prefix}.${side}`;
+     const pair = (first,second) => [str("localFirst",first),str("localSecond",second)];
+-    const origin = make("bsedit.GBTMParameterQueryList",{parameterId:"externalSecond",
+-      queries:[make("bsedit.GBTMIndividualQuery",{deterministicIds:[],queryString:""})]});
+     const dimension = (id,side,mm,labelDistance) => constraint(id,11,[str("localFirst",local(side)),
+       enumParam("direction","DimensionDirection","MINIMUM"),quantity("length",mm,"millimeter",`${mm} mm`),
+       enumParam("alignment","DimensionAlignment","ALIGNED"),quantity("labelRatio",0.5,""),
+       quantity("labelDistance",labelDistance,"meter")]);
+     const constraints = [
+-      constraint("firstSnap0",1,[str("localFirst",local("bottom.start")),origin]),
++      constraint("fixedOrigin",16,[str("localFirst",local("bottom.start"))]),
+       constraint("perpendicular",5,pair(local("top"),local("left"))),
+       constraint("parallel.1",2,pair(local("bottom"),local("top"))),
+       constraint("parallel.2",2,pair(local("left"),local("right"))),
+@@ -458,20 +456,42 @@ export async function pageCommand(job) {
+     const message = make("ui.GBTUiSpecifyFeature",{elementId:target.eid,featureNodeId:sketch.nodeId,
+       featureChange:change,sequenceId:1,selectionMicroversion:null,
+       inContextEntitiesToAdd:null,editDescription:"Populate H2 rectangle sketch"});
++    const graphCall = make("ui.sketch.GBTUiSketchGetConstraintGraphCall",{
++      elementId:target.eid,sketchFeatureId:edit.feature_id,supportsConsolidatedConstraints:false});
+     const commit = make("ui.GBTUiCommit",{elementId:target.eid,featureNodeId:sketch.nodeId,
+       editDescription:"Insert feature : H2 rectangle sketch"});
+     if (typeof controller.elementConnection?.callAndPromise !== "function")
+       throw new Error("Native editor connection unavailable.");
+     controller.__onshapeNativeIncompleteFeatureEdit = {node_id:sketch.nodeId,stage:"prepared"};
+-    for (const [index,command] of [message,commit].entries()) {
++    let activeGraph;
++    for (const [index,command] of [message,graphCall,commit].entries()) {
+       if (controller.connection?.isClosed?.() !== false || controller.getActiveElementTabId() !== target.eid ||
+           location.pathname !== `/documents/${target.did}/w/${target.wid}/e/${target.eid}`)
+         throw new Error("Sketch editor target changed; outcome unknown.");
+-      controller.__onshapeNativeIncompleteFeatureEdit.stage = index === 0 ? "specify" : "commit";
++      controller.__onshapeNativeIncompleteFeatureEdit.stage = ["specify","inspect-active-graph","commit"][index];
+       h2CadRpcSent = true;
+       const response = await controller.elementConnection.callAndPromise(command);
+       if (response?.error || response?.errorCode || response?.errorEnum)
+         throw new Error("Native sketch command rejected; inspect before another mutation.");
++      if (index === 1) {
++        activeGraph = plain(response);
++        const actual = activeGraph.constraints;
++        const expectedIds = constraints.map(item=>item.entityId);
++        const fixed = actual?.[`${prefix}.fixedOrigin`];
++        const start = activeGraph.references?.[`${prefix}.bottom.start`];
++        if (activeGraph.$type !== "ui.sketch.GBTUiSketchGetConstraintGraphResponse" ||
++            !actual || typeof actual !== "object" || Array.isArray(actual) ||
++            Object.keys(actual).length !== expectedIds.length ||
++            expectedIds.some(id=>actual[id]?.status !== 4 || actual[id]?.displayStatus !== 1) ||
++            fixed?.type !== 16 || fixed?.isExternal !== false ||
++            !Array.isArray(fixed?.referenceIds) || fixed.referenceIds.length !== 1 ||
++            fixed.referenceIds[0] !== `${prefix}.bottom.start` ||
++            start?.isSketchEntity !== true || start?.worstSolveStatus !== 1 ||
++            !["anchorX","anchorY","anchorZ"].every(key =>
++              typeof start[key] === "number" && Number.isFinite(start[key]) && Math.abs(start[key]) < 1e-8) ||
++            activeGraph.worstSolveStatus !== 1 || activeGraph.sketchError?.statusEnum !== 0)
++          throw new Error("Active native sketch constraint graph is incomplete; Commit was not sent.");
++      }
+     }
+     for (let attempt=0;attempt<10;attempt++) {
+       const after = root()?.children?.filter(node => node?.featureId === edit.feature_id);
+@@ -482,7 +502,8 @@ export async function pageCommand(job) {
+         return {feature_id:edit.feature_id,feature_node_id:sketch.nodeId,
+           element_microversion_before:job.expected_element_microversion,
+           element_microversion_after:getElementMicroversion(),
+-          definition_candidate:true,verification:"Independent state and UI geometry checks required"};
++          definition_candidate:true,active_constraint_graph:activeGraph,
++          verification:"Independent saved state and editable UI checks required"};
+       }
+       await new Promise(resolve=>setTimeout(resolve,100));
+     }
+diff --git a/tests/adapter.test.mjs b/tests/adapter.test.mjs
+index f9891c1..f0ab351 100644
+--- a/tests/adapter.test.mjs
++++ b/tests/adapter.test.mjs
+@@ -101,32 +101,72 @@ test('source rectangle populates an editor allocated blank sketch with typed nat
+   const Specify=Type('ui.GBTUiSpecifyFeature',{elementId:'',featureNodeId:'',featureChange:null,
+     sequenceId:0,selectionMicroversion:null,inContextEntitiesToAdd:null,editDescription:''});
+   const Commit=Type('ui.GBTUiCommit',{elementId:'',featureNodeId:'',editDescription:''});
++  const GraphCall=Type('ui.sketch.GBTUiSketchGetConstraintGraphCall',{
++    elementId:'',sketchFeatureId:'',supportsConsolidatedConstraints:false});
+   const sketch=new Sketch();sketch.featureId='newlyAllocated_0';sketch.nodeId='fresh-sketch-node';
+   const plane=new QueryList();plane.parameterId='sketchPlane';
+   const query=new Query();query.deterministicIds=['editor-bound-top'];plane.queries=[query];sketch.parameters=[plane];
+   const root={children:[{featureId:'existing',nodeId:'prior',featureType:'datum'},sketch]};
+   let revision='a'.repeat(24), editing=sketch.featureId;
+-  const types={Sketch,Query,QueryList,Segment,Geometry,Constraint,StringParam,EnumParam,Quantity,Change,Reference,Specify,Commit};
+-  const modules=setup(undefined,false,revision,root,types,m=>{
++  let healthyGraph=true;
++  let graphAnchorX=0;
++  const types={Sketch,Query,QueryList,Segment,Geometry,Constraint,StringParam,EnumParam,Quantity,Change,Reference,Specify,Commit,GraphCall};
++  const respond=m=>{
+     if(m.getMessageName()==='ui.GBTUiSpecifyFeature') root.children[1]=m.featureChange.newNode;
++    if(m.getMessageName()==='ui.sketch.GBTUiSketchGetConstraintGraphCall')
++      return {getMessageName:()=> 'ui.sketch.GBTUiSketchGetConstraintGraphResponse',
++        constraints:healthyGraph ? Object.fromEntries(root.children[1].constraints.map(c=>[c.entityId,
++          c.entityId==='box.fixedOrigin' ? {status:4,displayStatus:1,type:16,isExternal:false,
++            referenceIds:['box.bottom.start']} : {status:4,displayStatus:1}])) : {},
++        references:{'box.bottom.start':{isSketchEntity:true,worstSolveStatus:1,
++          anchorX:graphAnchorX,anchorY:0,anchorZ:0}},
++        worstSolveStatus:1,sketchError:{statusEnum:0}};
+     if(m.getMessageName()==='ui.GBTUiCommit'){revision='b'.repeat(24);editing=null;}
+     return {errorEnum:0};
+-  },temp);
++  };
++  const modules=setup(undefined,false,revision,root,types,respond,temp);
+   modules.__controller.documentModel.get=k=>k==='microversionId'?{theId:micro}:
+     {get:x=>x==='microversionId'?revision:x==='idEditingFeature'?editing:null};
+   const result=await pageCommand({kind:'partstudio_populate_sketch',target:temp,
+     expected_element_microversion:'a'.repeat(24),sketch_edit:{feature_id:'newlyAllocated_0',
+       entity_prefix:'box',rectangle_m:[0,0,.04,.02]}});
+   assert.equal(result.definition_candidate,true,JSON.stringify(result));
+-  assert.deepEqual(sent.map(m=>m.getMessageName()),['ui.GBTUiSpecifyFeature','ui.GBTUiCommit']);
++  assert.deepEqual(sent.map(m=>m.getMessageName()),['ui.GBTUiSpecifyFeature',
++    'ui.sketch.GBTUiSketchGetConstraintGraphCall','ui.GBTUiCommit']);
++  assert.equal(Object.keys(result.active_constraint_graph.constraints).length,11);
+   assert.equal(root.children[0].featureId,'existing');
+   assert.equal(root.children[1].parameters[0].queries[0].deterministicIds[0],'editor-bound-top');
+   assert.deepEqual(root.children[1].entities.map(x=>x.entityId),
+     ['box.bottom','box.right','box.top','box.left']);
+   assert.equal(new Set(root.children[1].entities.map(x=>x.nodeId)).size,4);
+   assert.equal(root.children[1].constraints.length,11);
++  assert.deepEqual(root.children[1].constraints.find(x=>x.entityId==='box.fixedOrigin').parameters
++    .map(x=>x.parameterId),['localFirst']);
+   assert.deepEqual(root.children[1].constraints.filter(x=>x.constraintType===11)
+     .map(x=>x.parameters.find(p=>p.parameterId==='length').expression),['40 mm','20 mm']);
++  // A bad active solver graph must stop before Commit even after the typed
++  // SpecifyFeature has changed the in-memory model.
++  healthyGraph=false;revision='a'.repeat(24);editing=sketch.featureId;root.children[1]=sketch;
++  const fresh=setup(undefined,false,revision,root,types,respond,temp);
++  fresh.__controller.documentModel.get=k=>k==='microversionId'?{theId:micro}:
++    {get:x=>x==='microversionId'?revision:x==='idEditingFeature'?editing:null};
++  const invalid=await pageCommand({kind:'partstudio_populate_sketch',target:temp,
++    expected_element_microversion:'a'.repeat(24),sketch_edit:{feature_id:'newlyAllocated_0',
++      entity_prefix:'box',rectangle_m:[0,0,.04,.02]}});
++  assert.match(invalid.error,/graph is incomplete; Commit was not sent/);
++  assert.equal(invalid.write_stage,'submitted_or_uncertain');
++  assert.deepEqual(sent.map(m=>m.getMessageName()),['ui.GBTUiSpecifyFeature',
++    'ui.sketch.GBTUiSketchGetConstraintGraphCall']);
++  healthyGraph=true;graphAnchorX=.01;revision='a'.repeat(24);editing=sketch.featureId;root.children[1]=sketch;
++  const misplaced=setup(undefined,false,revision,root,types,respond,temp);
++  misplaced.__controller.documentModel.get=k=>k==='microversionId'?{theId:micro}:
++    {get:x=>x==='microversionId'?revision:x==='idEditingFeature'?editing:null};
++  const wrongAnchor=await pageCommand({kind:'partstudio_populate_sketch',target:temp,
++    expected_element_microversion:'a'.repeat(24),sketch_edit:{feature_id:'newlyAllocated_0',
++      entity_prefix:'box',rectangle_m:[0,0,.04,.02]}});
++  assert.match(wrongAnchor.error,/graph is incomplete; Commit was not sent/);
++  assert.deepEqual(sent.map(m=>m.getMessageName()),['ui.GBTUiSpecifyFeature',
++    'ui.sketch.GBTUiSketchGetConstraintGraphCall']);
+ });
+ 
+ test('normal Sketch and Top controls allocate a fresh blank native feature',async()=>{
+-- 
+2.54.0.windows.1
+

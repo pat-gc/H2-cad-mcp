@@ -281,21 +281,10 @@ def _native_rectangle_constraints(sketch: dict[str, Any], blueprint: NativePairB
             raise Unsupported("Native local constraint reference unavailable")
         if second is not None and second.get("$type") != "bsedit.GBTMParameterString":
             raise Unsupported("Native second constraint reference unavailable")
-        if kind in {1, 2, 4, 5}:
-            if kind == 1 and "externalSecond" in by_id:
-                origin = by_id["externalSecond"]
-                if (set(by_id) != {"localFirst", "externalSecond"}
-                        or origin.get("$type") != "bsedit.GBTMParameterQueryList"
-                        or len(origin.get("queries", [])) != 1
-                        or origin["queries"][0].get("$type") != "bsedit.GBTMIndividualQuery"
-                        or origin["queries"][0].get("deterministicIds") != []
-                        or origin["queries"][0].get("queryString", "") != ""):
-                    raise Unsupported("Native origin anchor differs")
-                observed.add(("origin", first.get("value")))
-            else:
-                if set(by_id) != ({"localFirst", "localSecond"} if second else {"localFirst"}):
-                    raise Unsupported("Native geometric constraint has extra fields")
-                observed.add((kind, first.get("value"), second.get("value") if second else None))
+        if kind in {1, 2, 4, 5, 16}:
+            if set(by_id) != ({"localFirst", "localSecond"} if second else {"localFirst"}):
+                raise Unsupported("Native geometric constraint has extra fields")
+            observed.add((kind, first.get("value"), second.get("value") if second else None))
         elif kind == 11:
             if set(by_id) != {"localFirst", "direction", "length", "alignment", "labelRatio", "labelDistance"}:
                 raise Unsupported("Native dimension schema differs")
@@ -309,7 +298,7 @@ def _native_rectangle_constraints(sketch: dict[str, Any], blueprint: NativePairB
         else:
             raise Unsupported("Native rectangle contains unsupported constraint")
     x0, y0, x1, y1 = blueprint.rectangle_m
-    expected = {("origin", f"{prefix}.bottom.start"),
+    expected = {(16, f"{prefix}.bottom.start", None),
                 (5, f"{prefix}.top", f"{prefix}.left"),
                 (2, f"{prefix}.bottom", f"{prefix}.top"),
                 (2, f"{prefix}.left", f"{prefix}.right"),
@@ -331,7 +320,7 @@ def _verify_rectangle_graph(payload: dict[str, Any], prefix: str) -> None:
         raise Unsupported("Native sketch constraint graph unavailable")
     constraints = graph.get("constraints")
     refs = graph.get("references")
-    names = {f"{prefix}.{name}" for name in ("firstSnap0", "perpendicular", "parallel.1", "parallel.2",
+    names = {f"{prefix}.{name}" for name in ("fixedOrigin", "perpendicular", "parallel.1", "parallel.2",
                                                 "horizontal", "corner0", "corner1", "corner2", "corner3", "width", "height")}
     if (not isinstance(constraints, dict) or set(constraints) != names
             or any(node.get("status") != 4 or node.get("displayStatus") != 1 for node in constraints.values())
@@ -339,20 +328,13 @@ def _verify_rectangle_graph(payload: dict[str, Any], prefix: str) -> None:
             or graph.get("sketchError", {}).get("statusEnum") != 0
             or not isinstance(refs, dict)):
         raise Unsupported("Native sketch constraint solver did not confirm all eleven constraints")
-    origin = constraints[f"{prefix}.firstSnap0"]
-    if (origin.get("isExternal") is not True or origin.get("type") != 1
-            or not isinstance(origin.get("referenceIds"), str)):
-        raise Unsupported("Native origin coincidence is not external")
-    linked = origin["referenceIds"].split()
-    if len(linked) != 2 or linked[0] != f"{prefix}.bottom.start":
-        raise Unsupported("Native origin anchor does not reference rectangle start")
-    anchor = refs.get(linked[1])
-    if (not isinstance(anchor, dict) or anchor.get("isSketchEntity") is not False
-            or any(type(anchor.get(k)) not in (int, float) or not math.isclose(anchor[k], 0, abs_tol=1e-8)
-                   for k in ("anchorX", "anchorY", "anchorZ"))):
-        raise Unsupported("Native external origin reference is not at zero")
-    start = refs.get(linked[0])
-    if (not isinstance(start, dict) or start.get("worstSolveStatus") != 1
+    fixed = constraints[f"{prefix}.fixedOrigin"]
+    if (fixed.get("isExternal") is not False or fixed.get("type") != 16
+            or fixed.get("referenceIds") != [f"{prefix}.bottom.start"]):
+        raise Unsupported("Native fixed origin point is not internally constrained")
+    start = refs.get(f"{prefix}.bottom.start")
+    if (not isinstance(start, dict) or start.get("isSketchEntity") is not True
+            or start.get("worstSolveStatus") != 1
             or any(type(start.get(k)) not in (int, float) or not math.isclose(start[k], 0, abs_tol=1e-8)
                    for k in ("anchorX", "anchorY", "anchorZ"))):
         raise Unsupported("Native rectangle start is not solved at the origin")
@@ -744,12 +726,10 @@ class NativeBackend:
                         or result.get("parameters") != matches[0].get("parameters")
                         or any(current[i] != previous[i] for i in range(len(previous)) if i != pos)):
                     raise UncertainWrite("Independent sketch readback or unrelated tree differs")
-                graph_job = {"kind": "native", "target": _NATIVE_CREATE_TEST, "tab_id": self.tab_id,
-                             "command": "ui.sketch.GBTUiSketchGetConstraintGraphCall",
-                             "body": {"elementId": target.eid, "sketchFeatureId": feature_id,
-                                      "supportsConsolidatedConstraints": False}}
-                graph = await self.bridge.command(graph_job)
-                _verify_rectangle_graph(graph, prefix)
+                # Saved sketches can return a generic response without graph
+                # fields. The page captured the graph while the edit was active,
+                # after SpecifyFeature and before Commit.
+                _verify_rectangle_graph({"result": response.get("active_constraint_graph")}, prefix)
             except Exception as exc:
                 journal.transition(op_id, "unknown", error=str(exc))
                 raise UncertainWrite(f"Sketch population outcome unknown; journal operation {op_id}") from exc
@@ -757,6 +737,7 @@ class NativeBackend:
                         "revision_before": before["element_microversion"], "revision_after": after["element_microversion"],
                         "definition_observed": True, "origin_verified": True,
                         "geometry_verified": False, "constraint_graph_verified": True,
+                        "graph_phase": "active_after_specify_before_commit",
                         "ui_editability_verified": False}
             journal.transition(op_id, "observed", observation=evidence)
             return evidence
