@@ -1,0 +1,357 @@
+From 670edc5305fae6a3aa65f818494498b627b2aa11 Mon Sep 17 00:00:00 2001
+From: patcybermind <pato.gonzalezcabrera@gmail.com>
+Date: Fri, 13 Nov 2026 14:38:06 -0500
+Subject: [PATCH] feat: reconcile saved source sketch after normal editor
+ completion
+
+---
+ onshape_native/bridge.py | 210 ++++++++++++++++++++++++++++++++++++++-
+ tests/test_bridge.py     |  90 +++++++++++++++++
+ 2 files changed, 299 insertions(+), 1 deletion(-)
+
+diff --git a/onshape_native/bridge.py b/onshape_native/bridge.py
+index 987a311..4d17e65 100644
+--- a/onshape_native/bridge.py
++++ b/onshape_native/bridge.py
+@@ -5,6 +5,7 @@ import asyncio
+ from contextlib import asynccontextmanager
+ import json
+ import hashlib
++import math
+ import re
+ import secrets
+ import socket
+@@ -115,6 +116,132 @@ def verify_completed_top_begin(before, after, query_response, target):
+             "top_query_semantically_resolved": True}
+ 
+ 
++def verify_completed_source_sketch(before, after, query_response, target, feature_id, blueprint, prefix):
++    """Check the saved source rectangle and all unrelated native history."""
++    if (not isinstance(before, dict) or not isinstance(after, dict)
++            or before.get("target") != target or after.get("target") != target
++            or before.get("connected") is not True or after.get("connected") is not True
++            or before.get("editingFeatureId") != feature_id or after.get("editingFeatureId") is not None
++            or after.get("element_microversion") == before.get("element_microversion")
++            or not isinstance(prefix, str) or not re.fullmatch(r"[A-Za-z][A-Za-z0-9_.]{0,63}", prefix)):
++        raise ValueError("Saved source sketch target, lifecycle or revision differs")
++    rectangle = blueprint.get("rectangle_m") if isinstance(blueprint, dict) else None
++    if (not isinstance(blueprint, dict) or blueprint.get("plane_name") != "Top" or not isinstance(rectangle, list)
++            or len(rectangle) != 4 or any(type(v) not in (int, float) or not math.isfinite(v) for v in rectangle)
++            or rectangle[0:2] != [0, 0] or rectangle[2] <= 0 or rectangle[3] <= 0):
++        raise ValueError("Journal source rectangle differs from supported Top origin plan")
++    prior = before.get("tree")
++    current = after.get("tree")
++    if (not isinstance(prior, dict) or not isinstance(current, dict)
++            or prior.get("$type") != "bsedit.GBTMModel" or current.get("$type") != "bsedit.GBTMModel"):
++        raise ValueError("Native Part Studio tree unavailable")
++    old_children = prior.get("children")
++    new_children = current.get("children")
++    if (not isinstance(old_children, list) or not isinstance(new_children, list)
++            or len(old_children) != len(new_children)):
++        raise ValueError("Source sketch changed feature count")
++    old = [node for node in old_children if isinstance(node, dict) and node.get("featureId") == feature_id]
++    new = [node for node in new_children if isinstance(node, dict) and node.get("featureId") == feature_id]
++    if (len(old) != 1 or len(new) != 1 or old[0].get("nodeId") != new[0].get("nodeId")
++            or new[0].get("$type") != "bsedit.GBTMSketch" or new[0].get("featureType") != "newSketch"
++            or old[0].get("entities") != [] or old[0].get("constraints") != []
++            or any(a != b for a, b in zip(old_children, new_children) if a.get("featureId") != feature_id)):
++        raise ValueError("Source sketch identity or unrelated feature history differs")
++    def metadata(tree):
++        value = json.loads(json.dumps({key: item for key, item in tree.items() if key != "children"}))
++        tolerance = (value.get("modelAnnotations") or {}).get("toleranceSchemaForParts")
++        if isinstance(tolerance, dict) and isinstance(tolerance.get("nodeId"), str) and tolerance["nodeId"]:
++            tolerance["nodeId"] = "<per-tab-tolerance-schema-node>"
++        return value
++    if metadata(prior) != metadata(current):
++        raise ValueError("Source sketch changed unrelated model metadata")
++    entities = new[0].get("entities")
++    if not isinstance(entities, list) or len(entities) != 4:
++        raise ValueError("Source rectangle does not have four native lines")
++    x1, y1 = rectangle[2], rectangle[3]
++    expected_lines = {"bottom": (x1/2, 0, 1, 0, x1), "right": (x1, y1/2, 0, 1, y1),
++                      "top": (x1/2, y1, 1, 0, x1), "left": (0, y1/2, 0, 1, y1)}
++    if {node.get("entityId") for node in entities} != {f"{prefix}.{side}" for side in expected_lines}:
++        raise ValueError("Source rectangle line identities differ")
++    for node in entities:
++        side = node["entityId"].removeprefix(prefix + ".")
++        px, py, dx, dy, distance = expected_lines[side]
++        geom = node.get("geometry")
++        if (node.get("$type") != "bsedit.GBTMSketchCurveSegment" or node.get("isConstruction") is not False
++                or node.get("startPointId") != node["entityId"] + ".start"
++                or node.get("endPointId") != node["entityId"] + ".end"
++                or not isinstance(geom, dict) or geom.get("$type") != "bsedit.GBTCurveGeometryLine"
++                or any(type(a) not in (int, float) or not math.isclose(a, b, abs_tol=1e-9) for a, b in
++                       ((geom.get("pntX"), px), (geom.get("pntY"), py),
++                        (geom.get("dirX"), dx), (geom.get("dirY"), dy),
++                        (node.get("startParam"), -distance/2), (node.get("endParam"), distance/2)))):
++            raise ValueError("Source rectangle native geometry differs")
++    constraints = new[0].get("constraints")
++    expected_types = {"fixedOrigin": 16, "perpendicular": 5, "parallel.1": 2, "parallel.2": 2,
++                      "horizontal": 4, **{f"corner{i}": 1 for i in range(4)}, "width": 11, "height": 11}
++    expected_links = {"perpendicular": ("top", "left"), "parallel.1": ("bottom", "top"),
++                      "parallel.2": ("left", "right"), "horizontal": ("top", None),
++                      "corner0": ("bottom.start", "left.start"),
++                      "corner1": ("bottom.end", "right.start"),
++                      "corner2": ("top.start", "left.end"),
++                      "corner3": ("top.end", "right.end")}
++    if (not isinstance(constraints, list) or len(constraints) != 11
++            or {item.get("entityId") for item in constraints} != {f"{prefix}.{name}" for name in expected_types}):
++        raise ValueError("Source rectangle native constraint set differs")
++    for item in constraints:
++        name = item["entityId"].removeprefix(prefix + ".")
++        params = item.get("parameters")
++        if (item.get("$type") != "bsedit.GBTMSketchConstraint"
++                or item.get("constraintType") != expected_types[name]
++                or not isinstance(params, list) or any(not isinstance(p, dict) for p in params)):
++            raise ValueError("Source native constraint definition differs")
++        by_id = {p.get("parameterId"): p for p in params}
++        if len(by_id) != len(params):
++            raise ValueError("Source constraint parameter IDs duplicated")
++        if name == "fixedOrigin" and (set(by_id) != {"localFirst"}
++                or by_id["localFirst"].get("value") != f"{prefix}.bottom.start"):
++            raise ValueError("Source fixed origin is not internal")
++        if name in expected_links:
++            first, second = expected_links[name]
++            expected_ids = {"localFirst", "localSecond"} if second else {"localFirst"}
++            if (set(by_id) != expected_ids
++                    or by_id["localFirst"].get("$type") != "bsedit.GBTMParameterString"
++                    or by_id["localFirst"].get("value") != f"{prefix}.{first}"
++                    or second and (by_id["localSecond"].get("$type") != "bsedit.GBTMParameterString"
++                                   or by_id["localSecond"].get("value") != f"{prefix}.{second}")):
++                raise ValueError("Source rectangle constraint references differ")
++        if name in {"width", "height"}:
++            expected_mm = (x1 if name == "width" else y1) * 1000
++            length = by_id.get("length")
++            if (set(by_id) != {"localFirst", "direction", "length", "alignment", "labelRatio", "labelDistance"}
++                    or by_id["localFirst"].get("value") != f"{prefix}.{'top' if name == 'width' else 'right'}"
++                    or by_id["direction"].get("value") != "MINIMUM"
++                    or by_id["alignment"].get("value") != "ALIGNED"
++                    or not isinstance(length, dict) or length.get("$type") != "bsedit.GBTMParameterQuantity"
++                    or length.get("units") != "millimeter"
++                    or not math.isclose(length.get("value", float("nan")), expected_mm, abs_tol=1e-8)
++                    or length.get("expression") != f"{expected_mm:g} mm"):
++                raise ValueError("Source editable dimensions differ")
++    plane = [item for item in new[0].get("parameters", []) if item.get("parameterId") == "sketchPlane"]
++    queries = plane[0].get("queries") if len(plane) == 1 else None
++    if not isinstance(queries, list) or len(queries) != 1 or not queries[0].get("deterministicIds"):
++        raise ValueError("Source sketch plane query unavailable")
++    result = query_response.get("result") if isinstance(query_response, dict) else None
++    data = result.get("queryData") if isinstance(result, dict) else None
++    if (not isinstance(data, list) or len(data) != 1 or not isinstance(data[0], dict)
++            or data[0].get("deterministicIds") != queries[0]["deterministicIds"]
++            or data[0].get("featureId") != "Top"
++            or data[0].get("evaluationDetails", {}).get("fullOperationId") != "Top.planeOp"
++            or data[0]["evaluationDetails"].get("status") != 0 or data[0].get("hasErrorEntity") is not False):
++        raise ValueError("Source sketch plane did not resolve Top")
++    return {"feature_id": feature_id, "revision_before": before["element_microversion"],
++            "revision_after": after["element_microversion"], "definition_observed": True,
++            "origin_verified": True, "constraint_graph_verified": True,
++            "constraint_graph_evidence": "inferred_from_version_gated_page_final_poll_error_after_graph_gate",
++            "manual_commit_completion": True, "ui_editability_verified": False,
++            "solid_geometry_verified": False, "unrelated_tree_preserved": True}
++
++
+ def shared_journal_clear(config):
+     """Read the configured H2 intent ledger without creating or altering it."""
+     path = config.get("h2cad_journal")
+@@ -741,6 +868,87 @@ def create_app(config=None):
+             return JSONResponse({"status": "observed_manual_top_completion", "op_id": body["op_id"],
+                                  "evidence": evidence})
+ 
++    async def reconcile_completed_source_sketch(request):
++        """Confirm the saved source definition after a manually finished edit."""
++        denied = await auth(request)
++        if denied is not None:
++            return denied
++        try:
++            body = await read_body(request)
++        except (ValueError, BridgeError):
++            return JSONResponse({"status": "blocked", "reason": "Invalid source reconciliation request"}, 400)
++        target = {"did": "4e078dec822b4e509616b1cb", "wid": "af0627de07264acf086e646a", "eid": "9a062f0eef8bb961f8c84f8e"}
++        if (not isinstance(body, dict) or set(body) != {"op_id", "tab_id"}
++                or not isinstance(body["op_id"], str)
++                or not re.fullmatch(r"sketch-[a-f0-9]{32}", body["op_id"])
++                or type(body["tab_id"]) is not int or body["tab_id"] < 0):
++            return JSONResponse({"status": "blocked", "reason": "Invalid sketch operation or exact tab"}, 400)
++        if (not broker.unknown_write or broker.guard_invalid or broker.pending or broker.extension is None
++                or "h2_native_fixed_origin_page_v1" not in (broker.extension_info or {}).get("capabilities", [])):
++            return JSONResponse({"status": "blocked", "reason": "Versioned bridge safety state differs"}, 409)
++        path = config.get("h2cad_journal")
++        if not isinstance(path, str) or not Path(path).is_absolute():
++            return JSONResponse({"status": "blocked", "reason": "Pinned journal unavailable"}, 409)
++        try:
++            first = await broker.dispatch({"kind": "state", "target": target, "tab_id": body["tab_id"]})
++            sketch = next(node for node in first["tree"]["children"]
++                          if node.get("featureType") == "newSketch" and node.get("featureId"))
++            plane = next(item for item in sketch["parameters"] if item.get("parameterId") == "sketchPlane")
++            query = plane["queries"][0]
++            resolved = await broker.dispatch({"kind": "native", "target": target, "tab_id": body["tab_id"],
++                                              "command": "ui.GBTUiGetQueryDataCall",
++                                              "body": {"elementId": target["eid"], "queries": [query],
++                                                       "qFunction": "", "additionalArguments": [],
++                                                       "queryNodeIdToInContextNodeId": {}}})
++            live = await broker.dispatch({"kind": "state", "target": target, "tab_id": body["tab_id"]})
++            if (first.get("element_microversion") != live.get("element_microversion")
++                    or first.get("editingFeatureId") != live.get("editingFeatureId")
++                    or first.get("tree") != live.get("tree")):
++                raise ValueError("Editor changed during read-only source reconciliation")
++        except (BridgeError, ValueError, KeyError, TypeError, AttributeError, StopIteration, IndexError) as error:
++            return JSONResponse({"status": "blocked", "reason": f"Read-only source state unavailable: {error}"}, 409)
++        async with broker.command_lock:
++            if (not broker.unknown_write or broker.guard_invalid or broker.pending or broker.extension is None
++                    or "h2_native_fixed_origin_page_v1" not in (broker.extension_info or {}).get("capabilities", [])):
++                return JSONResponse({"status": "blocked", "reason": "Bridge safety state changed"}, 409)
++            try:
++                with sqlite3.connect(path, timeout=2, isolation_level=None) as db:
++                    db.execute("PRAGMA synchronous=FULL")
++                    db.execute("BEGIN IMMEDIATE")
++                    db.row_factory = sqlite3.Row
++                    rows = db.execute("SELECT * FROM writes WHERE state IN ('prepared','sent','unknown')").fetchall()
++                    row = db.execute("SELECT * FROM writes WHERE op_id=?", (body["op_id"],)).fetchone()
++                    if row is None or (row["state"] == "unknown" and (len(rows) != 1 or rows[0]["op_id"] != body["op_id"])):
++                        raise ValueError("Journal has another unresolved operation")
++                    intent = json.loads(row["intent"])
++                    before = intent.get("before_state")
++                    if (row["action"] != "experimental_sketch_populate" or row["state"] not in {"unknown", "observed"}
++                            or row["target"] != "/".join(target.values())
++                            or row["error"] != "Sketch command acknowledged but saved definition/idle state is unconfirmed; outcome unknown."
++                            or row["receipt"] is not None or not isinstance(before, dict)
++                            or before.get("element_microversion") != row["expected_revision"]):
++                        raise ValueError("Journal intent is not this post-Commit source sketch")
++                    evidence = verify_completed_source_sketch(before, live, resolved, target,
++                                                             intent.get("feature_id"), intent.get("blueprint"),
++                                                             intent.get("entity_prefix"))
++                    evidence["op_id"] = body["op_id"]
++                    if row["state"] == "unknown":
++                        db.execute("UPDATE writes SET state='observed', observation=?, updated_at=CURRENT_TIMESTAMP WHERE op_id=? AND state='unknown'",
++                                   (json.dumps(evidence, sort_keys=True), body["op_id"]))
++                    elif rows or json.loads(row["observation"] or "{}") != evidence:
++                        raise ValueError("Previously observed source sketch or another journal write differs")
++                    db.execute("COMMIT")
++            except (OSError, sqlite3.Error, ValueError, KeyError, TypeError, AttributeError) as error:
++                return JSONResponse({"status": "blocked", "reason": str(error)}, 409)
++            broker.unknown_write = False
++            try:
++                broker.save_guard()
++            except BridgeError as error:
++                broker.unknown_write = True
++                return JSONResponse({"status": "blocked", "reason": str(error)}, 409)
++            return JSONResponse({"status": "observed_manual_source_completion", "op_id": body["op_id"],
++                                 "evidence": evidence})
++
+     async def reconcile_known_sketch_rejection(request):
+         """Resolve exactly the reviewed patch-10 pre-RPC constructor failure.
+ 
+@@ -1078,7 +1286,7 @@ def create_app(config=None):
+         except (BridgeError, ValueError) as error:
+             return JSONResponse({"message": str(error)}, 502)
+ 
+-    app = Starlette(routes=[Route("/health", health), Route("/local/reconcile_completed_top_begin", reconcile_completed_top_begin, methods=["POST"]), Route("/local/reconcile_known_sketch_rejection", reconcile_known_sketch_rejection, methods=["POST"]), Route("/local/finalize_known_invalid_sketch_cancel", finalize_known_invalid_sketch_cancel, methods=["POST"]), Route("/artifacts/{handle}", artifact_download),
++    app = Starlette(routes=[Route("/health", health), Route("/local/reconcile_completed_source_sketch", reconcile_completed_source_sketch, methods=["POST"]), Route("/local/reconcile_completed_top_begin", reconcile_completed_top_begin, methods=["POST"]), Route("/local/reconcile_known_sketch_rejection", reconcile_known_sketch_rejection, methods=["POST"]), Route("/local/finalize_known_invalid_sketch_cancel", finalize_known_invalid_sketch_cancel, methods=["POST"]), Route("/artifacts/{handle}", artifact_download),
+                            Route("/local/extension_reload", extension_reload, methods=["POST"]),
+                            Route("/command", command, methods=["POST"]),
+                            Route("/local/{tool}", local_tool, methods=["POST"]),
+diff --git a/tests/test_bridge.py b/tests/test_bridge.py
+index 68fd28c..c843720 100644
+--- a/tests/test_bridge.py
++++ b/tests/test_bridge.py
+@@ -193,6 +193,96 @@ async def test_manual_top_begin_reconciliation_requires_exact_semantic_readback(
+         assert response.json()["evidence"]["manual_top_completion"] is True
+ 
+ 
++@pytest.mark.asyncio
++@pytest.mark.parametrize("fault", [None, "active", "wrong_plane", "wrong_fix", "wrong_depth", "unrelated"])
++async def test_saved_source_sketch_reconciliation_requires_exact_intent_and_definition(tmp_path, fault):
++    target = {"did": "4e078dec822b4e509616b1cb", "wid": "af0627de07264acf086e646a", "eid": "9a062f0eef8bb961f8c84f8e"}
++    op_id = "sketch-" + "a" * 32
++    rollback = {"$type": "bsedit.GBTMRollback", "nodeId": "rollback"}
++    plane = {"$type": "bsedit.GBTMParameterQueryList", "parameterId": "sketchPlane",
++             "queries": [{"$type": "bsedit.GBTMIndividualQuery", "deterministicIds": ["live-top"], "queryString": ""}]}
++    blank = {"$type": "bsedit.GBTMSketch", "featureType": "newSketch", "featureId": "fresh_0",
++             "nodeId": "fresh-node", "entities": [], "constraints": [], "parameters": [plane]}
++    before = {"target": target, "connected": True, "editingFeatureId": "fresh_0",
++              "element_microversion": "a" * 24,
++              "tree": {"$type": "bsedit.GBTMModel", "children": [blank, rollback], "name": "Temp"}}
++    sketch = json.loads(json.dumps(blank))
++    for side, px, py, dx, dy, size in (("bottom", .02, 0, 1, 0, .04),
++                                      ("right", .04, .01, 0, 1, .02),
++                                      ("top", .02, .02, 1, 0, .04),
++                                      ("left", 0, .01, 0, 1, .02)):
++        ident = "box." + side
++        sketch["entities"].append({"$type": "bsedit.GBTMSketchCurveSegment", "entityId": ident,
++                                   "startPointId": ident + ".start", "endPointId": ident + ".end",
++                                   "isConstruction": False, "startParam": -size/2, "endParam": size/2,
++                                   "geometry": {"$type": "bsedit.GBTCurveGeometryLine", "pntX": px,
++                                                "pntY": py, "dirX": dx, "dirY": dy}})
++    types = {"fixedOrigin": 16, "perpendicular": 5, "parallel.1": 2, "parallel.2": 2,
++             "horizontal": 4, **{f"corner{i}": 1 for i in range(4)}, "width": 11, "height": 11}
++    links = {"fixedOrigin": ("bottom.start", None), "perpendicular": ("top", "left"),
++             "parallel.1": ("bottom", "top"), "parallel.2": ("left", "right"),
++             "horizontal": ("top", None), "corner0": ("bottom.start", "left.start"),
++             "corner1": ("bottom.end", "right.start"), "corner2": ("top.start", "left.end"),
++             "corner3": ("top.end", "right.end"), "width": ("top", None), "height": ("right", None)}
++    for name, kind in types.items():
++        first, second = links[name]
++        params = [{"$type": "bsedit.GBTMParameterString", "parameterId": "localFirst",
++                   "value": "box." + first}]
++        if second:
++            params.append({"$type": "bsedit.GBTMParameterString", "parameterId": "localSecond",
++                           "value": "box." + second})
++        if name in {"width", "height"}:
++            mm = 40 if name == "width" else 20
++            params.extend([{"$type": "bsedit.GBTMParameterEnum", "parameterId": "direction", "value": "MINIMUM"},
++                           {"$type": "bsedit.GBTMParameterQuantity", "parameterId": "length",
++                            "value": mm, "units": "millimeter", "expression": f"{mm} mm"},
++                           {"$type": "bsedit.GBTMParameterEnum", "parameterId": "alignment", "value": "ALIGNED"},
++                           {"$type": "bsedit.GBTMParameterQuantity", "parameterId": "labelRatio", "value": .5},
++                           {"$type": "bsedit.GBTMParameterQuantity", "parameterId": "labelDistance", "value": .01}])
++        sketch["constraints"].append({"$type": "bsedit.GBTMSketchConstraint", "entityId": "box." + name,
++                                      "constraintType": kind, "parameters": params})
++    live = {"target": target, "connected": True, "editingFeatureId": None,
++            "element_microversion": "b" * 24,
++            "tree": {"$type": "bsedit.GBTMModel", "children": [sketch, rollback], "name": "Temp"}}
++    if fault == "active": live["editingFeatureId"] = "fresh_0"
++    if fault == "wrong_fix": sketch["constraints"][0]["parameters"][0]["value"] = "box.top.start"
++    if fault == "wrong_depth":
++        next(p for p in sketch["constraints"][-1]["parameters"] if p["parameterId"] == "length")["expression"] = "25 mm"
++    if fault == "unrelated": live["tree"]["name"] = "Other"
++    query = {"result": {"$type": "ui.GBTUiGetQueryDataResponse", "queryData": [
++        {"deterministicIds": ["live-top"], "featureId": "Front" if fault == "wrong_plane" else "Top",
++         "evaluationDetails": {"fullOperationId": "Top.planeOp", "status": 0}, "hasErrorEntity": False}]}}
++    journal = tmp_path / "intent.sqlite"
++    with sqlite3.connect(journal) as db:
++        db.execute("CREATE TABLE writes(op_id TEXT,target TEXT,expected_revision TEXT,action TEXT,logical_id TEXT,intent TEXT,state TEXT,receipt TEXT,observation TEXT,error TEXT,updated_at TEXT)")
++        db.execute("INSERT INTO writes(op_id,target,expected_revision,action,logical_id,intent,state,error) VALUES(?,?,?,?,?,?,?,?)",
++                   (op_id, "/".join(target.values()), before["element_microversion"], "experimental_sketch_populate",
++                    "Outline", json.dumps({"before_state": before, "feature_id": "fresh_0", "entity_prefix": "box",
++                                            "blueprint": {"plane_name": "Top", "rectangle_m": [0, 0, .04, .02]}}),
++                    "unknown", "Sketch command acknowledged but saved definition/idle state is unconfirmed; outcome unknown."))
++    app = create_app({**CONFIG, "h2cad_journal": str(journal)})
++    broker = app.state.broker
++    broker.unknown_write = True
++    broker.save_guard()
++    broker.extension = object()
++    broker.extension_info = {"capabilities": ["h2_native_fixed_origin_page_v1"]}
++    async def dispatch(job):
++        if job["kind"] == "state": return json.loads(json.dumps(live))
++        assert job["kind"] == "native" and job["body"]["queries"] == [plane["queries"][0]]
++        return query
++    broker.dispatch = dispatch
++    async with httpx.AsyncClient(transport=httpx.ASGITransport(app), base_url="http://127.0.0.1:8766", headers=AUTH) as client:
++        response = await client.post("/local/reconcile_completed_source_sketch", json={"op_id": op_id, "tab_id": 17})
++    assert response.status_code == (200 if fault is None else 409)
++    with sqlite3.connect(journal) as db:
++        state = db.execute("SELECT state FROM writes WHERE op_id=?", (op_id,)).fetchone()[0]
++    assert state == ("observed" if fault is None else "unknown")
++    assert broker.unknown_write is (fault is not None)
++    if fault is None:
++        assert response.json()["evidence"]["manual_commit_completion"] is True
++        assert response.json()["evidence"]["constraint_graph_evidence"].startswith("inferred_")
++
++
+ @pytest.mark.asyncio
+ @pytest.mark.parametrize("changed", [False, True])
+ async def test_applied_invalid_sketch_guard_releases_only_after_exact_rollback(tmp_path, changed):
+-- 
+2.54.0.windows.1
+

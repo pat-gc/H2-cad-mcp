@@ -416,6 +416,18 @@ class NativeBridge:
             raise BackendError(str(data.get("reason", "Top begin reconciliation refused")))
         return data
 
+    async def reconcile_completed_source_sketch(self, op_id: str, tab_id: int) -> dict[str, Any]:
+        """Verify saved source geometry after a manual completion of its active edit."""
+        try:
+            response = await self.http.post("/local/reconcile_completed_source_sketch",
+                                            json={"op_id": op_id, "tab_id": tab_id}, timeout=30)
+            data = response.json()
+        except (httpx.HTTPError, ValueError) as exc:
+            raise BackendError("Source sketch reconciliation unavailable; safety barrier remains") from exc
+        if response.status_code != 200 or data.get("status") != "observed_manual_source_completion":
+            raise BackendError(str(data.get("reason", "Source sketch reconciliation refused")))
+        return data
+
     async def finalize_known_invalid_sketch_cancel(self, op_id: str, tab_id: int) -> dict[str, Any]:
         """Verify UI rollback of the one applied-invalid sketch and release its guard."""
         try:
