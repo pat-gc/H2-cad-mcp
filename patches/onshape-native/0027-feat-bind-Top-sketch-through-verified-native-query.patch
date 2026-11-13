@@ -1,0 +1,281 @@
+From 229a74a65ca214ccf89afead7c6a6f6bda783717 Mon Sep 17 00:00:00 2001
+From: patcybermind <pato.gonzalezcabrera@gmail.com>
+Date: Fri, 13 Nov 2026 17:14:01 -0500
+Subject: [PATCH] feat: bind Top sketch through verified native query
+
+---
+ extension/connection.js   |  2 +-
+ extension/page-adapter.js | 94 ++++++++++++++++++++++++++++++---------
+ onshape_native/bridge.py  |  4 +-
+ tests/adapter.test.mjs    | 77 +++++++++++++++++++++++++++-----
+ tests/test_bridge.py      |  4 ++
+ 5 files changed, 147 insertions(+), 34 deletions(-)
+
+diff --git a/extension/connection.js b/extension/connection.js
+index bb19f03..d67d5a0 100644
+--- a/extension/connection.js
++++ b/extension/connection.js
+@@ -74,7 +74,7 @@ export function createConnection({browser, token, execute, Socket = WebSocket,
+       if (socket !== current) return;
+       current.send(JSON.stringify({type: 'hello', token, version: browser.runtime.getManifest().version,
+         runtime_id: browser.runtime.id, instance_id: instanceId, build: 'h2-extension-reload-v1',
+-        capabilities: ['tab_context_v1', 'assembly_sidebar_map_v1', 'display_v1', 'native_modeling_v1', 'element_revision_v1', 'editor_tabs_v1', 'ui_exports_v1', 'chunked_upload_v1', 'chunked_response_v1', 'viewer_mesh_v1', 'h2_depth_edit_page_v1', 'h2_native_begin_top_sketch_page_v1', 'h2_native_begin_top_ready_page_v1', 'h2_native_begin_source_extrude_page_v1', 'h2_native_sketch_populate_page_v1', 'h2_native_fixed_origin_page_v1', 'h2_native_extrude_populate_page_v1', 'h2_native_source_region_page_v1', 'h2_native_extrude_recheck_page_v1', 'h2_native_completion_receipt_page_v1', 'h2_extension_reload_v1']}));
++        capabilities: ['tab_context_v1', 'assembly_sidebar_map_v1', 'display_v1', 'native_modeling_v1', 'element_revision_v1', 'editor_tabs_v1', 'ui_exports_v1', 'chunked_upload_v1', 'chunked_response_v1', 'viewer_mesh_v1', 'h2_depth_edit_page_v1', 'h2_native_begin_top_sketch_page_v1', 'h2_native_begin_top_ready_page_v1', 'h2_native_typed_top_plane_page_v1', 'h2_native_begin_source_extrude_page_v1', 'h2_native_sketch_populate_page_v1', 'h2_native_fixed_origin_page_v1', 'h2_native_extrude_populate_page_v1', 'h2_native_source_region_page_v1', 'h2_native_extrude_recheck_page_v1', 'h2_native_completion_receipt_page_v1', 'h2_extension_reload_v1']}));
+     };
+     let lastPong = now(), chunkedResponses = false;
+     current.onmessage = async event => {
+diff --git a/extension/page-adapter.js b/extension/page-adapter.js
+index 779c431..9f5292d 100644
+--- a/extension/page-adapter.js
++++ b/extension/page-adapter.js
+@@ -343,6 +343,72 @@ export async function pageCommand(job) {
+       generatedNodes,
+       note:"Local constructor defaults only; no editor object traversal, allocator, query binding, or modeling RPC was invoked."});
+   }
++  async function bindVerifiedTopPlane(sketch, modelRoot, expectedRevision) {
++    const current = modelRoot();
++    const top = current?.defaultFeatures?.children?.filter(node=>node?.featureId==="Top" &&
++      node?.featureType==="defaultPlane");
++    const plane = sketch?.parameters?.filter(p=>p?.parameterId==="sketchPlane");
++    if (top?.length!==1 || !top[0].nodeId || plane?.length!==1 ||
++        plane[0].getMessageName?.()!=="bsedit.GBTMParameterQueryList" ||
++        !plane[0].nodeId || plane[0].queries?.length!==0)
++      throw new Error("The active sketch lacks one empty plane field or exact default Top feature.");
++    const make = (name, fields={}) => hydrate({$type:name,...fields});
++    // JDC is a candidate observed for default Top, never a captured node ID.
++    // Resolve it in this exact current editor before it may enter a write.
++    const query = make("bsedit.GBTMIndividualQuery",{deterministicIds:["JDC"]});
++    if (!query.nodeId || query.deterministicIds?.length!==1)
++      throw new Error("Runtime did not allocate a fresh Top query node.");
++    const sameEditor = () => controller.connection?.isClosed?.()===false &&
++      controller.getActiveElementTabId()===target.eid &&
++      location.pathname===`/documents/${target.did}/w/${target.wid}/e/${target.eid}` &&
++      elementModel?.get("idEditingFeature")===sketch.featureId &&
++      getElementMicroversion()===expectedRevision;
++    if (!sameEditor()) throw new Error("Top editor changed before query resolution; outcome unknown.");
++    const resolved = plain(await controller.elementConnection.callAndPromise(make("ui.GBTUiGetQueryDataCall",{
++      elementId:target.eid,queries:[query],qFunction:"",additionalArguments:[],
++      queryNodeIdToInContextNodeId:{}})));
++    const item = resolved?.queryData?.[0];
++    if (resolved?.$type!=="ui.GBTUiGetQueryDataResponse" || resolved.queryData?.length!==1 ||
++        JSON.stringify(item?.deterministicIds)!==JSON.stringify(query.deterministicIds) ||
++        item?.featureId!=="Top" || item?.selectionName!=="Face" ||
++        item?.evaluationDetails?.fullOperationId!=="Top.planeOp" ||
++        item?.evaluationDetails?.entityType!==2 || item?.evaluationDetails?.status!==0 ||
++        item?.hasErrorEntity!==false || item?.outsideExactDependencies!==false)
++      throw new Error("Current candidate does not resolve the unique Top face; outcome unknown.");
++    if (!sameEditor() || modelRoot()?.children?.filter(node=>node?.featureId===sketch.featureId)?.length!==1)
++      throw new Error("Top editor changed during query resolution; outcome unknown.");
++    const changedPlane = hydrate({...plain(plane[0]),queries:[plain(query)]});
++    const changedSketch = hydrate({...plain(sketch),parameters:sketch.parameters.map(
++      p=>p===plane[0]?plain(changedPlane):plain(p))});
++    const change = make("diff.GBTTreeEditChange",{
++      oldNode:make("tree.GBTNodeReference",{nodeId:sketch.nodeId}),newNode:changedSketch});
++    controller.__onshapeNativeIncompleteFeatureEdit.stage="specify-top-plane";
++    h2CadRpcSent=true;
++    const reply = await controller.elementConnection.callAndPromise(make("ui.GBTUiSpecifyFeature",{
++      elementId:target.eid,featureNodeId:sketch.nodeId,featureChange:change,sequenceId:1,
++      selectionMicroversion:null,inContextEntitiesToAdd:null,
++      editDescription:"Bind H2 source sketch to verified Top plane"}));
++    if (reply?.error || reply?.errorCode || reply?.errorEnum)
++      throw new Error("Native Top-plane definition rejected; outcome unknown.");
++    for (let attempt=0;attempt<50;attempt++) {
++      const now = modelRoot()?.children?.filter(node=>node?.featureId===sketch.featureId);
++      const bound = now?.[0]?.parameters?.filter(p=>p?.parameterId==="sketchPlane");
++      const actual = bound?.[0]?.queries?.[0];
++      if (controller.connection?.isClosed?.()===false &&
++          controller.getActiveElementTabId()===target.eid &&
++          location.pathname===`/documents/${target.did}/w/${target.wid}/e/${target.eid}` &&
++          elementModel?.get("idEditingFeature")===sketch.featureId &&
++          now?.length===1 && now[0].nodeId===sketch.nodeId &&
++          now[0].entities?.length===0 && now[0].constraints?.length===0 &&
++          bound?.length===1 && bound[0].queries?.length===1 &&
++          actual?.deterministicIds?.length===1 && actual.deterministicIds[0]==="JDC" &&
++          getElementMicroversion()!==expectedRevision)
++        return {plane_query_ids:actual.deterministicIds,
++          plane_query_node_id:actual.nodeId,verified_top_feature_id:"Top"};
++      await new Promise(resolve=>setTimeout(resolve,100));
++    }
++    throw new Error("Typed Top-plane definition was sent but binding is unconfirmed; outcome unknown.");
++  }
+   if (job.kind === "partstudio_begin_top_sketch") {
+     if (target.did !== "4e078dec822b4e509616b1cb" ||
+         target.wid !== "af0627de07264acf086e646a" ||
+@@ -387,27 +453,13 @@ export async function pageCommand(job) {
+     if (controller.connection?.isClosed?.() !== false || controller.getActiveElementTabId() !== target.eid ||
+         location.pathname !== `/documents/${target.did}/w/${target.wid}/e/${target.eid}`)
+       throw new Error("Sketch editor target changed before Top selection; outcome unknown.");
+-    controller.__onshapeNativeIncompleteFeatureEdit.stage = "select-top";
+-    selectUniqueVisible('div.os-list-item[feature-id="Top"][feature-type="defaultPlane"]').click();
+-    for (let attempt=0;attempt<50;attempt++) {
+-      const current = root()?.children?.filter(node=>node?.featureId===sketch.featureId);
+-      const plane = current?.[0]?.parameters?.filter(p=>p?.parameterId==="sketchPlane");
+-      if (current?.length===1 && current[0].nodeId===sketch.nodeId &&
+-          !current[0].entities?.length && !current[0].constraints?.length &&
+-          plane?.length===1 && plane[0].queries?.length===1 &&
+-          plane[0].queries[0].deterministicIds?.length &&
+-          elementModel?.get("idEditingFeature")===sketch.featureId &&
+-          getElementMicroversion()!==job.expected_element_microversion) {
+-        delete controller.__onshapeNativeIncompleteFeatureEdit;
+-        return {feature_id:sketch.featureId,feature_node_id:sketch.nodeId,
+-          plane_query_ids:plane[0].queries[0].deterministicIds,
+-          element_microversion_before:job.expected_element_microversion,
+-          element_microversion_after:getElementMicroversion(),
+-          initiation_candidate:true,verification:"Independent editor state required"};
+-      }
+-      await new Promise(resolve=>setTimeout(resolve,100));
+-    }
+-    throw new Error("Top sketch action may have changed the editor but its bound plane is unconfirmed; outcome unknown.");
++    const allocatedRevision=getElementMicroversion();
++    const binding=await bindVerifiedTopPlane(sketch,root,allocatedRevision);
++    delete controller.__onshapeNativeIncompleteFeatureEdit;
++    return {feature_id:sketch.featureId,feature_node_id:sketch.nodeId,
++      ...binding,element_microversion_before:job.expected_element_microversion,
++      element_microversion_after:getElementMicroversion(),
++      initiation_candidate:true,verification:"Independent editor state and Top query readback required"};
+   }
+   if (job.kind === "partstudio_begin_source_extrude") {
+     const sketchId = job.sketch_feature_id;
+diff --git a/onshape_native/bridge.py b/onshape_native/bridge.py
+index 3226327..baf8219 100644
+--- a/onshape_native/bridge.py
++++ b/onshape_native/bridge.py
+@@ -646,6 +646,8 @@ class Broker:
+                 raise BridgeError("Loaded extension lacks h2_native_begin_top_sketch_page_v1; reload and reconnect before editing.")
+             if job.get("kind") == "partstudio_begin_top_sketch" and "h2_native_begin_top_ready_page_v1" not in capabilities:
+                 raise BridgeError("Loaded extension lacks h2_native_begin_top_ready_page_v1; reload and reconnect before editing.")
++            if job.get("kind") == "partstudio_begin_top_sketch" and "h2_native_typed_top_plane_page_v1" not in capabilities:
++                raise BridgeError("Loaded extension lacks h2_native_typed_top_plane_page_v1; reload and reconnect before editing.")
+             if job.get("kind") == "partstudio_begin_source_extrude" and "h2_native_begin_source_extrude_page_v1" not in capabilities:
+                 raise BridgeError("Loaded extension lacks h2_native_begin_source_extrude_page_v1; reload and reconnect before editing.")
+             if job.get("kind") == "partstudio_populate_sketch" and "h2_native_sketch_populate_page_v1" not in capabilities:
+@@ -952,7 +954,7 @@ def create_app(config=None):
+         return JSONResponse({"protocol": 1, "extension_connected": broker.extension is not None,
+                              "extension": broker.extension_info, "pending": len(broker.pending),
+                              "reload": broker.reload_record,
+-                             "capabilities": ["ui_exports_v1", "chunked_upload_v1", "chunked_response_v1", "artifact_download_v1", "viewer_mesh_v1", "h2_depth_edit_server_v1", "h2_native_begin_top_sketch_server_v1", "h2_native_begin_source_extrude_server_v1", "h2_native_sketch_populate_server_v1", "h2_native_extrude_populate_server_v1", "h2_native_completion_receipt_server_v1", "h2_extension_reload_server_v1"]})
++                             "capabilities": ["ui_exports_v1", "chunked_upload_v1", "chunked_response_v1", "artifact_download_v1", "viewer_mesh_v1", "h2_depth_edit_server_v1", "h2_native_begin_top_sketch_server_v1", "h2_native_typed_top_plane_server_v1", "h2_native_begin_source_extrude_server_v1", "h2_native_sketch_populate_server_v1", "h2_native_extrude_populate_server_v1", "h2_native_completion_receipt_server_v1", "h2_extension_reload_server_v1"]})
+ 
+     async def reconcile_completed_top_begin(request):
+         """Confirm a manually completed, journaled Top selection without replaying it."""
+diff --git a/tests/adapter.test.mjs b/tests/adapter.test.mjs
+index 4f0eae2..66cbfc0 100644
+--- a/tests/adapter.test.mjs
++++ b/tests/adapter.test.mjs
+@@ -204,32 +204,87 @@ test('source rectangle populates an editor allocated blank sketch with typed nat
+     'ui.sketch.GBTUiSketchGetConstraintGraphCall']);
+ });
+ 
+-test('normal Sketch and Top controls allocate a fresh blank native feature',async()=>{
++test('normal Sketch allocation binds Top through a freshly resolved typed query',async()=>{
+   const temp={did:'4e078dec822b4e509616b1cb',wid:'af0627de07264acf086e646a',eid:'9a062f0eef8bb961f8c84f8e'};
+-  const root={children:[{featureId:'Top',featureType:'defaultPlane',nodeId:'existing-top'}]};
++  const Type=(name,defaults)=>class {constructor(){Object.assign(this,defaults);}
++    getMessageName(){return name;} getClassId(){return 1;}};
++  const Query=Type('bsedit.GBTMIndividualQuery',{nodeId:'new-query-node',deterministicIds:[],
++    hasUserCode:false,queryString:'',sourceParseTreeNodes:{}});
++  const QueryList=Type('bsedit.GBTMParameterQueryList',{nodeId:'plane-node',parameterId:'sketchPlane',queries:[]});
++  const Sketch=Type('bsedit.GBTMSketch',{featureId:'allocatedSketch_0',featureType:'newSketch',
++    nodeId:'fresh-node',entities:[],constraints:[],parameters:[]});
++  const QueryCall=Type('ui.GBTUiGetQueryDataCall',{elementId:'',queries:[],qFunction:'',
++    additionalArguments:[],queryNodeIdToInContextNodeId:{}});
++  const Change=Type('diff.GBTTreeEditChange',{oldNode:null,newNode:null});
++  const Reference=Type('tree.GBTNodeReference',{nodeId:''});
++  const Specify=Type('ui.GBTUiSpecifyFeature',{elementId:'',featureNodeId:'',featureChange:null,
++    sequenceId:0,selectionMicroversion:null,inContextEntitiesToAdd:null,editDescription:''});
++  const root={children:[{$type:'bsedit.GBTMRollback',nodeId:'rollback'}],
++    defaultFeatures:{children:[{featureId:'Top',featureType:'defaultPlane',nodeId:'top-node'}]}};
+   let revision='a'.repeat(24),editing=null;
+-  const modules=setup(undefined,false,revision,root,{},null,temp);
++  const modules=setup(undefined,false,revision,root,{Query,QueryList,Sketch,QueryCall,Change,Reference,Specify},m=>{
++    if(m.getMessageName()==='ui.GBTUiGetQueryDataCall') return {getMessageName:()=> 'ui.GBTUiGetQueryDataResponse',
++      queryData:[{deterministicIds:['JDC'],featureId:'Top',selectionName:'Face',hasErrorEntity:false,
++        outsideExactDependencies:false,evaluationDetails:{fullOperationId:'Top.planeOp',entityType:2,status:0}}]};
++    if(m.getMessageName()==='ui.GBTUiSpecifyFeature'){
++      root.children[1]=m.featureChange.newNode;revision='c'.repeat(24);
++      return {errorEnum:0};
++    }
++    throw Error('unexpected RPC');
++  },temp);
+   modules.__controller.documentModel.get=k=>k==='microversionId'?{theId:micro}:
+     {get:x=>x==='microversionId'?revision:x==='idEditingFeature'?editing:null};
+   const control=click=>({getClientRects:()=>[1],getAttribute:()=>null,
+     classList:{contains:()=>false},click});
+   let planeReady=false, topClicks=0;
+-  const toolbar=control(()=>{editing='allocatedSketch_0';root.children.push({featureId:editing,
+-    featureType:'newSketch',nodeId:'fresh-node',entities:[],constraints:[],parameters:[]});
+-    setTimeout(()=>{root.children[1].parameters=[{parameterId:'sketchPlane',queries:[]}];
++  const toolbar=control(()=>{editing='allocatedSketch_0';root.children.push(new Sketch());
++    setTimeout(()=>{root.children[1].parameters=[new QueryList()];
+       revision='b'.repeat(24);planeReady=true;},20);});
+   const top=control(()=>{topClicks++;if(!planeReady) throw Error('Top selected before sketch dialog is ready');
+-    root.children[1].parameters=[{parameterId:'sketchPlane',queries:[{deterministicIds:['bound-top']}]}];
+-    revision='c'.repeat(24);});
++    throw Error('Synthetic Top click must not be used');});
+   globalThis.document={querySelectorAll:selector=>selector==='div.tool[command-id="newSketch"]'?[toolbar]:
+     selector==='div.os-list-item[feature-id="Top"][feature-type="defaultPlane"]'?[top]:[]};
+   const result=await pageCommand({kind:'partstudio_begin_top_sketch',target:temp,
+     expected_element_microversion:'a'.repeat(24)});
+   assert.equal(result.initiation_candidate,true,JSON.stringify(result));
+   assert.equal(result.feature_id,'allocatedSketch_0');
+-  assert.deepEqual(result.plane_query_ids,['bound-top']);
+-  assert.equal(topClicks,1);
+-  assert.equal(sent.length,0);
++  assert.deepEqual(result.plane_query_ids,['JDC']);
++  assert.equal(result.plane_query_node_id,'new-query-node');
++  assert.equal(topClicks,0);
++  assert.deepEqual(sent.map(m=>m.getMessageName()),['ui.GBTUiGetQueryDataCall','ui.GBTUiSpecifyFeature']);
++});
++
++test('typed Top binding rejects a wrong-plane query before SpecifyFeature',async()=>{
++  const temp={did:'4e078dec822b4e509616b1cb',wid:'af0627de07264acf086e646a',eid:'9a062f0eef8bb961f8c84f8e'};
++  const Type=(name,defaults)=>class {constructor(){Object.assign(this,defaults);}
++    getMessageName(){return name;} getClassId(){return 1;}};
++  const Query=Type('bsedit.GBTMIndividualQuery',{nodeId:'fresh-query',deterministicIds:[],
++    hasUserCode:false,queryString:'',sourceParseTreeNodes:{}});
++  const QueryList=Type('bsedit.GBTMParameterQueryList',{nodeId:'plane-node',parameterId:'sketchPlane',queries:[]});
++  const Sketch=Type('bsedit.GBTMSketch',{featureId:'allocatedSketch_0',featureType:'newSketch',
++    nodeId:'fresh-node',entities:[],constraints:[],parameters:[]});
++  const QueryCall=Type('ui.GBTUiGetQueryDataCall',{elementId:'',queries:[],qFunction:'',
++    additionalArguments:[],queryNodeIdToInContextNodeId:{}});
++  const root={children:[{$type:'bsedit.GBTMRollback',nodeId:'rollback'}],
++    defaultFeatures:{children:[{featureId:'Top',featureType:'defaultPlane',nodeId:'top-node'}]}};
++  let revision='a'.repeat(24),editing=null;
++  const modules=setup(undefined,false,revision,root,{Query,QueryList,Sketch,QueryCall},()=>({
++    getMessageName:()=> 'ui.GBTUiGetQueryDataResponse',queryData:[{
++      deterministicIds:['JDC'],featureId:'Front',selectionName:'Face',hasErrorEntity:false,
++      outsideExactDependencies:false,evaluationDetails:{fullOperationId:'Front.planeOp',entityType:2,status:0}}]}),temp);
++  modules.__controller.documentModel.get=k=>k==='microversionId'?{theId:micro}:
++    {get:x=>x==='microversionId'?revision:x==='idEditingFeature'?editing:null};
++  const control=click=>({getClientRects:()=>[1],getAttribute:()=>null,classList:{contains:()=>false},click});
++  globalThis.document={querySelectorAll:selector=>selector==='div.tool[command-id="newSketch"]'?[control(()=>{
++    editing='allocatedSketch_0';root.children.push(new Sketch());root.children[1].parameters=[new QueryList()];
++    revision='b'.repeat(24);})]:selector==='div.os-list-item[feature-id="Top"][feature-type="defaultPlane"]'?
++    [control(()=>{throw Error('Top click must not run');})]:[]};
++  const result=await pageCommand({kind:'partstudio_begin_top_sketch',target:temp,
++    expected_element_microversion:'a'.repeat(24)});
++  assert.match(result.error,/does not resolve the unique Top face/);
++  assert.equal(result.write_stage,'submitted_or_uncertain');
++  assert.deepEqual(sent.map(m=>m.getMessageName()),['ui.GBTUiGetQueryDataCall']);
++  assert.deepEqual(root.children[1].parameters[0].queries,[]);
+ });
+ 
+ test('selected sole source sketch starts a NEW solid extrusion with editor-bound region',async()=>{
+diff --git a/tests/test_bridge.py b/tests/test_bridge.py
+index e7be6a6..79bbb0f 100644
+--- a/tests/test_bridge.py
++++ b/tests/test_bridge.py
+@@ -153,6 +153,10 @@ async def test_begin_top_rejects_old_loaded_page_before_editor_action():
+     with pytest.raises(BridgeError, match="h2_native_begin_top_ready_page_v1"):
+         await broker.dispatch({"kind": "partstudio_begin_top_sketch", "target": target,
+                                "expected_element_microversion": "a" * 24})
++    broker.extension_info["capabilities"].append("h2_native_begin_top_ready_page_v1")
++    with pytest.raises(BridgeError, match="h2_native_typed_top_plane_page_v1"):
++        await broker.dispatch({"kind": "partstudio_begin_top_sketch", "target": target,
++                               "expected_element_microversion": "a" * 24})
+     assert not broker.extension.sent and not broker.pending
+ 
+ 
+-- 
+2.54.0.windows.1
+

@@ -274,15 +274,22 @@ class BeginBridge:
         self.old_page = old_page
 
     async def health(self):
-        return {"extension_connected": True, "capabilities": ["h2_native_begin_top_sketch_server_v1"],
+        return {"extension_connected": True, "capabilities": ["h2_native_begin_top_sketch_server_v1",
+                "h2_native_typed_top_plane_server_v1"],
                 "extension": {"capabilities": ["h2_native_begin_top_sketch_page_v1"] +
-                              ([] if self.old_page else ["h2_native_begin_top_ready_page_v1"])}}
+                              ([] if self.old_page else ["h2_native_begin_top_ready_page_v1",
+                                                        "h2_native_typed_top_plane_page_v1"])}}
 
     async def command(self, job):
         self.calls.append(copy.deepcopy(job))
         if job["kind"] == "partstudio_begin_top_sketch":
             return {"initiation_candidate": True, "feature_id": "newSketch_0", "feature_node_id": "fresh-node",
                     "plane_query_ids": ["bound-top"]}
+        if job["kind"] == "native":
+            return {"result": {"$type": "ui.GBTUiGetQueryDataResponse", "queryData": [{
+                "deterministicIds": ["bound-top"], "featureId": "Top", "selectionName": "Face",
+                "evaluationDetails": {"fullOperationId": "Top.planeOp", "entityType": 2, "status": 0},
+                "hasErrorEntity": False, "outsideExactDependencies": False}]}}
         assert job["kind"] == "state"
         after = len(self.calls) > 1
         rollback = {"$type": "bsedit.GBTMRollback", "nodeId": "rollback-node"}
@@ -303,7 +310,7 @@ async def test_normal_top_sketch_initiation_has_durable_intent_and_fresh_id(tmp_
     journal = Journal(tmp_path / "intent.sqlite")
     evidence = await NativeBackend(bridge, tab_id=17).begin_test_top_sketch(TARGET, journal)
     assert evidence["feature_id"] == "newSketch_0" and evidence["blank_sketch_observed"]
-    assert [x["kind"] for x in bridge.calls] == ["state", "partstudio_begin_top_sketch", "state"]
+    assert [x["kind"] for x in bridge.calls] == ["state", "partstudio_begin_top_sketch", "state", "native", "state"]
     assert journal.get(evidence["op_id"])["state"] == "observed"
     journal.close()
 

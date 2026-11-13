@@ -697,8 +697,10 @@ class NativeBackend:
             health = await self.bridge.health()
             if (health.get("extension_connected") is not True
                     or "h2_native_begin_top_sketch_server_v1" not in (health.get("capabilities") or [])
+                    or "h2_native_typed_top_plane_server_v1" not in (health.get("capabilities") or [])
                     or "h2_native_begin_top_sketch_page_v1" not in ((health.get("extension") or {}).get("capabilities") or [])
-                    or "h2_native_begin_top_ready_page_v1" not in ((health.get("extension") or {}).get("capabilities") or [])):
+                    or "h2_native_begin_top_ready_page_v1" not in ((health.get("extension") or {}).get("capabilities") or [])
+                    or "h2_native_typed_top_plane_page_v1" not in ((health.get("extension") or {}).get("capabilities") or [])):
                 raise Unsupported("Installed bridge and loaded extension must both advertise Top-sketch initiation")
             before = await self.raw_state(target)
             children = before["tree"].get("children")
@@ -745,12 +747,34 @@ class NativeBackend:
                         or len(plane[0].get("queries", [])) != 1
                         or plane[0]["queries"][0].get("deterministicIds") != response.get("plane_query_ids")):
                     raise UncertainWrite("Top plane binding differs from editor response")
+                query = plane[0]["queries"][0]
+                resolved = await self.bridge.command({"kind": "native", "target": self.create_target,
+                    "tab_id": self.tab_id, "command": "ui.GBTUiGetQueryDataCall",
+                    "body": {"elementId": target.eid, "queries": [query], "qFunction": "",
+                             "additionalArguments": [], "queryNodeIdToInContextNodeId": {}}})
+                result = resolved.get("result") or {}
+                item = result.get("queryData", [None])
+                item = item[0] if isinstance(item, list) and len(item) == 1 else None
+                detail = item.get("evaluationDetails", {}) if isinstance(item, dict) else {}
+                if (result.get("$type") != "ui.GBTUiGetQueryDataResponse"
+                        or not isinstance(item, dict) or item.get("deterministicIds") != query["deterministicIds"]
+                        or item.get("featureId") != "Top" or item.get("selectionName") != "Face"
+                        or detail.get("fullOperationId") != "Top.planeOp" or detail.get("entityType") != 2
+                        or detail.get("status") != 0 or item.get("hasErrorEntity") is not False
+                        or item.get("outsideExactDependencies") is not False):
+                    raise UncertainWrite("Bound sketch plane does not resolve to Top")
+                stable = await self.raw_state(target)
+                if (stable.get("connected") is not True
+                        or stable.get("editingFeatureId") != feature_id
+                        or stable.get("element_microversion") != after["element_microversion"]
+                        or stable.get("tree") != after["tree"]):
+                    raise UncertainWrite("Top sketch editor changed during independent plane query")
             except Exception as exc:
                 journal.transition(op_id, "unknown", error=str(exc))
                 raise UncertainWrite(f"Top sketch initiation outcome unknown; journal operation {op_id}") from exc
             evidence = {"op_id": op_id, "feature_id": feature_id,
                         "revision_before": before["element_microversion"], "revision_after": after["element_microversion"],
-                        "top_selected_by_observed_control": True, "blank_sketch_observed": True}
+                        "top_bound_by_verified_query": True, "blank_sketch_observed": True}
             journal.transition(op_id, "observed", observation=evidence)
             return evidence
 
