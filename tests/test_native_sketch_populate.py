@@ -65,11 +65,26 @@ def state(*, populated=False, unrelated_changed=False):
             "tree": {"$type": "bsedit.GBTMModel", "children": [datum, sketch]}}
 
 
+def solved_graph():
+    ids = ("firstSnap0", "perpendicular", "parallel.1", "parallel.2", "horizontal",
+           "corner0", "corner1", "corner2", "corner3", "width", "height")
+    constraints = {"box." + name: {"status": 4, "displayStatus": 1} for name in ids}
+    constraints["box.firstSnap0"].update(isExternal=True, type=1, referenceIds="box.bottom.start origin-ref")
+    return {"result": {"$type": "ui.sketch.GBTUiSketchGetConstraintGraphResponse",
+                       "constraints": constraints, "worstSolveStatus": 1,
+                       "sketchError": {"statusEnum": 0},
+                       "references": {"origin-ref": {"isSketchEntity": False,
+                                                       "anchorX": 0, "anchorY": 0, "anchorZ": 0},
+                                      "box.bottom.start": {"worstSolveStatus": 1,
+                                                           "anchorX": 0, "anchorY": 0, "anchorZ": 0}}}}
+
+
 class Bridge:
-    def __init__(self, *, changed=False, capabilities=True):
+    def __init__(self, *, changed=False, capabilities=True, unanchored=False):
         self.calls = []
         self.changed = changed
         self.capabilities = capabilities
+        self.unanchored = unanchored
 
     async def health(self):
         return {"extension_connected": True,
@@ -81,6 +96,13 @@ class Bridge:
         if job["kind"] == "state":
             populated = sum(x["kind"] == "state" for x in self.calls) > 1
             return state(populated=populated, unrelated_changed=self.changed and populated)
+        if job["kind"] == "native":
+            assert job["command"] == "ui.sketch.GBTUiSketchGetConstraintGraphCall"
+            assert job["body"]["sketchFeatureId"] == "editorAllocated_0"
+            graph = solved_graph()
+            if self.unanchored:
+                graph["result"]["constraints"]["box.firstSnap0"]["referenceIds"] = "box.bottom.start unknown"
+            return graph
         assert job["kind"] == "partstudio_populate_sketch"
         assert job["sketch_edit"] == {"feature_id": "editorAllocated_0", "entity_prefix": "box",
                                       "rectangle_m": [0.0, 0.0, 0.04, 0.02]}
@@ -92,8 +114,9 @@ async def test_source_pair_journals_one_write_and_verifies_native_definition(tmp
     bridge = Bridge()
     journal = Journal(tmp_path / "intent.sqlite")
     evidence = await NativeBackend(bridge, tab_id=17).populate_test_sketch(TARGET, SOURCE, journal)
-    assert evidence["definition_verified"] is True and evidence["geometry_verified"] is False
-    assert [x["kind"] for x in bridge.calls] == ["state", "partstudio_populate_sketch", "state"]
+    assert evidence["definition_observed"] is True and evidence["origin_verified"] is True
+    assert evidence["geometry_verified"] is False
+    assert [x["kind"] for x in bridge.calls] == ["state", "partstudio_populate_sketch", "state", "native"]
     assert journal.get(evidence["op_id"])["state"] == "observed"
     journal.close()
 
@@ -105,6 +128,17 @@ async def test_unrelated_tree_change_remains_unknown_and_is_never_replayed(tmp_p
     with pytest.raises(UncertainWrite, match="outcome unknown"):
         await NativeBackend(bridge, tab_id=17).populate_test_sketch(TARGET, SOURCE, journal)
     assert [x["kind"] for x in bridge.calls] == ["state", "partstudio_populate_sketch", "state"]
+    assert journal.has_unresolved()
+    journal.close()
+
+
+@pytest.mark.asyncio
+async def test_unbound_origin_graph_never_confirms_sketch(tmp_path):
+    bridge = Bridge(unanchored=True)
+    journal = Journal(tmp_path / "intent.sqlite")
+    with pytest.raises(UncertainWrite, match="outcome unknown"):
+        await NativeBackend(bridge, tab_id=17).populate_test_sketch(TARGET, SOURCE, journal)
+    assert [x["kind"] for x in bridge.calls] == ["state", "partstudio_populate_sketch", "state", "native"]
     assert journal.has_unresolved()
     journal.close()
 
