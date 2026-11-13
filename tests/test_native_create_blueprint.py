@@ -26,6 +26,17 @@ def test_literal_plate_plan_normalizes_one_rectangle_and_extrusion():
     assert blueprint.to_dict()["write_ready"] is False
 
 
+def test_different_plate_source_changes_native_dimensions_without_fixture_constants(tmp_path):
+    source = SOURCE.read_text(encoding="utf-8")
+    source = source.replace("vector(40, 20)", "vector(30, 15)").replace('"depth" : 5 * millimeter',
+                                                                     '"depth" : 7 * millimeter')
+    changed = tmp_path / "different_plate.fs"
+    changed.write_text(source, encoding="utf-8")
+    blueprint = stage_minimal_pair(compile_fsgen(changed, Target("d", "w", "e")))
+    assert blueprint.rectangle_m == (0.0, 0.0, .03, .015)
+    assert blueprint.depth_mm == 7
+
+
 def test_blueprint_cli_uses_same_fsgen_source_without_browser(capsys):
     assert main(["native-blueprint", str(SOURCE), "--did", "d", "--wid", "w", "--eid", "e"]) == 0
     import json
