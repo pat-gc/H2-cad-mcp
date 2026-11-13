@@ -1,13 +1,21 @@
-# Approved car push: current status
+# Live Onshape result: H2 CAD Test Project
 
-**Status: blocked before Onshape mutation.** On 2026-11-13, the available Edge session opened `https://cad.onshape.com/documents` and Onshape redirected to `https://cad.onshape.com/signin`. The page shows an empty sign-in field and disabled Continue button. No account credentials were acquired or entered. An older unrelated Onshape tab rendered blank. No document, Feature Studio, Part Studio, or feature was created or changed.
+**Result: created and visually verified on 2026-11-13.** The user signed in and authorized a new dedicated test document. No prior disposable control document or unrelated document was changed.
 
-## Supported path prepared
+- Document: [H2 CAD Test Project](https://cad.onshape.com/documents/4e078dec822b4e509616b1cb/w/af0627de07264acf086e646a/e/45730d1931712e2c548fae00)
+- Document ID: `4e078dec822b4e509616b1cb`
+- Workspace ID: `af0627de07264acf086e646a`
+- Part Studio element ID: `45730d1931712e2c548fae00`
+- [Feature Studio](https://cad.onshape.com/documents/4e078dec822b4e509616b1cb/w/af0627de07264acf086e646a/e/39a2e2afc5bc43eea167e938) element ID: `39a2e2afc5bc43eea167e938`
 
-The pinned FSGen `paste_export` converted the accepted [`basic_car.fs`](basic_car.fs) into [Onshape Feature Studio source](onshape-custom-feature.fs). The export declares one `H2 Minimal Car` custom feature with seven editable length parameters: length, width, body height, wheelbase, wheel radius, wheel thickness, and axle radius. Its geometry uses FeatureScript sketches and `opExtrude` calls; this is actual Feature Studio source, not the FSGen input dialect.
+## Creation route and evidence
 
-The pinned FS-Lite engine evaluated the generated custom feature locally and reported eight solids and 525,414.5098 mm³, matching the accepted local model exactly. See [custom-feature-local-check.json](custom-feature-local-check.json). This is still **offline verification**, not proof of Onshape compilation or regeneration.
+The pinned FSGen `paste_export` converted the accepted [`basic_car.fs`](basic_car.fs) into [Onshape Feature Studio source](onshape-custom-feature.fs). The generated source declares one `H2 Minimal Car` custom feature with seven editable length parameters and uses FeatureScript sketches and `opExtrude` calls. The pinned FS-Lite engine evaluated that generated custom feature locally and reported eight solids and 525,414.5098 mm³, exactly matching the accepted local model; see [custom-feature-local-check.json](custom-feature-local-check.json).
 
-After the user signs in to Onshape, the next live steps are to create a clearly named isolated car document (or a new Part Studio and Feature Studio in the authorized disposable document), paste the generated FeatureScript into the Feature Studio, resolve any live compiler diagnostics, add the custom feature in the separate Part Studio, and verify eight regenerated parts, dimensions, and a reversible `bodyHeight` edit ending at 37 mm. Capture an actual Onshape screenshot and record document/workspace/element IDs.
+Through the ordinary authenticated Onshape UI, a new document named `H2 CAD Test Project` was created with a dedicated Feature Studio and Part Studio. The generated FeatureScript was pasted and committed in the Feature Studio. Onshape made `H2 Minimal Car` available as a feature from the current workspace. Adding it to the empty Part Studio produced `Parts (8)` with one saved `H2 Minimal Car 1` feature. The 3D viewport showed the chassis, raised body, axles, and four wheels. Screenshots of the actual Onshape viewport and feature dialog were captured in the browser session; the finished Part Studio tab was left open as the deliverable.
 
-**Editability class:** this route creates one editable custom feature with seven dialog parameters. It does **not** create the 22 separate native variables, planes, sketches, and extrusions from the simulated plan. `NativeBackend.apply()` still rejects generic creation and advertises no supported kinds; that route remains unimplemented. No REST or STEP fallback has been used.
+The Onshape feature dialog showed these seven values: length 180 mm, width 90 mm, body height 37 mm, wheelbase 130 mm, wheel radius 14 mm, wheel thickness 12 mm, and axle radius 4 mm. To test editability, body height was saved at 42 mm; the viewport regenerated and still showed `Parts (8)`. It was then saved back to 37 mm. Reopening the dialog confirmed 37 mm and the final Part Studio still showed `Parts (8)`.
+
+## Validation boundary
+
+Onshape compilation, feature insertion, eight-part regeneration, and a reversible saved parameter edit were observed through the UI. The approved overall bounding size, **114 × 180 × 64 mm**, was measured by the local OpenCascade build. It was **not independently measured numerically in Onshape**. Onshape volume was also not independently measured. This route creates **one editable custom feature**, not the 22 separate native variables, planes, sketches, and extrusions from the simulated plan. Generic `NativeBackend.apply()` creation and an automated FSGen/bridge push remain unsupported and unverified; no REST or STEP fallback was used.
