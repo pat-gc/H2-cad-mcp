@@ -95,6 +95,21 @@ def build_parser() -> argparse.ArgumentParser:
     extrude_cmd.add_argument("--tab-id", type=int, required=True)
     extrude_cmd.add_argument("--journal", type=Path, required=True)
     extrude_cmd.add_argument("--sketch-op-id", required=True)
+    begin_extrude_cmd = commands.add_parser("experimental-begin-source-extrude",
+                                           help="select the sole saved source sketch and start its native Extrude")
+    begin_extrude_cmd.add_argument("source", type=Path)
+    _add_target(begin_extrude_cmd)
+    begin_extrude_cmd.add_argument("--bridge-config", type=Path, required=True)
+    begin_extrude_cmd.add_argument("--tab-id", type=int, required=True)
+    begin_extrude_cmd.add_argument("--journal", type=Path, required=True)
+    begin_extrude_cmd.add_argument("--sketch-op-id", required=True)
+    plate_cmd = commands.add_parser("experimental-create-plate",
+                                    help="validate source locally, then create its native Sketch and Extrude in an empty test studio")
+    plate_cmd.add_argument("source", type=Path)
+    _add_target(plate_cmd)
+    plate_cmd.add_argument("--bridge-config", type=Path, required=True)
+    plate_cmd.add_argument("--tab-id", type=int, required=True)
+    plate_cmd.add_argument("--journal", type=Path, required=True)
     recover_cmd = commands.add_parser("experimental-reconcile-known-sketch-rejection",
                                       help="resolve the one proven pre-dispatch sketch constructor rejection")
     recover_cmd.add_argument("op_id")
@@ -140,7 +155,8 @@ def build_parser() -> argparse.ArgumentParser:
 async def _bridge_action(args: argparse.Namespace) -> tuple[object, int]:
     if args.command in {"extension-reload", "experimental-depth-edit", "experimental-begin-top-sketch",
                         "experimental-sketch-populate",
-                        "experimental-extrude-populate",
+                        "experimental-extrude-populate", "experimental-begin-source-extrude",
+                        "experimental-create-plate",
                         "experimental-classify-known-invalid-sketch",
                         "experimental-finalize-known-invalid-sketch-cancel",
                         "experimental-reconcile-completed-top-begin",
@@ -219,6 +235,39 @@ async def _bridge_action(args: argparse.Namespace) -> tuple[object, int]:
             try:
                 return await backend.populate_test_extrude(_target(args), args.source,
                                                            sketch_op_id=args.sketch_op_id, journal=journal), 0
+            finally:
+                journal.close()
+        if args.command == "experimental-begin-source-extrude":
+            journal = Journal(args.journal)
+            try:
+                return await backend.begin_test_source_extrude(_target(args), args.source,
+                                                               sketch_op_id=args.sketch_op_id, journal=journal), 0
+            finally:
+                journal.close()
+        if args.command == "experimental-create-plate":
+            from .fsgen import compile_fsgen
+            from .native import stage_minimal_pair
+            from .validation import validate_fsgen
+            source_text = args.source.read_text(encoding="utf-8")
+            target = _target(args)
+            local = validate_fsgen(source_text)
+            if local.status != "passed":
+                raise ValueError(f"Local FSGen validation must pass before native creation: {local.error or local.status}")
+            blueprint = stage_minimal_pair(compile_fsgen(source_text, target))
+            if blueprint.depth_mm == 25:
+                raise ValueError("Source depth equals the observed editor default; commit-only extrusion is not yet supported")
+            journal = Journal(args.journal)
+            try:
+                begin = await backend.begin_test_top_sketch(target, journal)
+                sketch = await backend.populate_test_sketch(target, source_text, journal)
+                extrusion = await backend.begin_test_source_extrude(
+                    target, source_text, sketch_op_id=sketch["op_id"], journal=journal)
+                saved = await backend.populate_test_extrude(
+                    target, source_text, sketch_op_id=sketch["op_id"], journal=journal)
+                return {"status": "native_definitions_observed", "target": target.to_dict(),
+                        "local_validation": local.to_dict(), "begin_sketch": begin,
+                        "sketch": sketch, "begin_extrude": extrusion, "extrude": saved,
+                        "solid_geometry_verified": False, "ui_editability_verified": False}, 0
             finally:
                 journal.close()
         from .executor import Executor

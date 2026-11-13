@@ -15,6 +15,16 @@ from h2cad.cli import build_parser
 
 
 TARGET = Target("4e078dec822b4e509616b1cb", "af0627de07264acf086e646a", "9a062f0eef8bb961f8c84f8e")
+
+
+def test_explicit_checkpoint_target_binding_accepts_new_eid_and_rejects_preserved_car():
+    from h2cad.native import _configured_create_target
+    target = {"did": TARGET.did, "wid": TARGET.wid, "eid": "1926791d173990d5d45f70ef"}
+    assert _configured_create_target(target) == target
+    with pytest.raises(ValueError):
+        _configured_create_target({**target, "eid": "45730d1931712e2c548fae00"})
+    with pytest.raises(ValueError):
+        _configured_create_target({**target, "did": "f5a8353dc826a9ec52106138"})
 SOURCE = Path(__file__).resolve().parents[1] / "fixtures" / "native" / "minimal_plate.fs"
 
 
@@ -381,6 +391,24 @@ async def test_saved_source_extrude_client_uses_one_authenticated_read_only_endp
     assert result["status"] == "observed_delayed_source_extrusion"
     assert seen == [("POST", "/local/reconcile_saved_source_extrude", "Bearer " + "x" * 32,
                      {"op_id": "extrude-" + "a" * 32, "tab_id": 17})]
+
+
+@pytest.mark.parametrize("fault", [None, "wrong_source", "wrong_form"])
+def test_editor_sketch_region_query_requires_exact_source_and_form(fault):
+    from h2cad.native import _verify_source_region_query
+    query = {"$type": "bsedit.GBTMIndividualSketchRegionQuery", "featureId": "source_0",
+             "filterInnerLoops": True, "deterministicIds": ["live"]}
+    response = {"result": {"$type": "ui.GBTUiGetQueryDataResponse", "queryData": [{
+        "deterministicIds": ["live"], "featureId": "source_0", "selectionName": "Faces",
+        "evaluationDetails": {"fullOperationId": "", "entityType": 0, "status": 0},
+        "hasErrorEntity": False}]}}
+    if fault == "wrong_source": query["featureId"] = "other_0"
+    if fault == "wrong_form": query["filterInnerLoops"] = False
+    if fault is None:
+        _verify_source_region_query(response, query, "source_0")
+    else:
+        with pytest.raises(Unsupported):
+            _verify_source_region_query(response, query, "source_0")
 
 
 def _prior_sketch_intent(journal):

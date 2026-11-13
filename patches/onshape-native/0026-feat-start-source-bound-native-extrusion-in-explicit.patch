@@ -1,0 +1,656 @@
+From 3d465f5e7df281f703c26e448d90d1073fc65967 Mon Sep 17 00:00:00 2001
+From: patcybermind <pato.gonzalezcabrera@gmail.com>
+Date: Fri, 13 Nov 2026 16:30:38 -0500
+Subject: [PATCH] feat: start source-bound native extrusion in explicit test
+ studio
+
+---
+ extension/connection.js   |   2 +-
+ extension/page-adapter.js | 112 +++++++++++++++++++++++++++++++++++---
+ onshape_native/bridge.py  |  83 +++++++++++++++++++++++-----
+ tests/adapter.test.mjs    |  88 ++++++++++++++++++++++++++++--
+ tests/test_bridge.py      |  70 +++++++++++++++++++++++-
+ 5 files changed, 324 insertions(+), 31 deletions(-)
+
+diff --git a/extension/connection.js b/extension/connection.js
+index ed3f7e3..bb19f03 100644
+--- a/extension/connection.js
++++ b/extension/connection.js
+@@ -74,7 +74,7 @@ export function createConnection({browser, token, execute, Socket = WebSocket,
+       if (socket !== current) return;
+       current.send(JSON.stringify({type: 'hello', token, version: browser.runtime.getManifest().version,
+         runtime_id: browser.runtime.id, instance_id: instanceId, build: 'h2-extension-reload-v1',
+-        capabilities: ['tab_context_v1', 'assembly_sidebar_map_v1', 'display_v1', 'native_modeling_v1', 'element_revision_v1', 'editor_tabs_v1', 'ui_exports_v1', 'chunked_upload_v1', 'chunked_response_v1', 'viewer_mesh_v1', 'h2_depth_edit_page_v1', 'h2_native_begin_top_sketch_page_v1', 'h2_native_begin_top_ready_page_v1', 'h2_native_sketch_populate_page_v1', 'h2_native_fixed_origin_page_v1', 'h2_native_extrude_populate_page_v1', 'h2_native_source_region_page_v1', 'h2_native_extrude_recheck_page_v1', 'h2_native_completion_receipt_page_v1', 'h2_extension_reload_v1']}));
++        capabilities: ['tab_context_v1', 'assembly_sidebar_map_v1', 'display_v1', 'native_modeling_v1', 'element_revision_v1', 'editor_tabs_v1', 'ui_exports_v1', 'chunked_upload_v1', 'chunked_response_v1', 'viewer_mesh_v1', 'h2_depth_edit_page_v1', 'h2_native_begin_top_sketch_page_v1', 'h2_native_begin_top_ready_page_v1', 'h2_native_begin_source_extrude_page_v1', 'h2_native_sketch_populate_page_v1', 'h2_native_fixed_origin_page_v1', 'h2_native_extrude_populate_page_v1', 'h2_native_source_region_page_v1', 'h2_native_extrude_recheck_page_v1', 'h2_native_completion_receipt_page_v1', 'h2_extension_reload_v1']}));
+     };
+     let lastPong = now(), chunkedResponses = false;
+     current.onmessage = async event => {
+diff --git a/extension/page-adapter.js b/extension/page-adapter.js
+index 185d133..779c431 100644
+--- a/extension/page-adapter.js
++++ b/extension/page-adapter.js
+@@ -346,7 +346,8 @@ export async function pageCommand(job) {
+   if (job.kind === "partstudio_begin_top_sketch") {
+     if (target.did !== "4e078dec822b4e509616b1cb" ||
+         target.wid !== "af0627de07264acf086e646a" ||
+-        target.eid !== "9a062f0eef8bb961f8c84f8e")
++        !/^[a-f0-9]{24}$/.test(target.eid) ||
++        ["45730d1931712e2c548fae00","39a2e2afc5bc43eea167e938"].includes(target.eid))
+       throw new Error("Native sketch initiation is limited to the authorized temporary Part Studio.");
+     if (!job.expected_element_microversion || getElementMicroversion() !== job.expected_element_microversion)
+       throw new Error("Native element revision changed. Read state again.");
+@@ -408,13 +409,100 @@ export async function pageCommand(job) {
+     }
+     throw new Error("Top sketch action may have changed the editor but its bound plane is unconfirmed; outcome unknown.");
+   }
++  if (job.kind === "partstudio_begin_source_extrude") {
++    const sketchId = job.sketch_feature_id;
++    if (!/^begin-extrude-[a-f0-9]{32}$/.test(job.op_id || "") ||
++        target.did !== "4e078dec822b4e509616b1cb" ||
++        target.wid !== "af0627de07264acf086e646a" ||
++        !/^[a-f0-9]{24}$/.test(target.eid) ||
++        ["45730d1931712e2c548fae00","39a2e2afc5bc43eea167e938"].includes(target.eid) ||
++        !/^[A-Za-z0-9_]{4,80}$/.test(sketchId || ""))
++      throw new Error("Source Extrude initiation requires the authorized test Part Studio and sketch ID.");
++    if (getElementMicroversion() !== job.expected_element_microversion ||
++        controller.connection?.isClosed?.() !== false ||
++        elementModel?.get("idEditingFeature") || controller.__onshapeNativeIncompleteFeatureEdit)
++      throw new Error("Source Extrude initiation requires a fresh connected idle editor.");
++    const root = () => controller.documentClientCache?.getModelTreeState(target.eid)?.diffableModelTree?.getRoot();
++    const before = root();
++    const siblings = before?.children;
++    const sketches = siblings?.filter(node=>node?.featureType === "newSketch");
++    if (!Array.isArray(siblings) || siblings.length !== 2 || sketches?.length !== 1 ||
++        sketches[0].featureId !== sketchId || sketches[0].entities?.length !== 4 ||
++        sketches[0].constraints?.length !== 11 ||
++        siblings.filter(node=>node?.getMessageName?.() === "bsedit.GBTMRollback" ||
++          node?.$type === "bsedit.GBTMRollback").length !== 1)
++      throw new Error("Source Extrude requires one saved rectangle sketch and no other user features.");
++    const unique = selector => {
++      const nodes = [...document.querySelectorAll(selector)].filter(node=>node.getClientRects().length > 0);
++      if (nodes.length !== 1 || nodes[0].getAttribute("aria-disabled") === "true" ||
++          nodes[0].classList.contains("disabled"))
++        throw new Error("Expected one enabled source Extrude editor control.");
++      return nodes[0];
++    };
++    const row = unique(`div.os-list-item[feature-id="${sketchId}"][feature-type="newSketch"]`);
++    const toolbar = unique('div.tool[command-id="extrude"]');
++    row.click();
++    for (let attempt=0;attempt<20 && !row.classList.contains("selected");attempt++)
++      await new Promise(resolve=>setTimeout(resolve,100));
++    if (!row.classList.contains("selected") ||
++        getElementMicroversion() !== job.expected_element_microversion ||
++        elementModel?.get("idEditingFeature") || controller.connection?.isClosed?.() !== false ||
++        controller.getActiveElementTabId() !== target.eid ||
++        location.pathname !== `/documents/${target.did}/w/${target.wid}/e/${target.eid}`)
++      throw new Error("Source sketch row was not uniquely selected; no Extrude action sent.");
++    controller.__onshapeNativeIncompleteFeatureEdit = {stage:"begin-source-extrude",op_id:job.op_id,
++      sketch_feature_id:sketchId,expected_revision:job.expected_element_microversion};
++    h2CadRpcSent = true;
++    toolbar.click();
++    const make = (name, fields={}) => hydrate({$type:name, ...plain(fields)});
++    for (let attempt=0;attempt<50;attempt++) {
++      const editing = elementModel?.get("idEditingFeature");
++      const features = root()?.children?.filter(node=>node?.featureId === editing && node?.featureType === "extrude");
++      const feature = features?.[0];
++      const params = Array.isArray(feature?.parameters) ? feature.parameters : [];
++      const byId = id => params.filter(item=>item?.parameterId===id);
++      const entities = byId("entities");
++      const region = entities?.[0]?.queries?.[0];
++      const depth = byId("depth");
++      if (editing && features.length===1 && feature.nodeId &&
++          entities.length===1 && entities[0].queries?.length===1 && region?.deterministicIds?.length &&
++          region.getMessageName?.()==="bsedit.GBTMIndividualSketchRegionQuery" &&
++          region.featureId===sketchId && region.filterInnerLoops===true &&
++          byId("bodyType")[0]?.value==="SOLID" && byId("operationType")[0]?.value==="NEW" &&
++          byId("endBound")[0]?.value==="BLIND" && depth.length===1 &&
++          getElementMicroversion()!==job.expected_element_microversion) {
++        if (controller.connection?.isClosed?.() !== false || controller.getActiveElementTabId()!==target.eid ||
++            location.pathname!==`/documents/${target.did}/w/${target.wid}/e/${target.eid}`)
++          throw new Error("Source Extrude editor target changed; outcome unknown.");
++        const call = make("ui.GBTUiGetQueryDataCall",{elementId:target.eid,
++          queries:[region],qFunction:"",additionalArguments:[],queryNodeIdToInContextNodeId:{}});
++        const resolved = plain(await controller.elementConnection.callAndPromise(call));
++        const item = resolved?.queryData?.[0];
++        if (resolved?.$type!=="ui.GBTUiGetQueryDataResponse" || resolved.queryData?.length!==1 ||
++            JSON.stringify(item?.deterministicIds)!==JSON.stringify(region.deterministicIds) ||
++            item?.featureId!==sketchId || item?.selectionName!=="Faces" ||
++            item?.evaluationDetails?.entityType!==0 || item?.evaluationDetails?.fullOperationId!=="" ||
++            item?.evaluationDetails?.status!==0 || item?.hasErrorEntity!==false)
++          throw new Error("Selected sketch region does not resolve to the source; outcome unknown.");
++        delete controller.__onshapeNativeIncompleteFeatureEdit;
++        return {op_id:job.op_id,feature_id:editing,feature_node_id:feature.nodeId,sketch_feature_id:sketchId,
++          region_query_ids:region.deterministicIds,initiation_candidate:true,
++          region_source_verified:true,element_microversion_before:job.expected_element_microversion,
++          element_microversion_after:getElementMicroversion(),
++          verification:"Independent active editor tree and source-region check required"};
++      }
++      await new Promise(resolve=>setTimeout(resolve,100));
++    }
++    throw new Error("Extrude action may have created an incomplete draft; source region remains unconfirmed.");
++  }
+   if (job.kind === "partstudio_populate_sketch") {
+     const edit = job.sketch_edit;
+     if (!/^sketch-[a-f0-9]{32}$/.test(job.op_id || ""))
+       throw new Error("Journaled sketch operation identity required before modeling.");
+     if (target.did !== "4e078dec822b4e509616b1cb" ||
+         target.wid !== "af0627de07264acf086e646a" ||
+-        target.eid !== "9a062f0eef8bb961f8c84f8e")
++        !/^[a-f0-9]{24}$/.test(target.eid) ||
++        ["45730d1931712e2c548fae00","39a2e2afc5bc43eea167e938"].includes(target.eid))
+       throw new Error("Native sketch creation is limited to the authorized temporary Part Studio.");
+     if (!job.expected_element_microversion || getElementMicroversion() !== job.expected_element_microversion)
+       throw new Error("Native element revision changed. Read state again.");
+@@ -574,7 +662,8 @@ export async function pageCommand(job) {
+       throw new Error("Journaled extrusion operation identity required before modeling.");
+     if (target.did !== "4e078dec822b4e509616b1cb" ||
+         target.wid !== "af0627de07264acf086e646a" ||
+-        target.eid !== "9a062f0eef8bb961f8c84f8e")
++        !/^[a-f0-9]{24}$/.test(target.eid) ||
++        ["45730d1931712e2c548fae00","39a2e2afc5bc43eea167e938"].includes(target.eid))
+       throw new Error("Native extrusion is limited to the authorized temporary Part Studio.");
+     if (!job.expected_element_microversion || getElementMicroversion() !== job.expected_element_microversion)
+       throw new Error("Native element revision changed. Read state again.");
+@@ -615,12 +704,21 @@ export async function pageCommand(job) {
+       queries:[entities[0].queries[0]],qFunction:"",additionalArguments:[],queryNodeIdToInContextNodeId:{}});
+     const regionResult = plain(await controller.elementConnection.callAndPromise(regionCall));
+     const regionData = regionResult?.queryData;
++    const selected = entities[0].queries[0];
++    const queryType = selected.getMessageName?.();
++    const sourceFace = queryType === "bsedit.GBTMIndividualQuery" &&
++      regionData?.[0]?.selectionName === "Face" &&
++      regionData?.[0]?.evaluationDetails?.fullOperationId === `${edit.sketch_feature_id}.imprint` &&
++      regionData?.[0]?.evaluationDetails?.entityType === 2;
++    const soleSketchRegion = queryType === "bsedit.GBTMIndividualSketchRegionQuery" &&
++      selected.featureId === edit.sketch_feature_id && selected.filterInnerLoops === true &&
++      regionData?.[0]?.selectionName === "Faces" &&
++      regionData?.[0]?.evaluationDetails?.fullOperationId === "" &&
++      regionData?.[0]?.evaluationDetails?.entityType === 0;
+     if (regionResult?.$type !== "ui.GBTUiGetQueryDataResponse" || !Array.isArray(regionData) ||
+         regionData.length !== 1 ||
+         JSON.stringify(regionData[0].deterministicIds) !== JSON.stringify(entities[0].queries[0].deterministicIds) ||
+-        regionData[0].featureId !== edit.sketch_feature_id || regionData[0].selectionName !== "Face" ||
+-        regionData[0].evaluationDetails?.fullOperationId !== `${edit.sketch_feature_id}.imprint` ||
+-        regionData[0].evaluationDetails?.entityType !== 2 ||
++        regionData[0].featureId !== edit.sketch_feature_id || !(sourceFace || soleSketchRegion) ||
+         regionData[0].evaluationDetails?.status !== 0 || regionData[0].hasErrorEntity !== false)
+       throw new Error("Extrusion face does not resolve to source sketch; no modeling command sent.");
+     if (controller.connection?.isClosed?.() !== false || controller.getActiveElementTabId() !== target.eid ||
+@@ -838,7 +936,7 @@ export async function pageCommand(job) {
+     // Chrome discards a rejected executeScript promise's exception details.
+     // Return a bounded diagnostic, never a stack or the request object.
+     return {error: String(error?.message || error?.errorMessage || error?.getMessageName?.() || "Onshape page command rejected").slice(0,500),
+-      ...(["partstudio_begin_top_sketch", "partstudio_populate_sketch", "partstudio_populate_extrude"].includes(job.kind)
++      ...(["partstudio_begin_top_sketch", "partstudio_begin_source_extrude", "partstudio_populate_sketch", "partstudio_populate_extrude"].includes(job.kind)
+         ? {write_stage: h2CadRpcSent ? "submitted_or_uncertain" : "pre_dispatch"} : {}),
+       outcome: "Inspect current state before retrying a mutation."};
+   }
+diff --git a/onshape_native/bridge.py b/onshape_native/bridge.py
+index e7d8aa7..3226327 100644
+--- a/onshape_native/bridge.py
++++ b/onshape_native/bridge.py
+@@ -32,12 +32,32 @@ MAX_BODY = 96 * 1024 * 1024
+ RELOAD_CAPABILITY = "h2_extension_reload_v1"
+ RELOAD_BUILD = "h2-extension-reload-v1"
+ RELOAD_VERSION = "0.4.4"
++CREATE_LEGACY_TARGET = {"did": "4e078dec822b4e509616b1cb", "wid": "af0627de07264acf086e646a", "eid": "9a062f0eef8bb961f8c84f8e"}
++CREATE_PROJECT = {key: CREATE_LEGACY_TARGET[key] for key in ("did", "wid")}
++PRESERVED_CREATE_EIDS = {"45730d1931712e2c548fae00", "39a2e2afc5bc43eea167e938"}
+ 
+ 
+ class BridgeError(Exception):
+     pass
+ 
+ 
++def configured_create_target(config):
++    target = config.get("h2cad_create_target", CREATE_LEGACY_TARGET)
++    if (not isinstance(target, dict) or set(target) != {"did", "wid", "eid"}
++            or {key: target[key] for key in ("did", "wid")} != CREATE_PROJECT
++            or not isinstance(target["eid"], str) or not re.fullmatch(r"[a-f0-9]{24}", target["eid"])
++            or target["eid"] in PRESERVED_CREATE_EIDS):
++        raise BridgeError("Native creation requires an explicit test Part Studio in the authorized project")
++    return dict(target)
++
++
++def is_create_project_target(target):
++    return (isinstance(target, dict) and set(target) == {"did", "wid", "eid"}
++            and {key: target[key] for key in ("did", "wid")} == CREATE_PROJECT
++            and isinstance(target["eid"], str) and bool(re.fullmatch(r"[a-f0-9]{24}", target["eid"]))
++            and target["eid"] not in PRESERVED_CREATE_EIDS)
++
++
+ def is_cad_read(job):
+     """An exhaustive read allowlist; unknown jobs are treated as mutations."""
+     kind = job.get("kind")
+@@ -324,12 +344,30 @@ def verify_saved_source_extrude(before, expected_tree, after, query_response,
+     if (not isinstance(data, list) or len(data) != 1 or not isinstance(data[0], dict)
+             or data[0].get("deterministicIds") != regions[0]["deterministicIds"]
+             or data[0].get("featureId") != sketch_id
+-            or data[0].get("selectionName") != "Face"
+-            or data[0].get("evaluationDetails", {}).get("fullOperationId") != f"{sketch_id}.imprint"
+-            or data[0]["evaluationDetails"].get("entityType") != 2
+             or data[0]["evaluationDetails"].get("status") != 0
+             or data[0].get("hasErrorEntity") is not False):
+         raise ValueError("Saved extrusion region does not resolve to source sketch")
++    detail = data[0]["evaluationDetails"]
++    face = (regions[0].get("$type") == "bsedit.GBTMIndividualQuery"
++            and data[0].get("selectionName") == "Face"
++            and detail.get("fullOperationId") == f"{sketch_id}.imprint"
++            and detail.get("entityType") == 2)
++    sketch_region = (regions[0].get("$type") == "bsedit.GBTMIndividualSketchRegionQuery"
++                     and regions[0].get("featureId") == sketch_id
++                     and regions[0].get("filterInnerLoops") is True
++                     and data[0].get("selectionName") == "Faces"
++                     and detail.get("fullOperationId") == ""
++                     and detail.get("entityType") == 0)
++    if sketch_region:
++        entities = sketch[0].get("entities")
++        constraints = sketch[0].get("constraints")
++        if (not isinstance(entities, list) or len(entities) != 4
++                or any(item.get("$type") != "bsedit.GBTMSketchCurveSegment" or item.get("isConstruction") is not False
++                       for item in entities)
++                or not isinstance(constraints, list) or len(constraints) != 11):
++            raise ValueError("Sketch-region query lacks one supported closed rectangle")
++    if not (face or sketch_region):
++        raise ValueError("Saved extrusion query form differs from supported source region")
+     return {"feature_id": feature_id, "sketch_feature_id": sketch_id,
+             "revision_before": before["element_microversion"],
+             "revision_after": after["element_microversion"],
+@@ -370,7 +408,7 @@ def validate_job(job):
+     if not isinstance(job, dict):
+         raise BridgeError("Expected a JSON object.")
+     kind = job.get("kind")
+-    if not isinstance(kind, str) or kind not in {"rest", "native", "state", "schema", "creation_probe", "tabs", "open", "editor_tab", "ui_inspect", "ui_action", "display", "viewer_mesh", "partstudio_depth_edit", "partstudio_begin_top_sketch", "partstudio_populate_sketch", "partstudio_populate_extrude"}:
++    if not isinstance(kind, str) or kind not in {"rest", "native", "state", "schema", "creation_probe", "tabs", "open", "editor_tab", "ui_inspect", "ui_action", "display", "viewer_mesh", "partstudio_depth_edit", "partstudio_begin_top_sketch", "partstudio_begin_source_extrude", "partstudio_populate_sketch", "partstudio_populate_extrude"}:
+         raise BridgeError("Unknown command kind.")
+     if kind == "rest":
+         path = job.get("path", "")
+@@ -415,7 +453,7 @@ def validate_job(job):
+         if args["action"] == "read" and any(not isinstance(args.get(k), str) for k in
+                 ("expected_microversion", "full_element_id", "occurrence_path", "body_id")):
+             raise BridgeError("Viewer mesh read requires exact part reference and revision.")
+-    if kind in {"native", "state", "schema", "creation_probe", "open", "editor_tab", "ui_inspect", "ui_action", "display", "viewer_mesh", "partstudio_depth_edit", "partstudio_begin_top_sketch", "partstudio_populate_sketch", "partstudio_populate_extrude"}:
++    if kind in {"native", "state", "schema", "creation_probe", "open", "editor_tab", "ui_inspect", "ui_action", "display", "viewer_mesh", "partstudio_depth_edit", "partstudio_begin_top_sketch", "partstudio_begin_source_extrude", "partstudio_populate_sketch", "partstudio_populate_extrude"}:
+         target = job.get("target", {})
+         if not isinstance(target, dict) or set(target) != {"did", "wid", "eid"} or any(not isinstance(x, str) or not re.fullmatch(r"[a-f0-9]{24}", x) for x in target.values()):
+             raise BridgeError("Native commands require exact did, wid, eid target IDs.")
+@@ -479,7 +517,7 @@ def validate_job(job):
+     if kind == "partstudio_populate_sketch":
+         if not re.fullmatch(r"sketch-[a-f0-9]{32}", str(job.get("op_id", ""))):
+             raise BridgeError("Sketch population requires its durable journal operation ID.")
+-        if target != {"did": "4e078dec822b4e509616b1cb", "wid": "af0627de07264acf086e646a", "eid": "9a062f0eef8bb961f8c84f8e"}:
++        if not is_create_project_target(target):
+             raise BridgeError("Sketch population is limited to the authorized temporary Part Studio.")
+         if not re.fullmatch(r"[a-f0-9]{24}", str(job.get("expected_element_microversion", ""))):
+             raise BridgeError("Sketch population requires an exact fresh element revision.")
+@@ -493,14 +531,23 @@ def validate_job(job):
+                 or any(not 0 < x <= 1 for x in edit["rectangle_m"][2:])):
+             raise BridgeError("Sketch population requires one exact active feature and bounded origin rectangle.")
+     if kind == "partstudio_begin_top_sketch":
+-        if target != {"did": "4e078dec822b4e509616b1cb", "wid": "af0627de07264acf086e646a", "eid": "9a062f0eef8bb961f8c84f8e"}:
++        if not is_create_project_target(target):
+             raise BridgeError("Sketch initiation is limited to the authorized temporary Part Studio.")
+         if not re.fullmatch(r"[a-f0-9]{24}", str(job.get("expected_element_microversion", ""))):
+             raise BridgeError("Sketch initiation requires an exact fresh element revision.")
++    if kind == "partstudio_begin_source_extrude":
++        if not re.fullmatch(r"begin-extrude-[a-f0-9]{32}", str(job.get("op_id", ""))):
++            raise BridgeError("Source Extrude initiation requires its durable journal operation ID.")
++        if not is_create_project_target(target):
++            raise BridgeError("Source Extrude initiation is limited to the authorized test project.")
++        if not re.fullmatch(r"[a-f0-9]{24}", str(job.get("expected_element_microversion", ""))):
++            raise BridgeError("Source Extrude initiation requires an exact fresh element revision.")
++        if not re.fullmatch(r"[A-Za-z0-9_]{4,80}", str(job.get("sketch_feature_id", ""))):
++            raise BridgeError("Source Extrude initiation requires an exact source sketch ID.")
+     if kind == "partstudio_populate_extrude":
+         if not re.fullmatch(r"extrude-[a-f0-9]{32}", str(job.get("op_id", ""))):
+             raise BridgeError("Extrusion population requires its durable journal operation ID.")
+-        if target != {"did": "4e078dec822b4e509616b1cb", "wid": "af0627de07264acf086e646a", "eid": "9a062f0eef8bb961f8c84f8e"}:
++        if not is_create_project_target(target):
+             raise BridgeError("Extrusion population is limited to the authorized temporary Part Studio.")
+         if not re.fullmatch(r"[a-f0-9]{24}", str(job.get("expected_element_microversion", ""))):
+             raise BridgeError("Extrusion population requires an exact fresh element revision.")
+@@ -576,6 +623,9 @@ class Broker:
+ 
+     async def dispatch(self, job, timeout=50, redirects=0):
+         validate_job(job)
++        if (job.get("kind") in {"partstudio_begin_top_sketch", "partstudio_begin_source_extrude", "partstudio_populate_sketch", "partstudio_populate_extrude"}
++                and job.get("target") != configured_create_target(self.config)):
++            raise BridgeError("Native creation target differs from the configured test Part Studio")
+         if self.reload_record and (self.reload_record.get("status") == "pending" or
+                 self.reload_record.get("status") in {"uncertain", "timeout"} and not is_cad_read(job)):
+             raise BridgeError("Extension reload has no verified outcome; no CAD command was sent.")
+@@ -596,6 +646,8 @@ class Broker:
+                 raise BridgeError("Loaded extension lacks h2_native_begin_top_sketch_page_v1; reload and reconnect before editing.")
+             if job.get("kind") == "partstudio_begin_top_sketch" and "h2_native_begin_top_ready_page_v1" not in capabilities:
+                 raise BridgeError("Loaded extension lacks h2_native_begin_top_ready_page_v1; reload and reconnect before editing.")
++            if job.get("kind") == "partstudio_begin_source_extrude" and "h2_native_begin_source_extrude_page_v1" not in capabilities:
++                raise BridgeError("Loaded extension lacks h2_native_begin_source_extrude_page_v1; reload and reconnect before editing.")
+             if job.get("kind") == "partstudio_populate_sketch" and "h2_native_sketch_populate_page_v1" not in capabilities:
+                 raise BridgeError("Loaded extension lacks h2_native_sketch_populate_page_v1; reload and reconnect before editing.")
+             if job.get("kind") == "partstudio_populate_sketch" and "h2_native_fixed_origin_page_v1" not in capabilities:
+@@ -644,7 +696,7 @@ class Broker:
+             finally:
+                 self.pending.pop(command_id, None)
+                 self.result_chunks.pop(command_id, None)
+-            if (job.get("kind") in {"partstudio_begin_top_sketch", "partstudio_populate_sketch", "partstudio_populate_extrude"}
++            if (job.get("kind") in {"partstudio_begin_top_sketch", "partstudio_begin_source_extrude", "partstudio_populate_sketch", "partstudio_populate_extrude"}
+                     and isinstance(result, dict) and result.get("error")
+                     and result.get("write_stage") == "pre_dispatch"):
+                 # The trusted page adapter reports that no CAD RPC was called.
+@@ -871,6 +923,7 @@ class Broker:
+ 
+ def create_app(config=None):
+     config = config or load_config()
++    configured_create_target(config)
+     broker = Broker(config)
+     from .config import runtime_dir
+     from .ui_exports import UIExports, ExportError
+@@ -899,7 +952,7 @@ def create_app(config=None):
+         return JSONResponse({"protocol": 1, "extension_connected": broker.extension is not None,
+                              "extension": broker.extension_info, "pending": len(broker.pending),
+                              "reload": broker.reload_record,
+-                             "capabilities": ["ui_exports_v1", "chunked_upload_v1", "chunked_response_v1", "artifact_download_v1", "viewer_mesh_v1", "h2_depth_edit_server_v1", "h2_native_begin_top_sketch_server_v1", "h2_native_sketch_populate_server_v1", "h2_native_extrude_populate_server_v1", "h2_native_completion_receipt_server_v1", "h2_extension_reload_server_v1"]})
++                             "capabilities": ["ui_exports_v1", "chunked_upload_v1", "chunked_response_v1", "artifact_download_v1", "viewer_mesh_v1", "h2_depth_edit_server_v1", "h2_native_begin_top_sketch_server_v1", "h2_native_begin_source_extrude_server_v1", "h2_native_sketch_populate_server_v1", "h2_native_extrude_populate_server_v1", "h2_native_completion_receipt_server_v1", "h2_extension_reload_server_v1"]})
+ 
+     async def reconcile_completed_top_begin(request):
+         """Confirm a manually completed, journaled Top selection without replaying it."""
+@@ -910,7 +963,7 @@ def create_app(config=None):
+             body = await read_body(request)
+         except (ValueError, BridgeError):
+             return JSONResponse({"status": "blocked", "reason": "Invalid reconciliation request"}, 400)
+-        target = {"did": "4e078dec822b4e509616b1cb", "wid": "af0627de07264acf086e646a", "eid": "9a062f0eef8bb961f8c84f8e"}
++        target = configured_create_target(config)
+         if (not isinstance(body, dict) or set(body) != {"op_id", "tab_id"}
+                 or not isinstance(body["op_id"], str)
+                 or not re.fullmatch(r"begin-sketch-[a-f0-9]{32}", body["op_id"])
+@@ -985,7 +1038,7 @@ def create_app(config=None):
+             body = await read_body(request)
+         except (ValueError, BridgeError):
+             return JSONResponse({"status": "blocked", "reason": "Invalid source reconciliation request"}, 400)
+-        target = {"did": "4e078dec822b4e509616b1cb", "wid": "af0627de07264acf086e646a", "eid": "9a062f0eef8bb961f8c84f8e"}
++        target = configured_create_target(config)
+         if (not isinstance(body, dict) or set(body) != {"op_id", "tab_id"}
+                 or not isinstance(body["op_id"], str)
+                 or not re.fullmatch(r"sketch-[a-f0-9]{32}", body["op_id"])
+@@ -1081,7 +1134,7 @@ def create_app(config=None):
+             body = await read_body(request)
+         except (ValueError, BridgeError):
+             return JSONResponse({"status": "blocked", "reason": "Invalid extrusion reconciliation request"}, 400)
+-        target = {"did": "4e078dec822b4e509616b1cb", "wid": "af0627de07264acf086e646a", "eid": "9a062f0eef8bb961f8c84f8e"}
++        target = configured_create_target(config)
+         if (not isinstance(body, dict) or set(body) != {"op_id", "tab_id"}
+                 or not isinstance(body["op_id"], str)
+                 or not re.fullmatch(r"extrude-[a-f0-9]{32}", body["op_id"])
+@@ -1195,7 +1248,7 @@ def create_app(config=None):
+         except (ValueError, BridgeError):
+             return JSONResponse({"status": "blocked", "reason": "Invalid recovery request"}, 400)
+         op_id = "sketch-92236722d2ca4a40b669c2dbb8dea600"
+-        target = {"did": "4e078dec822b4e509616b1cb", "wid": "af0627de07264acf086e646a", "eid": "9a062f0eef8bb961f8c84f8e"}
++        target = configured_create_target(config)
+         if (not isinstance(body, dict) or set(body) != {"op_id", "tab_id"}
+                 or body["op_id"] != op_id or type(body["tab_id"]) is not int or body["tab_id"] < 0):
+             return JSONResponse({"status": "blocked", "reason": "Only the known failed sketch operation is recoverable"}, 400)
+@@ -1261,7 +1314,7 @@ def create_app(config=None):
+         except (ValueError, BridgeError):
+             return JSONResponse({"status": "blocked", "reason": "Invalid rollback request"}, 400)
+         op_id = "sketch-d9d02a9ba8b44bdea72b4bb67281c7e1"
+-        target = {"did": "4e078dec822b4e509616b1cb", "wid": "af0627de07264acf086e646a", "eid": "9a062f0eef8bb961f8c84f8e"}
++        target = configured_create_target(config)
+         if (not isinstance(body, dict) or set(body) != {"op_id", "tab_id"}
+                 or body["op_id"] != op_id or type(body["tab_id"]) is not int or body["tab_id"] < 0):
+             return JSONResponse({"status": "blocked", "reason": "Only the known failed sketch can be finalized"}, 400)
+diff --git a/tests/adapter.test.mjs b/tests/adapter.test.mjs
+index feafcfb..4f0eae2 100644
+--- a/tests/adapter.test.mjs
++++ b/tests/adapter.test.mjs
+@@ -232,6 +232,60 @@ test('normal Sketch and Top controls allocate a fresh blank native feature',asyn
+   assert.equal(sent.length,0);
+ });
+ 
++test('selected sole source sketch starts a NEW solid extrusion with editor-bound region',async()=>{
++  const temp={did:'4e078dec822b4e509616b1cb',wid:'af0627de07264acf086e646a',eid:'1926791d173990d5d45f70ef'};
++  const sketchId='sourceSketch_0';
++  const region={deterministicIds:['live-region'],featureId:sketchId,filterInnerLoops:true,
++    getMessageName(){return 'bsedit.GBTMIndividualSketchRegionQuery';}};
++  const sketch={featureId:sketchId,featureType:'newSketch',nodeId:'sketch-node',
++    entities:[{},{},{},{}],constraints:Array.from({length:11},()=>({}))};
++  const root={children:[sketch,{$type:'bsedit.GBTMRollback',nodeId:'rollback'}]};
++  let editing=null,revision='a'.repeat(24),selected=false,toolbarClicks=0;
++  const QueryCall=class {constructor(){this.elementId='';this.queries=[];this.qFunction='';this.additionalArguments=[];
++    this.queryNodeIdToInContextNodeId={};} getMessageName(){return 'ui.GBTUiGetQueryDataCall';}};
++  const Region=class {constructor(){this.deterministicIds=[];this.featureId='';this.filterInnerLoops=false;}
++    getMessageName(){return 'bsedit.GBTMIndividualSketchRegionQuery';}};
++  const modules=setup(undefined,false,revision,root,{QueryCall,Region},()=>({getMessageName(){return 'ui.GBTUiGetQueryDataResponse';},
++    queryData:[{deterministicIds:['live-region'],featureId:sketchId,selectionName:'Faces',
++      evaluationDetails:{entityType:0,fullOperationId:'',status:0},hasErrorEntity:false}]}),temp);
++  modules.__controller.documentModel.get=k=>k==='microversionId'?{theId:micro}:
++    {get:x=>x==='microversionId'?revision:x==='idEditingFeature'?editing:null};
++  const row={getClientRects:()=>[1],getAttribute:()=>null,classList:{contains:name=>name==='selected'&&selected},click:()=>{selected=true;}};
++  const toolbar={getClientRects:()=>[1],getAttribute:()=>null,classList:{contains:()=>false},click:()=>{
++    toolbarClicks++;editing='newExtrude_0';revision='b'.repeat(24);
++    root.children.splice(1,0,{featureId:editing,featureType:'extrude',nodeId:'extrude-node',parameters:[
++      {parameterId:'bodyType',value:'SOLID'},{parameterId:'operationType',value:'NEW'},
++      {parameterId:'endBound',value:'BLIND'},{parameterId:'depth',value:25},
++      {parameterId:'entities',queries:[region]}]});}};
++  globalThis.document={querySelectorAll:selector=>selector===`div.os-list-item[feature-id="${sketchId}"][feature-type="newSketch"]`?[row]:
++    selector==='div.tool[command-id="extrude"]'?[toolbar]:[]};
++  const result=await pageCommand({kind:'partstudio_begin_source_extrude',op_id:'begin-extrude-'+'a'.repeat(32),target:temp,
++    expected_element_microversion:'a'.repeat(24),sketch_feature_id:sketchId});
++  assert.equal(result.initiation_candidate,true,JSON.stringify(result));
++  assert.equal(result.op_id,'begin-extrude-'+'a'.repeat(32));
++  assert.equal(result.region_source_verified,true);
++  assert.deepEqual(result.region_query_ids,['live-region']);
++  assert.equal(toolbarClicks,1);
++  assert.deepEqual(sent.map(m=>m.getMessageName()),['ui.GBTUiGetQueryDataCall']);
++});
++
++test('source Extrude refuses an extra sketch profile before toolbar action',async()=>{
++  const temp={did:'4e078dec822b4e509616b1cb',wid:'af0627de07264acf086e646a',eid:'1926791d173990d5d45f70ef'};
++  const root={children:[{featureId:'sourceSketch_0',featureType:'newSketch',nodeId:'sketch-node',
++    entities:[{},{},{},{},{}],constraints:Array.from({length:11},()=>({}))},
++    {$type:'bsedit.GBTMRollback',nodeId:'rollback'}]};
++  setup(undefined,false,'a'.repeat(24),root,{},null,temp);
++  let clicks=0;
++  globalThis.document={querySelectorAll:()=>[{getClientRects:()=>[1],getAttribute:()=>null,
++    classList:{contains:()=>false},click:()=>clicks++}]};
++  const result=await pageCommand({kind:'partstudio_begin_source_extrude',
++    op_id:'begin-extrude-'+'a'.repeat(32),target:temp,expected_element_microversion:'a'.repeat(24),
++    sketch_feature_id:'sourceSketch_0'});
++  assert.match(result.error,/one saved rectangle sketch/);
++  assert.equal(result.write_stage,'pre_dispatch');
++  assert.equal(clicks,0);
++});
++
+ test('native sketch population rejects stale or unbound editor state before any RPC',async()=>{
+   const temp={did:'4e078dec822b4e509616b1cb',wid:'af0627de07264acf086e646a',eid:'9a062f0eef8bb961f8c84f8e'};
+   const sketch={featureId:'newlyAllocated_0',featureType:'newSketch',nodeId:'fresh-node',
+@@ -255,6 +309,7 @@ test('source extrusion updates only the UI bound region feature through typed ed
+   };
+   const Quantity=Type('bsedit.GBTMParameterQuantity',{parameterId:'',units:'',value:0,expression:''});
+   const QueryList=Type('bsedit.GBTMParameterQueryList',{parameterId:'',queries:[]});
++  const IndividualQuery=Type('bsedit.GBTMIndividualQuery',{deterministicIds:['editor-region']});
+   const Change=Type('diff.GBTTreeEditChange',{oldNode:null,newNode:null});
+   const Reference=Type('tree.GBTNodeReference',{nodeId:''});
+   const Specify=Type('ui.GBTUiSpecifyFeature',{elementId:'',featureNodeId:'',featureChange:null,
+@@ -264,7 +319,7 @@ test('source extrusion updates only the UI bound region feature through typed ed
+     additionalArguments:[],queryNodeIdToInContextNodeId:{}});
+   const depth=new Quantity();depth.parameterId='depth';depth.units='millimeter';
+   depth.value=25;depth.expression='25 mm';depth.nodeId='fresh-depth-node';
+-  const regions=new QueryList();regions.parameterId='entities';regions.queries=[{deterministicIds:['editor-region']}];
++  const regions=new QueryList();regions.parameterId='entities';regions.queries=[new IndividualQuery()];
+   const sketch={featureId:'savedSketch_0',featureType:'newSketch',nodeId:'saved-node'};
+   const extrude={featureId:'newExtrude_0',featureType:'extrude',nodeId:'fresh-extrude-node',
+     parameters:[{parameterId:'bodyType',value:'SOLID'},{parameterId:'operationType',value:'NEW'},
+@@ -272,7 +327,7 @@ test('source extrusion updates only the UI bound region feature through typed ed
+   const root={children:[{featureId:'default-top',nodeId:'prior',featureType:'datum'},sketch,extrude]};
+   let revision='a'.repeat(24),editing=extrude.featureId;
+   let correctRegion=true;
+-  const modules=setup(undefined,false,revision,root,{Quantity,QueryList,Change,Reference,Specify,Commit,GetQueryData},m=>{
++  const modules=setup(undefined,false,revision,root,{Quantity,QueryList,IndividualQuery,Change,Reference,Specify,Commit,GetQueryData},m=>{
+     if(m.getMessageName()==='ui.GBTUiGetQueryDataCall')
+       return {getMessageName:()=> 'ui.GBTUiGetQueryDataResponse',queryData:[{
+         deterministicIds:['editor-region'],featureId:correctRegion?'savedSketch_0':'otherSketch_0',selectionName:'Face',
+@@ -298,7 +353,7 @@ test('source extrusion updates only the UI bound region feature through typed ed
+   assert.equal(root.children[0].nodeId,'prior');
+   assert.equal(regions.queries[0].deterministicIds[0],'editor-region');
+   revision='a'.repeat(24);editing=extrude.featureId;depth.value=25;depth.expression='25 mm';
+-  const delayed=setup(undefined,false,revision,root,{Quantity,QueryList,Change,Reference,Specify,Commit,GetQueryData},m=>{
++  const delayed=setup(undefined,false,revision,root,{Quantity,QueryList,IndividualQuery,Change,Reference,Specify,Commit,GetQueryData},m=>{
+     if(m.getMessageName()==='ui.GBTUiGetQueryDataCall') return {getMessageName:()=> 'ui.GBTUiGetQueryDataResponse',queryData:[{
+       deterministicIds:['editor-region'],featureId:'savedSketch_0',selectionName:'Face',
+       evaluationDetails:{fullOperationId:'savedSketch_0.imprint',entityType:2,status:0},hasErrorEntity:false}]};
+@@ -323,9 +378,30 @@ test('source extrusion updates only the UI bound region feature through typed ed
+   assert.equal(delayed.__controller.__onshapeNativeIncompleteFeatureEdit?.stage,'await-saved-readback');
+   await pageCommand({kind:'state',target:temp,retire_acknowledged_op_id:'extrude-'+ 'a'.repeat(32)});
+   assert.equal(delayed.__controller.__onshapeNativeIncompleteFeatureEdit,undefined);
++  const SketchRegion=Type('bsedit.GBTMIndividualSketchRegionQuery',{
++    featureId:'savedSketch_0',filterInnerLoops:true,deterministicIds:['editor-region']});
++  regions.queries=[new SketchRegion()];
++  revision='a'.repeat(24);editing=extrude.featureId;depth.value=25;depth.expression='25 mm';
++  const selectedRegion=setup(undefined,false,revision,root,
++    {Quantity,QueryList,IndividualQuery,Change,Reference,Specify,Commit,GetQueryData,SketchRegion},m=>{
++      if(m.getMessageName()==='ui.GBTUiGetQueryDataCall')
++        return {getMessageName:()=> 'ui.GBTUiGetQueryDataResponse',queryData:[{
++          deterministicIds:['editor-region'],featureId:'savedSketch_0',selectionName:'Faces',
++          evaluationDetails:{fullOperationId:'',entityType:0,status:0},hasErrorEntity:false}]};
++      if(m.getMessageName()==='ui.GBTUiCommit'){depth.value=5;depth.expression='5 mm';revision='b'.repeat(24);editing=null;}
++      return {errorEnum:0};
++    },temp);
++  selectedRegion.__controller.documentModel.get=k=>k==='microversionId'?{theId:micro}:
++    {get:x=>x==='microversionId'?revision:x==='idEditingFeature'?editing:null};
++  const sketchRegionResult=await pageCommand({kind:'partstudio_populate_extrude',op_id:'extrude-'+ 'a'.repeat(32),target:temp,
++    expected_element_microversion:'a'.repeat(24),extrude_edit:{feature_id:'newExtrude_0',
++      sketch_feature_id:'savedSketch_0',from_mm:25,to_mm:5}});
++  assert.equal(sketchRegionResult.region_source_verified,true,JSON.stringify(sketchRegionResult));
++  assert.deepEqual(sent.map(m=>m.getMessageName()),['ui.GBTUiGetQueryDataCall','ui.GBTUiSpecifyFeature','ui.GBTUiCommit']);
++  regions.queries=[new IndividualQuery()];
+   correctRegion=false;revision='a'.repeat(24);editing=extrude.featureId;
+   depth.value=25;depth.expression='25 mm';
+-  const mismatch=setup(undefined,false,revision,root,{Quantity,QueryList,Change,Reference,Specify,Commit,GetQueryData},m=>{
++  const mismatch=setup(undefined,false,revision,root,{Quantity,QueryList,IndividualQuery,Change,Reference,Specify,Commit,GetQueryData},m=>{
+     if(m.getMessageName()==='ui.GBTUiGetQueryDataCall')
+       return {getMessageName:()=> 'ui.GBTUiGetQueryDataResponse',queryData:[{
+         deterministicIds:['editor-region'],featureId:'otherSketch_0',selectionName:'Face',
+@@ -344,7 +420,7 @@ test('source extrusion updates only the UI bound region feature through typed ed
+     deterministicIds:['editor-region'],featureId:'savedSketch_0',selectionName:'Face',
+     evaluationDetails:{fullOperationId:'savedSketch_0.imprint',entityType:2,status:0},hasErrorEntity:false}]});
+   revision='a'.repeat(24);editing=extrude.featureId;
+-  const revised=setup(undefined,false,revision,root,{Quantity,QueryList,Change,Reference,Specify,Commit,GetQueryData},m=>{
++  const revised=setup(undefined,false,revision,root,{Quantity,QueryList,IndividualQuery,Change,Reference,Specify,Commit,GetQueryData},m=>{
+     if(m.getMessageName()==='ui.GBTUiGetQueryDataCall'){revision='b'.repeat(24);return goodQuery();}
+     throw Error('Revision changed before modeling; no write may be sent');
+   },temp);
+@@ -356,7 +432,7 @@ test('source extrusion updates only the UI bound region feature through typed ed
+   assert.match(stale.error,/changed during region read/);
+   assert.deepEqual(sent.map(m=>m.getMessageName()),['ui.GBTUiGetQueryDataCall']);
+   revision='a'.repeat(24);editing=extrude.featureId;saveClicks=0;
+-  const navigated=setup(undefined,false,revision,root,{Quantity,QueryList,Change,Reference,Specify,Commit,GetQueryData},m=>{
++  const navigated=setup(undefined,false,revision,root,{Quantity,QueryList,IndividualQuery,Change,Reference,Specify,Commit,GetQueryData},m=>{
+     if(m.getMessageName()==='ui.GBTUiGetQueryDataCall') return goodQuery();
+     if(m.getMessageName()==='ui.GBTUiCommit'){
+       depth.value=5;depth.expression='5 mm';revision='b'.repeat(24);
+diff --git a/tests/test_bridge.py b/tests/test_bridge.py
+index 9efb51a..e7be6a6 100644
+--- a/tests/test_bridge.py
++++ b/tests/test_bridge.py
+@@ -28,7 +28,7 @@ def test_sketch_population_is_exact_target_and_revision_bound():
+                            "rectangle_m": [0, 0, 0.04, 0.02]}}
+     assert validate_job(job) == job
+     with pytest.raises(BridgeError):
+-        validate_job({**job, "target": {**target, "eid": "b" * 24}})
++        validate_job({**job, "target": {**target, "did": "b" * 24}})
+     with pytest.raises(BridgeError):
+         validate_job({**job, "expected_element_microversion": "stale"})
+     with pytest.raises(BridgeError):
+@@ -36,6 +36,44 @@ def test_sketch_population_is_exact_target_and_revision_bound():
+     assert not is_cad_read(job)
+ 
+ 
++@pytest.mark.asyncio
++async def test_new_empty_checkpoint_binding_rejects_old_or_preserved_target_before_send():
++    old = {"did": "4e078dec822b4e509616b1cb", "wid": "af0627de07264acf086e646a",
++           "eid": "9a062f0eef8bb961f8c84f8e"}
++    checkpoint = {**old, "eid": "1926791d173990d5d45f70ef"}
++    broker = Broker({"token": "x" * 32, "h2cad_create_target": checkpoint})
++    class Connection:
++        sent = []
++        async def send_json(self, data): self.sent.append(data)
++    broker.extension = Connection()
++    job = {"kind": "partstudio_begin_top_sketch", "target": old,
++           "expected_element_microversion": "a" * 24}
++    with pytest.raises(BridgeError, match="configured test Part Studio"):
++        await broker.dispatch(job)
++    with pytest.raises(BridgeError):
++        validate_job({**job, "target": {**old, "eid": "45730d1931712e2c548fae00"}})
++    assert validate_job({**job, "target": checkpoint})["target"] == checkpoint
++    assert not broker.extension.sent
++
++
++@pytest.mark.asyncio
++async def test_begin_source_extrude_requires_new_page_capability_before_selection():
++    target = {"did": "4e078dec822b4e509616b1cb", "wid": "af0627de07264acf086e646a",
++              "eid": "1926791d173990d5d45f70ef"}
++    broker = Broker({"token": "x" * 32, "h2cad_create_target": target})
++    class Connection:
++        sent = []
++        async def send_json(self, data): self.sent.append(data)
++    broker.extension = Connection()
++    broker.extension_info = {"capabilities": ["element_revision_v1"]}
++    job = {"kind": "partstudio_begin_source_extrude", "op_id": "begin-extrude-" + "a" * 32, "target": target,
++           "expected_element_microversion": "a" * 24, "sketch_feature_id": "savedSketch_0"}
++    assert validate_job(job) == job and not is_cad_read(job)
++    with pytest.raises(BridgeError, match="h2_native_begin_source_extrude_page_v1"):
++        await broker.dispatch(job)
++    assert not broker.extension.sent and not broker.pending
++
++
+ @pytest.mark.asyncio
+ async def test_sketch_population_broker_rejects_old_loaded_extension_before_send():
+     broker = Broker({"token": "x" * 32})
+@@ -147,7 +185,7 @@ def test_source_extrusion_requires_exact_bound_target_and_finite_depth():
+                             "from_mm": 25, "to_mm": 5}}
+     assert validate_job(job) == job and not is_cad_read(job)
+     with pytest.raises(BridgeError):
+-        validate_job({**job, "target": {**target, "eid": "b" * 24}})
++        validate_job({**job, "target": {**target, "did": "b" * 24}})
+     with pytest.raises(BridgeError):
+         validate_job({**job, "extrude_edit": {**job["extrude_edit"], "to_mm": float("nan")}})
+ 
+@@ -389,6 +427,34 @@ def test_saved_source_extrusion_verifier_preserves_exact_tree_and_region(fault):
+             verify_saved_source_extrude(before, expected, after, query, target, "source_0", 5)
+ 
+ 
++@pytest.mark.parametrize("fault", [None, "wrong_source", "extra_profile"])
++def test_saved_extrusion_accepts_only_one_source_bound_sketch_region(fault):
++    target, before, expected, after, query = source_extrude_states()
++    lines = [{"$type": "bsedit.GBTMSketchCurveSegment", "entityId": "box." + side,
++              "isConstruction": False} for side in ("bottom", "right", "top", "left")]
++    constraints = [{"entityId": "box." + str(i)} for i in range(11)]
++    for tree in (before["tree"], expected, after["tree"]):
++        tree["children"][0]["entities"] = list(lines)
++        tree["children"][0]["constraints"] = list(constraints)
++        region = tree["children"][1]["parameters"][-2]["queries"][0]
++        region.update({"$type": "bsedit.GBTMIndividualSketchRegionQuery", "featureId": "source_0",
++                       "filterInnerLoops": True})
++    query["result"]["queryData"][0].update({"selectionName": "Faces",
++        "evaluationDetails": {"fullOperationId": "", "entityType": 0, "status": 0}})
++    if fault == "wrong_source":
++        for tree in (before["tree"], expected, after["tree"]):
++            tree["children"][1]["parameters"][-2]["queries"][0]["featureId"] = "other_0"
++    if fault == "extra_profile":
++        for tree in (before["tree"], expected, after["tree"]):
++            tree["children"][0]["entities"].append({"$type": "bsedit.GBTMSketchCurveSegment",
++                                                       "entityId": "extra", "isConstruction": False})
++    if fault is None:
++        assert verify_saved_source_extrude(before, expected, after, query, target, "source_0", 5)["region_source_verified"]
++    else:
++        with pytest.raises(ValueError):
++            verify_saved_source_extrude(before, expected, after, query, target, "source_0", 5)
++
++
+ @pytest.mark.asyncio
+ @pytest.mark.parametrize("candidate_receipt,pending,changed", [(False, False, False),
+     (True, True, False), (True, False, False), (True, True, True)])
+-- 
+2.54.0.windows.1
+

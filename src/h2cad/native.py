@@ -43,6 +43,17 @@ async def _confirm_pending_readback(confirm, op_id: str, tab_id: int, label: str
 
 _DISPOSABLE = {"did": "f5a8353dc826a9ec52106138", "wid": "a3baadfcc7e36a50134951d6", "eid": "a2761fa52794bee99354ae96"}
 _NATIVE_CREATE_TEST = {"did": "4e078dec822b4e509616b1cb", "wid": "af0627de07264acf086e646a", "eid": "9a062f0eef8bb961f8c84f8e"}
+_NATIVE_CREATE_PROJECT = {"did": _NATIVE_CREATE_TEST["did"], "wid": _NATIVE_CREATE_TEST["wid"]}
+_PRESERVED_CREATE_EIDS = {"45730d1931712e2c548fae00", "39a2e2afc5bc43eea167e938"}
+
+
+def _configured_create_target(value: Any) -> dict[str, str]:
+    if (not isinstance(value, dict) or set(value) != {"did", "wid", "eid"}
+            or {key: value[key] for key in ("did", "wid")} != _NATIVE_CREATE_PROJECT
+            or not isinstance(value["eid"], str) or not _ID.fullmatch(value["eid"])
+            or value["eid"] in _PRESERVED_CREATE_EIDS):
+        raise ValueError("Native creation target must be an explicitly bound test Part Studio in the authorized project")
+    return dict(value)
 
 
 class PreDispatchRejected(BackendError):
@@ -360,19 +371,31 @@ def _verify_rectangle_graph(payload: dict[str, Any], prefix: str) -> None:
 
 
 def _verify_source_region_query(payload: dict[str, Any], query: dict[str, Any], sketch_id: str) -> None:
-    """Resolve the editor-selected face to the saved source sketch."""
+    """Resolve one editor-created region query to the unique source rectangle."""
     result = payload.get("result")
     data = result.get("queryData") if isinstance(result, dict) else None
     if (not isinstance(result, dict) or result.get("$type") != "ui.GBTUiGetQueryDataResponse"
             or not isinstance(data, list) or len(data) != 1 or not isinstance(data[0], dict)
             or data[0].get("deterministicIds") != query.get("deterministicIds")
             or data[0].get("featureId") != sketch_id
-            or data[0].get("selectionName") != "Face"
-            or data[0].get("evaluationDetails", {}).get("fullOperationId") != f"{sketch_id}.imprint"
-            or data[0]["evaluationDetails"].get("entityType") != 2
-            or data[0]["evaluationDetails"].get("status") != 0
+            or not query.get("deterministicIds")
+            or data[0].get("evaluationDetails", {}).get("status") != 0
             or data[0].get("hasErrorEntity") is not False):
-        raise Unsupported("Extrusion region does not resolve to the source sketch face")
+        raise Unsupported("Extrusion region does not resolve to the source sketch")
+    item = data[0]
+    detail = item["evaluationDetails"]
+    canvas_face = (query.get("$type") == "bsedit.GBTMIndividualQuery"
+                   and item.get("selectionName") == "Face"
+                   and detail.get("fullOperationId") == f"{sketch_id}.imprint"
+                   and detail.get("entityType") == 2)
+    sole_sketch_region = (query.get("$type") == "bsedit.GBTMIndividualSketchRegionQuery"
+                          and query.get("featureId") == sketch_id
+                          and query.get("filterInnerLoops") is True
+                          and item.get("selectionName") == "Faces"
+                          and detail.get("fullOperationId") == ""
+                          and detail.get("entityType") == 0)
+    if not (canvas_face or sole_sketch_region):
+        raise Unsupported("Extrusion query is not a supported source face or unique sketch region")
 
 
 def _native_model_metadata(tree: dict[str, Any]) -> dict[str, Any]:
@@ -400,7 +423,9 @@ class NativeBridge:
         config = json.loads(Path(path).read_text(encoding="utf-8"))
         if config.get("host") != "127.0.0.1" or config.get("port") != 8766:
             raise ValueError("Unexpected bridge host or port")
-        return cls(config["token"], **kwargs)
+        bridge = cls(config["token"], **kwargs)
+        bridge.create_target = _configured_create_target(config.get("h2cad_create_target", _NATIVE_CREATE_TEST))
+        return bridge
 
     async def close(self) -> None:
         await self.http.aclose()
@@ -582,6 +607,7 @@ class NativeBackend:
     def __init__(self, bridge: NativeBridge, *, tab_id: int | None = None):
         self.bridge = bridge
         self.tab_id = tab_id
+        self.create_target = _configured_create_target(getattr(bridge, "create_target", _NATIVE_CREATE_TEST))
 
     async def capabilities(self) -> Capabilities:
         health = await self.bridge.health()
@@ -662,7 +688,7 @@ class NativeBackend:
 
     async def begin_test_top_sketch(self, target: Target, journal: Journal) -> dict[str, Any]:
         """Use observed normal editor controls to allocate one blank Top sketch."""
-        if _target(target) != _NATIVE_CREATE_TEST or self.tab_id is None:
+        if _target(target) != self.create_target or self.tab_id is None:
             raise Unsupported("Native sketch initiation requires the authorized temporary tab")
         key = f"{target.did}/{target.wid}/{target.eid}"
         with journal.target_lock(key):
@@ -687,7 +713,7 @@ class NativeBackend:
             op_id = "begin-sketch-" + uuid4().hex
             journal.prepare(op_id=op_id, target=key, expected_revision=before["element_microversion"],
                             action="experimental_begin_top_sketch", logical_id="Top", intent={"before_state": before})
-            job = {"kind": "partstudio_begin_top_sketch", "target": _NATIVE_CREATE_TEST,
+            job = {"kind": "partstudio_begin_top_sketch", "target": self.create_target,
                    "tab_id": self.tab_id, "expected_element_microversion": before["element_microversion"]}
             try:
                 response = await self.bridge.command(job)
@@ -734,7 +760,7 @@ class NativeBackend:
         This experimental slice is confined to the named temporary Part Studio.
         A returned definition observation does not prove solid regeneration.
         """
-        if _target(target) != _NATIVE_CREATE_TEST or self.tab_id is None:
+        if _target(target) != self.create_target or self.tab_id is None:
             raise Unsupported("Native sketch population requires the authorized temporary tab")
         from .fsgen import compile_fsgen
         snapshot = compile_fsgen(source, target)
@@ -774,7 +800,7 @@ class NativeBackend:
                             action="experimental_sketch_populate", logical_id=blueprint.sketch_logical_id,
                             intent={"before_state": before, "feature_id": feature_id,
                                     "blueprint": blueprint.to_dict(), "entity_prefix": prefix})
-            job: dict[str, Any] = {"kind": "partstudio_populate_sketch", "op_id": op_id, "target": _NATIVE_CREATE_TEST,
+            job: dict[str, Any] = {"kind": "partstudio_populate_sketch", "op_id": op_id, "target": self.create_target,
                                    "tab_id": self.tab_id, "expected_element_microversion": before["element_microversion"],
                                    "sketch_edit": {"feature_id": feature_id, "entity_prefix": prefix,
                                                    "rectangle_m": list(blueprint.rectangle_m)}}
@@ -833,7 +859,7 @@ class NativeBackend:
         if row["state"] == "rejected":
             return {"op_id": op_id, "status": "rejected", "reason": row["error"]}
         fields = row["target"].split("/")
-        if len(fields) != 3 or dict(zip(("did", "wid", "eid"), fields)) != _NATIVE_CREATE_TEST:
+        if len(fields) != 3 or dict(zip(("did", "wid", "eid"), fields)) != self.create_target:
             raise Unsupported("Experimental sketch journal target differs from the authorized studio")
         try:
             state = await self.raw_state(Target(*fields))
@@ -852,7 +878,7 @@ class NativeBackend:
             raise Unsupported("Only the reviewed failed sketch operation can be classified")
         row = journal.get(op_id)
         if (row is None or row["action"] != "experimental_sketch_populate"
-                or row["state"] != "unknown" or row["target"] != "/".join(_NATIVE_CREATE_TEST.values())
+                or row["state"] != "unknown" or row["target"] != "/".join(self.create_target.values())
                 or row["error"] != "Sketch command acknowledged but saved definition/idle state is unconfirmed; outcome unknown."):
             raise Unsupported("Known applied-invalid journal row differs")
         intent = json.loads(row["intent"])
@@ -861,7 +887,7 @@ class NativeBackend:
         if (not isinstance(before, dict) or before.get("element_microversion") != row["expected_revision"]
                 or before.get("editingFeatureId") != feature_id):
             raise Unsupported("Known sketch prewrite snapshot differs")
-        target = Target(**_NATIVE_CREATE_TEST)
+        target = Target(**self.create_target)
         with journal.target_lock(row["target"]):
             after = await self.raw_state(target)
             blueprint_data = intent.get("blueprint")
@@ -884,7 +910,7 @@ class NativeBackend:
                     or prior_feature is None or feature.get("parameters") != prior_feature.get("parameters")
                     or _native_model_metadata(before["tree"]) != _native_model_metadata(after["tree"])):
                 raise Unsupported("Current failed sketch or unrelated tree differs from the known attempt")
-            graph = await self.bridge.command({"kind": "native", "target": _NATIVE_CREATE_TEST,
+            graph = await self.bridge.command({"kind": "native", "target": self.create_target,
                                                "tab_id": self.tab_id,
                                                "command": "ui.sketch.GBTUiSketchGetConstraintGraphCall",
                                                "body": {"elementId": target.eid, "sketchFeatureId": feature_id,
@@ -911,10 +937,105 @@ class NativeBackend:
             journal.annotate_unknown(op_id, evidence)
             return {"op_id": op_id, "status": "applied_invalid_unresolved", "evidence": evidence}
 
+    async def begin_test_source_extrude(self, target: Target, source: str | Path, *,
+                                        sketch_op_id: str, journal: Journal) -> dict[str, Any]:
+        """Select the sole saved source sketch and start its editor-bound Extrude."""
+        if _target(target) != self.create_target or self.tab_id is None:
+            raise Unsupported("Source Extrude initiation requires the configured test tab")
+        from .fsgen import compile_fsgen
+        blueprint = stage_minimal_pair(compile_fsgen(source, target))
+        key = f"{target.did}/{target.wid}/{target.eid}"
+        with journal.target_lock(key):
+            if journal.unresolved(key):
+                raise UncertainWrite("Prior target write unresolved; inspect before mutation")
+            sketch_op = journal.get(sketch_op_id)
+            if (not sketch_op or sketch_op["target"] != key or sketch_op["state"] != "observed"
+                    or sketch_op["action"] != "experimental_sketch_populate"
+                    or sketch_op["logical_id"] != blueprint.sketch_logical_id):
+                raise Unsupported("An observed sketch from this source and target is required")
+            evidence = json.loads(sketch_op["observation"] or "{}")
+            sketch_id = evidence.get("feature_id")
+            if (not isinstance(sketch_id, str) or evidence.get("origin_verified") is not True
+                    or evidence.get("constraint_graph_verified") is not True):
+                raise Unsupported("Source sketch and active solver proof are required")
+            health = await self.bridge.health()
+            if (health.get("extension_connected") is not True
+                    or "h2_native_begin_source_extrude_server_v1" not in (health.get("capabilities") or [])
+                    or "h2_native_begin_source_extrude_page_v1" not in ((health.get("extension") or {}).get("capabilities") or [])):
+                raise Unsupported("Loaded bridge and extension lack source Extrude initiation")
+            before = await self.raw_state(target)
+            tree = before.get("tree", {})
+            children = tree.get("children")
+            if (before.get("connected") is not True or before.get("editingFeatureId") is not None
+                    or tree.get("$type") != "bsedit.GBTMModel" or not isinstance(children, list)
+                    or len(children) != 2 or children[-1].get("$type") != "bsedit.GBTMRollback"):
+                raise Unsupported("One saved source sketch in an idle test studio is required")
+            sketch = _live_rectangle_feature(before, blueprint, feature_id=sketch_id)
+            _native_rectangle_constraints(sketch, blueprint)
+            op_id = "begin-extrude-" + uuid4().hex
+            journal.prepare(op_id=op_id, target=key, expected_revision=before["element_microversion"],
+                            action="experimental_begin_source_extrude", logical_id=blueprint.extrusion_logical_id,
+                            intent={"before_state": before, "sketch_op_id": sketch_op_id,
+                                    "sketch_feature_id": sketch_id})
+            job = {"kind": "partstudio_begin_source_extrude", "op_id": op_id, "target": self.create_target,
+                   "tab_id": self.tab_id, "expected_element_microversion": before["element_microversion"],
+                   "sketch_feature_id": sketch_id}
+            try:
+                response = await self.bridge.command(job)
+            except PreDispatchRejected as exc:
+                journal.transition(op_id, "rejected", error=str(exc))
+                raise
+            except Exception as exc:
+                journal.transition(op_id, "unknown", error=str(exc))
+                raise UncertainWrite(f"Source Extrude initiation unknown; journal operation {op_id}") from exc
+            journal.transition(op_id, "sent", receipt=response)
+            try:
+                after = await self.raw_state(target)
+                current = after["tree"].get("children", [])
+                feature_id = response.get("feature_id")
+                matches = [node for node in current if node.get("featureId") == feature_id]
+                if (response.get("op_id") != op_id or response.get("initiation_candidate") is not True
+                        or response.get("region_source_verified") is not True
+                        or after.get("connected") is not True or after.get("editingFeatureId") != feature_id
+                        or after["element_microversion"] == before["element_microversion"]
+                        or len(current) != 3 or len(matches) != 1 or matches[0].get("featureType") != "extrude"
+                        or matches[0].get("nodeId") != response.get("feature_node_id")
+                        or current[0] != children[0] or current[-1] != children[-1]):
+                    raise UncertainWrite("Independent source Extrude allocation differs")
+                params = matches[0].get("parameters", [])
+                by_id = lambda name: [p for p in params if p.get("parameterId") == name]
+                queries = by_id("entities")[0].get("queries", [])
+                if (len(queries) != 1 or queries[0].get("$type") != "bsedit.GBTMIndividualSketchRegionQuery"
+                        or queries[0].get("featureId") != sketch_id or queries[0].get("filterInnerLoops") is not True
+                        or queries[0].get("deterministicIds") != response.get("region_query_ids")
+                        or any(len(by_id(k)) != 1 or by_id(k)[0].get("value") != v for k, v in
+                               (("bodyType", "SOLID"), ("operationType", "NEW"), ("endBound", "BLIND")))):
+                    raise UncertainWrite("Source region or NEW solid mode differs")
+                resolved = await self.bridge.command({"kind": "native", "target": self.create_target,
+                    "tab_id": self.tab_id, "command": "ui.GBTUiGetQueryDataCall",
+                    "body": {"elementId": target.eid, "queries": queries, "qFunction": "",
+                             "additionalArguments": [], "queryNodeIdToInContextNodeId": {}}})
+                _verify_source_region_query(resolved, queries[0], sketch_id)
+                confirmed = await self.raw_state(target)
+                if (confirmed.get("connected") is not True
+                        or confirmed.get("editingFeatureId") != feature_id
+                        or confirmed.get("element_microversion") != after["element_microversion"]
+                        or confirmed.get("tree") != after["tree"]):
+                    raise UncertainWrite("Source Extrude editor changed during region resolution")
+            except Exception as exc:
+                journal.transition(op_id, "unknown", error=str(exc))
+                raise UncertainWrite(f"Source Extrude initiation unknown; journal operation {op_id}") from exc
+            result = {"op_id": op_id, "feature_id": feature_id, "sketch_feature_id": sketch_id,
+                      "revision_before": before["element_microversion"],
+                      "revision_after": after["element_microversion"], "region_source_verified": True,
+                      "active_draft_observed": True, "region_query_evidence": resolved}
+            journal.transition(op_id, "observed", observation=result)
+            return result
+
     async def populate_test_extrude(self, target: Target, source: str | Path, *,
                                     sketch_op_id: str, journal: Journal) -> dict[str, Any]:
         """Set the source depth on one active, editor-bound native extrusion."""
-        if _target(target) != _NATIVE_CREATE_TEST or self.tab_id is None:
+        if _target(target) != self.create_target or self.tab_id is None:
             raise Unsupported("Native extrusion population requires the authorized temporary tab")
         from .fsgen import compile_fsgen
         blueprint = stage_minimal_pair(compile_fsgen(source, target))
@@ -975,7 +1096,7 @@ class NativeBackend:
                     or depth[0].get("expression") != f"{from_mm:g} mm" or from_mm == blueprint.depth_mm):
                 raise Unsupported("Expected a distinct positive literal editor depth before source update")
             selected_query = region[0]["queries"][0]
-            resolved = await self.bridge.command({"kind": "native", "target": _NATIVE_CREATE_TEST,
+            resolved = await self.bridge.command({"kind": "native", "target": self.create_target,
                                                   "tab_id": self.tab_id,
                                                   "command": "ui.GBTUiGetQueryDataCall",
                                                   "body": {"elementId": target.eid, "queries": [selected_query],
@@ -994,7 +1115,7 @@ class NativeBackend:
                             intent={"before_state": before, "expected_tree": expected_tree,
                                     "sketch_op_id": sketch_op_id, "sketch_feature_id": sketch_id,
                                     "region_query_evidence": resolved})
-            job = {"kind": "partstudio_populate_extrude", "op_id": op_id, "target": _NATIVE_CREATE_TEST,
+            job = {"kind": "partstudio_populate_extrude", "op_id": op_id, "target": self.create_target,
                    "tab_id": self.tab_id, "expected_element_microversion": before["element_microversion"],
                    "extrude_edit": {"feature_id": feature_id, "sketch_feature_id": sketch_id,
                                     "from_mm": from_mm, "to_mm": blueprint.depth_mm}}
@@ -1044,7 +1165,7 @@ class NativeBackend:
         if row["state"] == "rejected":
             return {"op_id": op_id, "status": "rejected", "reason": row["error"]}
         fields = row["target"].split("/")
-        if len(fields) != 3 or dict(zip(("did", "wid", "eid"), fields)) != _NATIVE_CREATE_TEST:
+        if len(fields) != 3 or dict(zip(("did", "wid", "eid"), fields)) != self.create_target:
             raise Unsupported("Experimental extrusion journal target differs from the authorized studio")
         try:
             state = await self.raw_state(Target(*fields))
