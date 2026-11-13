@@ -1,0 +1,248 @@
+{
+  "connected": true,
+  "editingFeatureId": null,
+  "element_microversion": "d9f69655d46807c4f72168e7",
+  "h2DepthEdit": {
+    "contract": "h2-depth-edit-page-v1",
+    "supported": true
+  },
+  "h2Readback": {
+    "candidateNodes": [
+      {
+        "featureId": "Origin",
+        "featureStatus": null,
+        "featureType": "origin",
+        "hasConstraints": false,
+        "hasEntities": false,
+        "hasParameters": true,
+        "name": "Origin",
+        "nodeId": "MrGrkMpvqt49O7r4e"
+      },
+      {
+        "featureId": "Top",
+        "featureStatus": null,
+        "featureType": "defaultPlane",
+        "hasConstraints": false,
+        "hasEntities": false,
+        "hasParameters": true,
+        "name": "Top",
+        "nodeId": "MMaGxUk2pFcXnJ+V3"
+      },
+      {
+        "featureId": "Front",
+        "featureStatus": null,
+        "featureType": "defaultPlane",
+        "hasConstraints": false,
+        "hasEntities": false,
+        "hasParameters": true,
+        "name": "Front",
+        "nodeId": "MQ1HUWsmlRN7K2FnO"
+      },
+      {
+        "featureId": "Right",
+        "featureStatus": null,
+        "featureType": "defaultPlane",
+        "hasConstraints": false,
+        "hasEntities": false,
+        "hasParameters": true,
+        "name": "Right",
+        "nodeId": "MzXguYKFQs4GjG+T7"
+      }
+    ],
+    "complete": false,
+    "contract": "h2-readback-probe-v1",
+    "definitionKeys": [],
+    "reason": "Editor tree feature definitions, status and geometry are not established as complete readback.",
+    "truncated": false,
+    "visitedCount": 54
+  },
+  "microversion": "173add483354f185892c6310",
+  "revision_check": "client preflight only; not atomic against collaborators",
+  "tab_id": 941740752,
+  "target": {
+    "did": "4e078dec822b4e509616b1cb",
+    "eid": "9a062f0eef8bb961f8c84f8e",
+    "wid": "af0627de07264acf086e646a"
+  },
+  "tree": {
+    "$type": "bsedit.GBTMModel",
+    "children": [
+      {
+        "$type": "bsedit.GBTMRollback",
+        "hasUserCode": false,
+        "nodeId": "MLBhwEW8Xslt2V7jc",
+        "sourceParseTreeNodes": {}
+      }
+    ],
+    "configurationData": {
+      "$type": "bsedit.GBTMConfigurationData",
+      "configurationParameters": [],
+      "currentConfiguration": [],
+      "hasUserCode": false,
+      "nodeId": "ConfigurationDataId",
+      "sourceParseTreeNodes": {},
+      "syncAndPassthroughReferenceNodeId": ""
+    },
+    "defaultFeatures": {
+      "$type": "bsedit.GBTDefaultFeatures",
+      "children": [
+        {
+          "$type": "bsedit.GBTMFeature",
+          "featureId": "Origin",
+          "featureType": "origin",
+          "hasUserCode": false,
+          "name": "Origin",
+          "nameParseNode": {
+            "$type": "tree.GBTNodeReference",
+            "nodeId": ""
+          },
+          "namespace": "",
+          "nodeId": "MrGrkMpvqt49O7r4e",
+          "parameterLibraries": [],
+          "parameters": [],
+          "returnAfterSubfeatures": false,
+          "sourceParseTreeNodes": {},
+          "subFeatures": [],
+          "suppressed": false,
+          "suppressedParseNode": {
+            "$type": "tree.GBTNodeReference",
+            "nodeId": ""
+          },
+          "suppressionState": null
+        },
+        {
+          "$type": "bsedit.GBTMFeature",
+          "featureId": "Top",
+          "featureType": "defaultPlane",
+          "hasUserCode": false,
+          "name": "Top",
+          "nameParseNode": {
+            "$type": "tree.GBTNodeReference",
+            "nodeId": ""
+          },
+          "namespace": "",
+          "nodeId": "MMaGxUk2pFcXnJ+V3",
+          "parameterLibraries": [],
+          "parameters": [],
+          "returnAfterSubfeatures": false,
+          "sourceParseTreeNodes": {},
+          "subFeatures": [],
+          "suppressed": false,
+          "suppressedParseNode": {
+            "$type": "tree.GBTNodeReference",
+            "nodeId": ""
+          },
+          "suppressionState": null
+        },
+        {
+          "$type": "bsedit.GBTMFeature",
+          "featureId": "Front",
+          "featureType": "defaultPlane",
+          "hasUserCode": false,
+          "name": "Front",
+          "nameParseNode": {
+            "$type": "tree.GBTNodeReference",
+            "nodeId": ""
+          },
+          "namespace": "",
+          "nodeId": "MQ1HUWsmlRN7K2FnO",
+          "parameterLibraries": [],
+          "parameters": [],
+          "returnAfterSubfeatures": false,
+          "sourceParseTreeNodes": {},
+          "subFeatures": [],
+          "suppressed": false,
+          "suppressedParseNode": {
+            "$type": "tree.GBTNodeReference",
+            "nodeId": ""
+          },
+          "suppressionState": null
+        },
+        {
+          "$type": "bsedit.GBTMFeature",
+          "featureId": "Right",
+          "featureType": "defaultPlane",
+          "hasUserCode": false,
+          "name": "Right",
+          "nameParseNode": {
+            "$type": "tree.GBTNodeReference",
+            "nodeId": ""
+          },
+          "namespace": "",
+          "nodeId": "MzXguYKFQs4GjG+T7",
+          "parameterLibraries": [],
+          "parameters": [],
+          "returnAfterSubfeatures": false,
+          "sourceParseTreeNodes": {},
+          "subFeatures": [],
+          "suppressed": false,
+          "suppressedParseNode": {
+            "$type": "tree.GBTNodeReference",
+            "nodeId": ""
+          },
+          "suppressionState": null
+        }
+      ]
+    },
+    "defaultUnits": {
+      "$type": "bsedit.GBTMUnitsDefault",
+      "hasUserCode": false,
+      "nodeId": "MEMaNhp/JS8R+Cn11",
+      "sourceParseTreeNodes": {},
+      "units": {
+        "11": "newton",
+        "12": "pascal",
+        "13": "newtonMeter",
+        "14": "meterPerSecondSquared",
+        "15": "degreePerSecond",
+        "16": "joule",
+        "17": "squareMillimeter",
+        "18": "cubicMillimeter",
+        "21": "gramPerCubicCentimeter",
+        "22": "hertz",
+        "3": "millimeter",
+        "4": "degree",
+        "5": "gram",
+        "6": "second"
+      }
+    },
+    "hasUserCode": false,
+    "imports": [
+      {
+        "$type": "bsedit.GBTMImport",
+        "hasUserCode": false,
+        "namespace": "",
+        "nodeId": "M99+kQIP6/DiOha+q",
+        "path": "onshape/std/geometry.fs",
+        "sourceParseTreeNodes": {},
+        "version": "3112.0"
+      }
+    ],
+    "modelAnnotations": {
+      "$type": "annotation.GBTModelAnnotations",
+      "annotations": [],
+      "hasUserCode": false,
+      "nodeId": "ModelAnnotationsId",
+      "sourceParseTreeNodes": {},
+      "toleranceSchemaForParts": {
+        "$type": "bsedit.GBTMParameterArray",
+        "hasUserCode": false,
+        "items": [],
+        "libraryRelationType": 0,
+        "nodeId": "MiMY3BVJfSdNVrWtn",
+        "parameterId": "",
+        "parameterName": "",
+        "sourceParseTreeNodes": {}
+      }
+    },
+    "name": "Native Adapter Test — Temporary",
+    "nodeId": "ModelTreeId",
+    "properties": {
+      "$type": "bsedit.GBTModelProperties",
+      "nodeId": "ModelPropertiesId",
+      "subPartProperties": []
+    },
+    "sourceParseTreeNodes": {},
+    "variableStudios": []
+  }
+}

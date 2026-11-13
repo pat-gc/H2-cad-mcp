@@ -1,0 +1,20 @@
+{
+  "microversion_after": "1e6c99efaecba90a6d446e90",
+  "microversion_before": "1e6c99efaecba90a6d446e90",
+  "next": "Read native_state and check regeneration; an acknowledgement alone does not prove correct geometry.",
+  "result": {
+    "$type": "ui.sketch.GBTUiSketchResponse",
+    "editDescription": "",
+    "elementId": "",
+    "messageId": "",
+    "sketchError": {
+      "$type": "display.GBTNodeStatus",
+      "faultyParameters": [],
+      "statusEnum": 0,
+      "statusMsg": "",
+      "statusType": 0,
+      "suppressed": false
+    }
+  },
+  "tab_id": 941740752
+}
