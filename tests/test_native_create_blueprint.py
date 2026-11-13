@@ -41,6 +41,8 @@ def test_blueprint_cli_uses_same_fsgen_source_without_browser(capsys):
     lambda x: x.features[1].parameters.update(operationType="REMOVE"),
     lambda x: x.features[1].parameters.update(entities=["query=qSketchRegion(makeId(\"Other\"));"]),
     lambda x: x.features[0].structure["sketch"]["rectangle"].update(construction=True),
+    lambda x: x.features[0].structure.update(parameter_schema=None),
+    lambda x: x.features[0].structure["fsgen_native"].update(entities="oops"),
 ])
 def test_unsupported_or_diverged_plan_stops_before_native_compilation(mutation):
     snapshot = copy.deepcopy(compile_fsgen(SOURCE, Target("d", "w", "e")))

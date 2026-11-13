@@ -73,13 +73,19 @@ def stage_minimal_pair(snapshot: Snapshot) -> NativePairBlueprint:
         raise Unsupported("Rectangle coordinates must be finite, ordered, and nonconstruction")
     sketch_body = sketch.structure.get("fsgen_native")
     if (not isinstance(sketch_body, dict) or sketch_body.get("featureType") != "newSketch"
-            or len(sketch_body.get("entities", [])) != 4
+            or not isinstance(sketch_body.get("entities"), list) or len(sketch_body["entities"]) != 4
             or not isinstance(sketch_body.get("constraints"), list)
             or sketch.parameters.get("sketchPlane") != ['query=qCreatedBy(makeId("Top"), EntityType.FACE);']):
         raise Unsupported("FSGen sketch entities, constraints, or Top query differ")
-    if (sketch.structure.get("parameter_schema", {}).get("sketchPlane", {}).get("btType") != "BTMParameterQueryList-148"
-            or extrusion.structure.get("parameter_schema", {}).get("entities", {}).get("btType") != "BTMParameterQueryList-148"
-            or extrusion.structure.get("parameter_schema", {}).get("depth", {}).get("btType") != "BTMParameterQuantity-147"):
+    sketch_schema = sketch.structure.get("parameter_schema")
+    extrusion_schema = extrusion.structure.get("parameter_schema")
+    if (not isinstance(sketch_schema, dict) or not isinstance(extrusion_schema, dict)
+            or not isinstance(sketch_schema.get("sketchPlane"), dict)
+            or not isinstance(extrusion_schema.get("entities"), dict)
+            or not isinstance(extrusion_schema.get("depth"), dict)
+            or sketch_schema["sketchPlane"].get("btType") != "BTMParameterQueryList-148"
+            or extrusion_schema["entities"].get("btType") != "BTMParameterQueryList-148"
+            or extrusion_schema["depth"].get("btType") != "BTMParameterQuantity-147"):
         raise Unsupported("FSGen parameter schema differs from the supported pair")
     if (extrusion.parameters.get("bodyType") != "SOLID"
             or extrusion.parameters.get("operationType") != "NEW"
