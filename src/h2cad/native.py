@@ -819,16 +819,23 @@ class NativeBackend:
                                                "body": {"elementId": target.eid, "sketchFeatureId": feature_id,
                                                         "supportsConsolidatedConstraints": False}})
             result = graph.get("result")
-            if (not isinstance(result, dict)
-                    or result.get("$type") != "ui.sketch.GBTUiSketchGetConstraintGraphResponse"
-                    or result.get("constraints") not in (None, {})
-                    or result.get("references") not in (None, {})):
-                raise Unsupported("Known failed sketch graph is no longer empty")
+            if not isinstance(result, dict):
+                raise Unsupported("Known failed sketch graph response unavailable")
+            if (result.get("$type") == "ui.sketch.GBTUiSketchGetConstraintGraphResponse"
+                    and result.get("constraints") in (None, {})
+                    and result.get("references") in (None, {})):
+                graph_status = "empty_active"
+            elif (after.get("editingFeatureId") is None
+                    and result.get("$type") == "ui.sketch.GBTUiSketchResponse"
+                    and "constraints" not in result and "references" not in result):
+                graph_status = "unavailable_saved"
+            else:
+                raise Unsupported("Known failed sketch graph differs or shows solved constraints")
             evidence = {"classification": "applied_invalid", "op_id": op_id,
                         "feature_id": feature_id, "revision_before": row["expected_revision"],
                         "revision_invalid": after["element_microversion"],
                         "saved_invalid_feature": after.get("editingFeatureId") is None,
-                        "definition_present": True, "constraint_graph_empty": True,
+                        "definition_present": True, "constraint_graph_status": graph_status,
                         "unrelated_tree_preserved": True}
             journal.annotate_unknown(op_id, evidence)
             return {"op_id": op_id, "status": "applied_invalid_unresolved", "evidence": evidence}

@@ -206,7 +206,8 @@ async def test_known_applied_invalid_sketch_is_recorded_but_remains_blocking(tmp
             self.calls.append(job["kind"])
             if job["kind"] == "state": return copy.deepcopy(after)
             assert job["command"] == "ui.sketch.GBTUiSketchGetConstraintGraphCall"
-            return {"result": {"$type": "ui.sketch.GBTUiSketchGetConstraintGraphResponse"}}
+            return {"result": {"$type": ("ui.sketch.GBTUiSketchResponse" if editing is None
+                                          else "ui.sketch.GBTUiSketchGetConstraintGraphResponse")}}
     journal = Journal(tmp_path / "intent.sqlite")
     op_id = "sketch-d9d02a9ba8b44bdea72b4bb67281c7e1"
     key = f"{TARGET.did}/{TARGET.wid}/{TARGET.eid}"
@@ -224,6 +225,7 @@ async def test_known_applied_invalid_sketch_is_recorded_but_remains_blocking(tmp
         outcome = await NativeBackend(bridge, tab_id=17).classify_known_invalid_sketch(op_id, journal)
         assert outcome["status"] == "applied_invalid_unresolved"
         assert outcome["evidence"]["saved_invalid_feature"] is (editing is None)
+        assert outcome["evidence"]["constraint_graph_status"] == ("unavailable_saved" if editing is None else "empty_active")
     assert journal.has_unresolved() and journal.get(op_id)["state"] == "unknown"
     if editing != "otherFeature":
         assert json.loads(journal.get(op_id)["observation"])["classification"] == "applied_invalid"
