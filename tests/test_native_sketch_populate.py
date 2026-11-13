@@ -4,11 +4,12 @@ import copy
 from pathlib import Path
 
 import pytest
+import httpx
 
 from h2cad.backend import UncertainWrite, Unsupported
 from h2cad.journal import Journal
 from h2cad.model import Target
-from h2cad.native import NativeBackend
+from h2cad.native import NativeBackend, NativeBridge, PreDispatchRejected
 from h2cad.cli import build_parser
 
 
@@ -80,11 +81,12 @@ def solved_graph():
 
 
 class Bridge:
-    def __init__(self, *, changed=False, capabilities=True, unanchored=False):
+    def __init__(self, *, changed=False, capabilities=True, unanchored=False, pre_dispatch=False):
         self.calls = []
         self.changed = changed
         self.capabilities = capabilities
         self.unanchored = unanchored
+        self.pre_dispatch = pre_dispatch
 
     async def health(self):
         return {"extension_connected": True,
@@ -106,6 +108,8 @@ class Bridge:
         assert job["kind"] == "partstudio_populate_sketch"
         assert job["sketch_edit"] == {"feature_id": "editorAllocated_0", "entity_prefix": "box",
                                       "rectangle_m": [0.0, 0.0, 0.04, 0.02]}
+        if self.pre_dispatch:
+            raise PreDispatchRejected("Invalid native field.")
         return {"definition_candidate": True}
 
 
@@ -154,6 +158,17 @@ async def test_missing_loaded_capability_stops_before_journal_or_write(tmp_path)
 
 
 @pytest.mark.asyncio
+async def test_attested_pre_dispatch_rejection_is_not_an_unknown_cad_write(tmp_path):
+    bridge = Bridge(pre_dispatch=True)
+    journal = Journal(tmp_path / "intent.sqlite")
+    with pytest.raises(PreDispatchRejected, match="Invalid native field"):
+        await NativeBackend(bridge, tab_id=17).populate_test_sketch(TARGET, SOURCE, journal)
+    assert not journal.has_unresolved()
+    assert [x["kind"] for x in bridge.calls] == ["state", "partstudio_populate_sketch"]
+    journal.close()
+
+
+@pytest.mark.asyncio
 async def test_uncertain_sketch_reconcile_reads_once_and_does_not_resubmit(tmp_path):
     bridge = Bridge(changed=True)
     journal = Journal(tmp_path / "intent.sqlite")
@@ -172,3 +187,88 @@ def test_cli_exposes_explicit_temp_sketch_command():
                                       "--did", TARGET.did, "--wid", TARGET.wid, "--eid", TARGET.eid,
                                       "--bridge-config", "bridge.json", "--tab-id", "17", "--journal", "intent.sqlite"])
     assert args.command == "experimental-sketch-populate" and args.tab_id == 17
+
+
+@pytest.mark.asyncio
+async def test_known_recovery_client_uses_one_authenticated_local_endpoint():
+    seen = []
+    def reply(request):
+        seen.append((request.method, request.url.path, request.headers.get("authorization"), request.content))
+        return httpx.Response(200, json={"status": "rejected_pre_dispatch", "op_id": "sketch-known"})
+    bridge = NativeBridge("x" * 32, transport=httpx.MockTransport(reply))
+    try:
+        result = await bridge.reconcile_known_sketch_rejection("sketch-known", 17)
+    finally:
+        await bridge.close()
+    assert result["status"] == "rejected_pre_dispatch"
+    assert len(seen) == 1 and seen[0][0:2] == ("POST", "/local/reconcile_known_sketch_rejection")
+    assert seen[0][2] == "Bearer " + "x" * 32
+
+
+def _prior_sketch_intent(journal):
+    key = f"{TARGET.did}/{TARGET.wid}/{TARGET.eid}"
+    journal.prepare(op_id="sketch-prior", target=key, expected_revision="a" * 24,
+                    action="experimental_sketch_populate", logical_id="Outline", intent={"before_state": state()})
+    journal.transition("sketch-prior", "sent", receipt={"definition_candidate": True})
+    journal.transition("sketch-prior", "observed", observation={"feature_id": "editorAllocated_0",
+        "origin_verified": True, "constraint_graph_verified": True})
+
+
+class ExtrudeBridge:
+    def __init__(self, *, change_unrelated=False):
+        self.calls = []
+        self.change_unrelated = change_unrelated
+
+    async def health(self):
+        return {"extension_connected": True,
+                "capabilities": ["h2_native_extrude_populate_server_v1"],
+                "extension": {"capabilities": ["h2_native_extrude_populate_page_v1"]}}
+
+    async def command(self, job):
+        self.calls.append(copy.deepcopy(job))
+        if job["kind"] == "partstudio_populate_extrude":
+            assert job["extrude_edit"] == {"feature_id": "freshExtrude_0", "sketch_feature_id": "editorAllocated_0",
+                                            "from_mm": 25, "to_mm": 5}
+            return {"definition_candidate": True}
+        assert job["kind"] == "state"
+        after = len(self.calls) > 1
+        result = state(populated=True, unrelated_changed=after and self.change_unrelated)
+        result["editingFeatureId"] = None if after else "freshExtrude_0"
+        result["element_microversion"] = ("d" if after else "c") * 24
+        depth = 5 if after else 25
+        result["tree"]["children"].append({"featureId": "freshExtrude_0", "featureType": "extrude",
+            "nodeId": "editor-extrude-node", "parameters": [
+                {"parameterId": "bodyType", "value": "SOLID"},
+                {"parameterId": "operationType", "value": "NEW"},
+                {"parameterId": "endBound", "value": "BLIND"},
+                {"$type": "bsedit.GBTMParameterQueryList", "parameterId": "entities",
+                 "queries": [{"$type": "bsedit.GBTMIndividualQuery", "deterministicIds": ["fresh-region"]}]},
+                {"$type": "bsedit.GBTMParameterQuantity", "parameterId": "depth", "nodeId": "fresh-depth-node",
+                 "value": depth, "units": "millimeter", "expression": f"{depth} mm"}]})
+        return result
+
+
+@pytest.mark.asyncio
+async def test_source_extrusion_journals_one_typed_depth_edit(tmp_path):
+    journal = Journal(tmp_path / "intent.sqlite")
+    _prior_sketch_intent(journal)
+    bridge = ExtrudeBridge()
+    evidence = await NativeBackend(bridge, tab_id=17).populate_test_extrude(
+        TARGET, SOURCE, sketch_op_id="sketch-prior", journal=journal)
+    assert evidence["definition_observed"] is True and evidence["solid_geometry_verified"] is False
+    assert [x["kind"] for x in bridge.calls] == ["state", "partstudio_populate_extrude", "state"]
+    assert journal.get(evidence["op_id"])["state"] == "observed"
+    journal.close()
+
+
+@pytest.mark.asyncio
+async def test_source_extrusion_preserves_unrelated_feature_or_stays_unknown(tmp_path):
+    journal = Journal(tmp_path / "intent.sqlite")
+    _prior_sketch_intent(journal)
+    bridge = ExtrudeBridge(change_unrelated=True)
+    with pytest.raises(UncertainWrite, match="outcome unknown"):
+        await NativeBackend(bridge, tab_id=17).populate_test_extrude(
+            TARGET, SOURCE, sketch_op_id="sketch-prior", journal=journal)
+    assert [x["kind"] for x in bridge.calls] == ["state", "partstudio_populate_extrude", "state"]
+    assert journal.has_unresolved()
+    journal.close()

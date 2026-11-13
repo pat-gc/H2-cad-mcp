@@ -83,6 +83,19 @@ def build_parser() -> argparse.ArgumentParser:
     sketch_cmd.add_argument("--bridge-config", type=Path, required=True)
     sketch_cmd.add_argument("--tab-id", type=int, required=True)
     sketch_cmd.add_argument("--journal", type=Path, required=True)
+    extrude_cmd = commands.add_parser("experimental-extrude-populate", help="set source depth on one UI-bound native extrusion")
+    extrude_cmd.add_argument("source", type=Path)
+    _add_target(extrude_cmd)
+    extrude_cmd.add_argument("--bridge-config", type=Path, required=True)
+    extrude_cmd.add_argument("--tab-id", type=int, required=True)
+    extrude_cmd.add_argument("--journal", type=Path, required=True)
+    extrude_cmd.add_argument("--sketch-op-id", required=True)
+    recover_cmd = commands.add_parser("experimental-reconcile-known-sketch-rejection",
+                                      help="resolve the one proven pre-dispatch sketch constructor rejection")
+    recover_cmd.add_argument("op_id")
+    recover_cmd.add_argument("--bridge-config", type=Path, required=True)
+    recover_cmd.add_argument("--tab-id", type=int, required=True)
+    recover_cmd.add_argument("--journal", type=Path, required=True)
     reload_cmd = commands.add_parser("extension-reload", help="request one paired Native extension reload after journal preflight")
     reload_cmd.add_argument("--bridge-config", type=Path, required=True)
     reload_cmd.add_argument("--journal", type=Path, required=True)
@@ -90,7 +103,9 @@ def build_parser() -> argparse.ArgumentParser:
 
 
 async def _bridge_action(args: argparse.Namespace) -> tuple[object, int]:
-    if args.command in {"extension-reload", "experimental-depth-edit", "experimental-sketch-populate"}:
+    if args.command in {"extension-reload", "experimental-depth-edit", "experimental-sketch-populate",
+                        "experimental-extrude-populate",
+                        "experimental-reconcile-known-sketch-rejection"}:
         config = json.loads(args.bridge_config.read_text(encoding="utf-8"))
         pinned = config.get("h2cad_journal")
         if (not isinstance(pinned, str) or
@@ -111,6 +126,8 @@ async def _bridge_action(args: argparse.Namespace) -> tuple[object, int]:
         if args.command == "extension-reload":
             result = await bridge.reload_extension()
             return result, 0 if result.get("status") == "reconnected" else 2
+        if args.command == "experimental-reconcile-known-sketch-rejection":
+            return await bridge.reconcile_known_sketch_rejection(args.op_id, args.tab_id), 0
         if args.command == "doctor":
             health = await bridge.health()
             return {"bridge_protocol": health.get("protocol"), "extension_connected": health.get("extension_connected"),
@@ -136,12 +153,22 @@ async def _bridge_action(args: argparse.Namespace) -> tuple[object, int]:
                 return await backend.populate_test_sketch(_target(args), args.source, journal), 0
             finally:
                 journal.close()
+        if args.command == "experimental-extrude-populate":
+            journal = Journal(args.journal)
+            try:
+                return await backend.populate_test_extrude(_target(args), args.source,
+                                                           sketch_op_id=args.sketch_op_id, journal=journal), 0
+            finally:
+                journal.close()
         from .executor import Executor
         journal = Journal(args.journal)
         try:
             row = journal.get(args.op_id)
             if row and row["action"] == "experimental_sketch_populate":
                 outcome = await backend.reconcile_test_sketch(args.op_id, journal)
+                return outcome, 0 if outcome["status"] == "verified" else 2
+            if row and row["action"] == "experimental_extrude_populate":
+                outcome = await backend.reconcile_test_extrude(args.op_id, journal)
                 return outcome, 0 if outcome["status"] == "verified" else 2
             if row and row["action"] == "experimental_depth_edit":
                 outcome = await backend.reconcile_disposable_extrude_depth(args.op_id, journal)

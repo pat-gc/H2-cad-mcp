@@ -26,6 +26,10 @@ _DISPOSABLE = {"did": "f5a8353dc826a9ec52106138", "wid": "a3baadfcc7e36a50134951
 _NATIVE_CREATE_TEST = {"did": "4e078dec822b4e509616b1cb", "wid": "af0627de07264acf086e646a", "eid": "9a062f0eef8bb961f8c84f8e"}
 
 
+class PreDispatchRejected(BackendError):
+    """The paired page adapter attested that no modeling RPC was sent."""
+
+
 @dataclass(frozen=True)
 class PreparedCommand:
     command: str
@@ -396,8 +400,20 @@ class NativeBridge:
             raise BackendError("Bridge did not return a structured reload result")
         return data
 
+    async def reconcile_known_sketch_rejection(self, op_id: str, tab_id: int) -> dict[str, Any]:
+        """Resolve only the reviewed pre-RPC constructor rejection via the paired bridge."""
+        try:
+            response = await self.http.post("/local/reconcile_known_sketch_rejection",
+                                            json={"op_id": op_id, "tab_id": tab_id}, timeout=30)
+            data = response.json()
+        except (httpx.HTTPError, ValueError) as exc:
+            raise BackendError("Known sketch recovery unavailable; safety barrier remains") from exc
+        if response.status_code != 200 or data.get("status") != "rejected_pre_dispatch":
+            raise BackendError(str(data.get("reason", "Known sketch recovery was refused")))
+        return data
+
     async def command(self, job: dict[str, Any]) -> dict[str, Any]:
-        if job.get("kind") not in {"state", "schema", "creation_probe", "native", "partstudio_depth_edit", "partstudio_populate_sketch"}:
+        if job.get("kind") not in {"state", "schema", "creation_probe", "native", "partstudio_depth_edit", "partstudio_populate_sketch", "partstudio_populate_extrude"}:
             raise Unsupported("Browser-mode adapter permits only native editor jobs")
         try:
             response = await self.http.post("/command", json=job)
@@ -405,7 +421,10 @@ class NativeBridge:
         except (httpx.HTTPError, ValueError) as exc:
             raise UncertainWrite("Native bridge response unavailable; inspect before further mutation") from exc
         if isinstance(data, dict) and data.get("error"):
-            if job.get("kind") in {"partstudio_depth_edit", "partstudio_populate_sketch"}:
+            if (job.get("kind") in {"partstudio_populate_sketch", "partstudio_populate_extrude"}
+                    and data.get("write_stage") == "pre_dispatch"):
+                raise PreDispatchRejected(str(data["error"]))
+            if job.get("kind") in {"partstudio_depth_edit", "partstudio_populate_sketch", "partstudio_populate_extrude"}:
                 raise UncertainWrite(str(data["error"]))
             raise BackendError(str(data["error"]))
         if response.status_code != 200 or not isinstance(data, dict):
@@ -615,6 +634,9 @@ class NativeBackend:
                                                    "rectangle_m": list(blueprint.rectangle_m)}}
             try:
                 response = await self.bridge.command(job)
+            except PreDispatchRejected as exc:
+                journal.transition(op_id, "rejected", error=str(exc))
+                raise
             except Exception as exc:
                 journal.transition(op_id, "unknown", error=str(exc))
                 raise UncertainWrite(f"Sketch population outcome unknown; journal operation {op_id}") from exc
@@ -672,6 +694,122 @@ class NativeBackend:
                 "revision_before": before.get("element_microversion"),
                 "revision_now": state.get("element_microversion"),
                 "editing_feature_id": state.get("editingFeatureId")}
+
+    async def populate_test_extrude(self, target: Target, source: str | Path, *,
+                                    sketch_op_id: str, journal: Journal) -> dict[str, Any]:
+        """Set the source depth on one active, editor-bound native extrusion."""
+        if _target(target) != _NATIVE_CREATE_TEST or self.tab_id is None:
+            raise Unsupported("Native extrusion population requires the authorized temporary tab")
+        from .fsgen import compile_fsgen
+        blueprint = stage_minimal_pair(compile_fsgen(source, target))
+        key = f"{target.did}/{target.wid}/{target.eid}"
+        with journal.target_lock(key):
+            if journal.unresolved(key):
+                raise UncertainWrite("Prior target write unresolved; inspect before mutation")
+            sketch_op = journal.get(sketch_op_id)
+            if (not sketch_op or sketch_op["target"] != key
+                    or sketch_op["action"] != "experimental_sketch_populate"
+                    or sketch_op["state"] != "observed"
+                    or sketch_op["logical_id"] != blueprint.sketch_logical_id):
+                raise Unsupported("One observed source sketch intent is required")
+            sketch_evidence = json.loads(sketch_op["observation"] or "{}")
+            sketch_id = sketch_evidence.get("feature_id")
+            if (not isinstance(sketch_id, str) or not sketch_id
+                    or sketch_evidence.get("origin_verified") is not True
+                    or sketch_evidence.get("constraint_graph_verified") is not True):
+                raise Unsupported("Source sketch origin and solver graph remain unverified")
+            health = await self.bridge.health()
+            if (health.get("extension_connected") is not True
+                    or "h2_native_extrude_populate_server_v1" not in (health.get("capabilities") or [])
+                    or "h2_native_extrude_populate_page_v1" not in ((health.get("extension") or {}).get("capabilities") or [])):
+                raise Unsupported("Installed bridge and loaded extension must both advertise native extrusion support")
+            before = await self.raw_state(target)
+            tree = before["tree"]
+            if (before.get("connected") is not True or tree.get("$type") != "bsedit.GBTMModel"
+                    or not isinstance(tree.get("children"), list)):
+                raise Unsupported("Connected native Part Studio tree unavailable")
+            children = tree["children"]
+            sketches = [node for node in children if isinstance(node, dict) and node.get("featureType") == "newSketch"]
+            if len(sketches) != 1 or sketches[0].get("featureId") != sketch_id:
+                raise Unsupported("Exactly one saved source sketch is required")
+            _native_rectangle_constraints(_live_rectangle_feature(before, blueprint, feature_id=sketch_id), blueprint)
+            feature_id = before.get("editingFeatureId")
+            extrusions = [node for node in children if isinstance(node, dict) and node.get("featureId") == feature_id]
+            if (not isinstance(feature_id, str) or not feature_id or len(extrusions) != 1
+                    or extrusions[0].get("featureType") != "extrude" or not extrusions[0].get("nodeId")):
+                raise Unsupported("Exactly one active UI-allocated extrusion is required")
+            params = extrusions[0].get("parameters")
+            if not isinstance(params, list):
+                raise Unsupported("Active extrusion parameters unavailable")
+            by_id = lambda name: [p for p in params if isinstance(p, dict) and p.get("parameterId") == name]
+            depth = by_id("depth")
+            region = by_id("entities")
+            if (len(depth) != 1 or depth[0].get("$type") != "bsedit.GBTMParameterQuantity"
+                    or depth[0].get("units") != "millimeter" or not depth[0].get("nodeId")
+                    or len(region) != 1 or region[0].get("$type") != "bsedit.GBTMParameterQueryList"
+                    or len(region[0].get("queries", [])) != 1
+                    or not region[0]["queries"][0].get("deterministicIds")):
+                raise Unsupported("Editor has not bound one extrusion region and literal depth")
+            from_mm = depth[0].get("value")
+            if (type(from_mm) not in (int, float) or not math.isfinite(from_mm) or not 0 < from_mm <= 1000
+                    or depth[0].get("expression") != f"{from_mm:g} mm" or from_mm == blueprint.depth_mm):
+                raise Unsupported("Expected a distinct positive literal editor depth before source update")
+            expected_tree = _depth_expected_tree(tree, feature_id, from_mm, blueprint.depth_mm)
+            op_id = "extrude-" + uuid4().hex
+            journal.prepare(op_id=op_id, target=key, expected_revision=before["element_microversion"],
+                            action="experimental_extrude_populate", logical_id=blueprint.extrusion_logical_id,
+                            intent={"before_state": before, "expected_tree": expected_tree,
+                                    "sketch_op_id": sketch_op_id, "sketch_feature_id": sketch_id})
+            job = {"kind": "partstudio_populate_extrude", "target": _NATIVE_CREATE_TEST,
+                   "tab_id": self.tab_id, "expected_element_microversion": before["element_microversion"],
+                   "extrude_edit": {"feature_id": feature_id, "sketch_feature_id": sketch_id,
+                                    "from_mm": from_mm, "to_mm": blueprint.depth_mm}}
+            try:
+                response = await self.bridge.command(job)
+            except PreDispatchRejected as exc:
+                journal.transition(op_id, "rejected", error=str(exc))
+                raise
+            except Exception as exc:
+                journal.transition(op_id, "unknown", error=str(exc))
+                raise UncertainWrite(f"Extrusion population outcome unknown; journal operation {op_id}") from exc
+            journal.transition(op_id, "sent", receipt=response)
+            try:
+                after = await self.raw_state(target)
+                if (response.get("definition_candidate") is not True or after.get("connected") is not True
+                        or after.get("editingFeatureId") is not None
+                        or after["element_microversion"] == before["element_microversion"]
+                        or after["tree"] != expected_tree):
+                    raise UncertainWrite("Independent extrusion definition or unrelated tree differs")
+            except Exception as exc:
+                journal.transition(op_id, "unknown", error=str(exc))
+                raise UncertainWrite(f"Extrusion population outcome unknown; journal operation {op_id}") from exc
+            evidence = {"op_id": op_id, "feature_id": feature_id, "sketch_feature_id": sketch_id,
+                        "revision_before": before["element_microversion"], "revision_after": after["element_microversion"],
+                        "depth_mm": blueprint.depth_mm, "definition_observed": True,
+                        "solid_geometry_verified": False, "ui_editability_verified": False,
+                        "region_source_verified": False}
+            journal.transition(op_id, "observed", observation=evidence)
+            return evidence
+
+    async def reconcile_test_extrude(self, op_id: str, journal: Journal) -> dict[str, Any]:
+        """Read an uncertain extrusion intent, never replaying its editor commands."""
+        row = journal.get(op_id)
+        if row is None or row["action"] != "experimental_extrude_populate":
+            raise Unsupported("Journal operation is not a native extrusion population")
+        if row["state"] == "observed":
+            return {"op_id": op_id, "status": "verified", "evidence": json.loads(row["observation"] or "{}")}
+        if row["state"] == "rejected":
+            return {"op_id": op_id, "status": "rejected", "reason": row["error"]}
+        fields = row["target"].split("/")
+        if len(fields) != 3 or dict(zip(("did", "wid", "eid"), fields)) != _NATIVE_CREATE_TEST:
+            raise Unsupported("Experimental extrusion journal target differs from the authorized studio")
+        try:
+            state = await self.raw_state(Target(*fields))
+        except Exception as exc:
+            return {"op_id": op_id, "status": "unknown", "reason": f"Read-only inspection failed: {exc}"}
+        return {"op_id": op_id, "status": "unknown", "reason":
+                "Extrusion write needs independent region, solid, and editability review; no command was replayed",
+                "revision_now": state.get("element_microversion")}
 
     async def edit_disposable_extrude_depth(self, target: Target, *, feature_id: str,
                                             from_mm: int | float, to_mm: int | float,
