@@ -2,6 +2,8 @@
 
 Updated 2026-11-13. **This is the development lead's current status page.** Read it before starting a new stage; at each substantive handoff, the owner reports the exact row change and evidence to Astra for integration. Historical trials and plans retain their own dates.
 
+After integrating a substantive `src/`, `scripts/`, or `tests/` batch, refresh the local code map once from the main checkout using the [Graphify workflow](GRAPHIFY.md) before the handoff.
+
 ## Objective and acceptance
 
 Generate the approved [basic car source](../fixtures/car/basic_car.fs) as a **repeatable native, human-editable Onshape feature tree**. Acceptance requires all 22 planned features (7 variables, 5 planes, 5 sketches, 5 extrudes), eight resulting solids matching the approved local 114 × 180 × 64 mm bounds, source parametric expressions and dependencies, one verified edit and regeneration of the resulting car, preservation of unrelated feature identities, and a repeatable CLI/MCP workflow without manual modeling steps. Apply the [acceptance gates](ACCEPTANCE.md), including separate definition, regeneration, geometry, and human-editability evidence. Only after the full native creation path is proven may the authorized existing generated car be replaced. The later `cadder` launch condition and exact robotics brief are recorded under [Queued future requirement](verification/native-begin-top-trial-2026-11-13.md#queued-future-requirement); robotics work has not started.
