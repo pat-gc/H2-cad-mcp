@@ -1,0 +1,149 @@
+From 6d86c1e1005cfeece380faae4cfadefaa589a067 Mon Sep 17 00:00:00 2001
+From: patcybermind <pato.gonzalezcabrera@gmail.com>
+Date: Fri, 13 Nov 2026 14:56:47 -0500
+Subject: [PATCH] fix: recheck exact editor after extrusion reads and before
+ Save
+
+---
+ extension/connection.js   |  2 +-
+ extension/page-adapter.js | 14 ++++++++++++++
+ onshape_native/bridge.py  |  2 ++
+ tests/adapter.test.mjs    | 32 ++++++++++++++++++++++++++++++++
+ tests/test_bridge.py      | 12 ++++++++----
+ 5 files changed, 57 insertions(+), 5 deletions(-)
+
+diff --git a/extension/connection.js b/extension/connection.js
+index 584c391..37c6404 100644
+--- a/extension/connection.js
++++ b/extension/connection.js
+@@ -74,7 +74,7 @@ export function createConnection({browser, token, execute, Socket = WebSocket,
+       if (socket !== current) return;
+       current.send(JSON.stringify({type: 'hello', token, version: browser.runtime.getManifest().version,
+         runtime_id: browser.runtime.id, instance_id: instanceId, build: 'h2-extension-reload-v1',
+-        capabilities: ['tab_context_v1', 'assembly_sidebar_map_v1', 'display_v1', 'native_modeling_v1', 'element_revision_v1', 'editor_tabs_v1', 'ui_exports_v1', 'chunked_upload_v1', 'chunked_response_v1', 'viewer_mesh_v1', 'h2_depth_edit_page_v1', 'h2_native_begin_top_sketch_page_v1', 'h2_native_begin_top_ready_page_v1', 'h2_native_sketch_populate_page_v1', 'h2_native_fixed_origin_page_v1', 'h2_native_extrude_populate_page_v1', 'h2_native_source_region_page_v1', 'h2_extension_reload_v1']}));
++        capabilities: ['tab_context_v1', 'assembly_sidebar_map_v1', 'display_v1', 'native_modeling_v1', 'element_revision_v1', 'editor_tabs_v1', 'ui_exports_v1', 'chunked_upload_v1', 'chunked_response_v1', 'viewer_mesh_v1', 'h2_depth_edit_page_v1', 'h2_native_begin_top_sketch_page_v1', 'h2_native_begin_top_ready_page_v1', 'h2_native_sketch_populate_page_v1', 'h2_native_fixed_origin_page_v1', 'h2_native_extrude_populate_page_v1', 'h2_native_source_region_page_v1', 'h2_native_extrude_recheck_page_v1', 'h2_extension_reload_v1']}));
+     };
+     let lastPong = now(), chunkedResponses = false;
+     current.onmessage = async event => {
+diff --git a/extension/page-adapter.js b/extension/page-adapter.js
+index 1062fa9..8db30cc 100644
+--- a/extension/page-adapter.js
++++ b/extension/page-adapter.js
+@@ -567,6 +567,11 @@ export async function pageCommand(job) {
+         regionData[0].evaluationDetails?.entityType !== 2 ||
+         regionData[0].evaluationDetails?.status !== 0 || regionData[0].hasErrorEntity !== false)
+       throw new Error("Extrusion face does not resolve to source sketch; no modeling command sent.");
++    if (controller.connection?.isClosed?.() !== false || controller.getActiveElementTabId() !== target.eid ||
++        location.pathname !== `/documents/${target.did}/w/${target.wid}/e/${target.eid}` ||
++        elementModel?.get("idEditingFeature") !== edit.feature_id ||
++        getElementMicroversion() !== job.expected_element_microversion)
++      throw new Error("Extrusion editor changed during region read; no modeling command sent.");
+     const change = make("diff.GBTTreeEditChange",{
+       oldNode:make("tree.GBTNodeReference",{nodeId:depth[0].nodeId}),
+       newNode:hydrate({...plain(depth[0]),expression:`${edit.to_mm} mm`,value:edit.to_mm})});
+@@ -596,6 +601,10 @@ export async function pageCommand(job) {
+           afterDepth[0].value===edit.to_mm && afterDepth[0].expression===`${edit.to_mm} mm` &&
+           getElementMicroversion()!==job.expected_element_microversion) {
+         if (elementModel?.get("idEditingFeature")==null) {
++          if (controller.connection?.isClosed?.() !== false ||
++              controller.getActiveElementTabId() !== target.eid ||
++              location.pathname !== `/documents/${target.did}/w/${target.wid}/e/${target.eid}`)
++            throw new Error("Extrusion editor changed before saved-state confirmation; outcome unknown.");
+           delete controller.__onshapeNativeIncompleteFeatureEdit;
+           return {feature_id:edit.feature_id,sketch_feature_id:edit.sketch_feature_id,
+             element_microversion_before:job.expected_element_microversion,
+@@ -608,6 +617,11 @@ export async function pageCommand(job) {
+             .filter(node=>node.getClientRects().length>0 && !node.disabled &&
+               node.getAttribute("aria-disabled")!=="true");
+           if (buttons.length===1) {
++            if (controller.connection?.isClosed?.() !== false ||
++                controller.getActiveElementTabId() !== target.eid ||
++                location.pathname !== `/documents/${target.did}/w/${target.wid}/e/${target.eid}` ||
++                elementModel?.get("idEditingFeature") !== edit.feature_id)
++              throw new Error("Extrusion editor changed before normal Save; outcome unknown.");
+             controller.__onshapeNativeIncompleteFeatureEdit.stage="normal-ui-finish";
+             buttons[0].click();
+             saveClicked=true;
+diff --git a/onshape_native/bridge.py b/onshape_native/bridge.py
+index 1c8750d..da772db 100644
+--- a/onshape_native/bridge.py
++++ b/onshape_native/bridge.py
+@@ -508,6 +508,8 @@ class Broker:
+                 raise BridgeError("Loaded extension lacks h2_native_extrude_populate_page_v1; reload and reconnect before editing.")
+             if job.get("kind") == "partstudio_populate_extrude" and "h2_native_source_region_page_v1" not in capabilities:
+                 raise BridgeError("Loaded extension lacks h2_native_source_region_page_v1; reload and reconnect before editing.")
++            if job.get("kind") == "partstudio_populate_extrude" and "h2_native_extrude_recheck_page_v1" not in capabilities:
++                raise BridgeError("Loaded extension lacks h2_native_extrude_recheck_page_v1; reload and reconnect before editing.")
+             if job.get("kind") == "partstudio_depth_edit" and "h2_depth_edit_page_v1" not in capabilities:
+                 raise BridgeError("Loaded extension lacks h2_depth_edit_page_v1; reload and reconnect before editing.")
+             if job.get("kind") == "viewer_mesh" and "viewer_mesh_v1" not in capabilities:
+diff --git a/tests/adapter.test.mjs b/tests/adapter.test.mjs
+index 8b84343..1b06d4b 100644
+--- a/tests/adapter.test.mjs
++++ b/tests/adapter.test.mjs
+@@ -279,6 +279,38 @@ test('source extrusion updates only the UI bound region feature through typed ed
+   assert.match(rejected.error,/does not resolve to source sketch/);
+   assert.equal(rejected.write_stage,'pre_dispatch');
+   assert.deepEqual(sent.map(m=>m.getMessageName()),['ui.GBTUiGetQueryDataCall']);
++  const goodQuery=()=>({getMessageName:()=> 'ui.GBTUiGetQueryDataResponse',queryData:[{
++    deterministicIds:['editor-region'],featureId:'savedSketch_0',selectionName:'Face',
++    evaluationDetails:{fullOperationId:'savedSketch_0.imprint',entityType:2,status:0},hasErrorEntity:false}]});
++  revision='a'.repeat(24);editing=extrude.featureId;
++  const revised=setup(undefined,false,revision,root,{Quantity,QueryList,Change,Reference,Specify,Commit,GetQueryData},m=>{
++    if(m.getMessageName()==='ui.GBTUiGetQueryDataCall'){revision='b'.repeat(24);return goodQuery();}
++    throw Error('Revision changed before modeling; no write may be sent');
++  },temp);
++  revised.__controller.documentModel.get=k=>k==='microversionId'?{theId:micro}:
++    {get:x=>x==='microversionId'?revision:x==='idEditingFeature'?editing:null};
++  const stale=await pageCommand({kind:'partstudio_populate_extrude',target:temp,
++    expected_element_microversion:'a'.repeat(24),extrude_edit:{feature_id:'newExtrude_0',
++      sketch_feature_id:'savedSketch_0',from_mm:25,to_mm:5}});
++  assert.match(stale.error,/changed during region read/);
++  assert.deepEqual(sent.map(m=>m.getMessageName()),['ui.GBTUiGetQueryDataCall']);
++  revision='a'.repeat(24);editing=extrude.featureId;saveClicks=0;
++  const navigated=setup(undefined,false,revision,root,{Quantity,QueryList,Change,Reference,Specify,Commit,GetQueryData},m=>{
++    if(m.getMessageName()==='ui.GBTUiGetQueryDataCall') return goodQuery();
++    if(m.getMessageName()==='ui.GBTUiCommit'){
++      depth.value=5;depth.expression='5 mm';revision='b'.repeat(24);
++      globalThis.location.pathname='/documents/'+'f'.repeat(24)+'/w/'+temp.wid+'/e/'+temp.eid;
++    }
++    return {errorEnum:0};
++  },temp);
++  navigated.__controller.documentModel.get=k=>k==='microversionId'?{theId:micro}:
++    {get:x=>x==='microversionId'?revision:x==='idEditingFeature'?editing:null};
++  const moved=await pageCommand({kind:'partstudio_populate_extrude',target:temp,
++    expected_element_microversion:'a'.repeat(24),extrude_edit:{feature_id:'newExtrude_0',
++      sketch_feature_id:'savedSketch_0',from_mm:25,to_mm:5}});
++  assert.match(moved.error,/changed before normal Save/);
++  assert.equal(saveClicks,0);
++  assert.deepEqual(sent.map(m=>m.getMessageName()),['ui.GBTUiGetQueryDataCall','ui.GBTUiSpecifyFeature','ui.GBTUiCommit']);
+ });
+ 
+ test('isolated native extrusion depth edit preserves exact feature identities and definition',async()=>{
+diff --git a/tests/test_bridge.py b/tests/test_bridge.py
+index 5e825c0..3853518 100644
+--- a/tests/test_bridge.py
++++ b/tests/test_bridge.py
+@@ -99,11 +99,15 @@ async def test_source_extrude_rejects_old_loaded_page_before_editor_action():
+     broker.extension = Connection()
+     broker.extension_info = {"capabilities": ["h2_native_extrude_populate_page_v1", "element_revision_v1"]}
+     target = {"did": "4e078dec822b4e509616b1cb", "wid": "af0627de07264acf086e646a", "eid": "9a062f0eef8bb961f8c84f8e"}
++    job = {"kind": "partstudio_populate_extrude", "target": target,
++           "expected_element_microversion": "a" * 24,
++           "extrude_edit": {"feature_id": "live_0", "sketch_feature_id": "source_0",
++                            "from_mm": 25, "to_mm": 5}}
+     with pytest.raises(BridgeError, match="h2_native_source_region_page_v1"):
+-        await broker.dispatch({"kind": "partstudio_populate_extrude", "target": target,
+-                               "expected_element_microversion": "a" * 24,
+-                               "extrude_edit": {"feature_id": "live_0", "sketch_feature_id": "source_0",
+-                                                "from_mm": 25, "to_mm": 5}})
++        await broker.dispatch(job)
++    broker.extension_info["capabilities"].append("h2_native_source_region_page_v1")
++    with pytest.raises(BridgeError, match="h2_native_extrude_recheck_page_v1"):
++        await broker.dispatch(job)
+     assert not broker.extension.sent and not broker.pending
+ 
+ 
+-- 
+2.54.0.windows.1
+

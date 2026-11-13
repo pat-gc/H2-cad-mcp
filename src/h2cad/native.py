@@ -899,7 +899,8 @@ class NativeBackend:
             if (health.get("extension_connected") is not True
                     or "h2_native_extrude_populate_server_v1" not in (health.get("capabilities") or [])
                     or "h2_native_extrude_populate_page_v1" not in ((health.get("extension") or {}).get("capabilities") or [])
-                    or "h2_native_source_region_page_v1" not in ((health.get("extension") or {}).get("capabilities") or [])):
+                    or "h2_native_source_region_page_v1" not in ((health.get("extension") or {}).get("capabilities") or [])
+                    or "h2_native_extrude_recheck_page_v1" not in ((health.get("extension") or {}).get("capabilities") or [])):
                 raise Unsupported("Installed bridge and loaded extension must both advertise native extrusion support")
             before = await self.raw_state(target)
             tree = before["tree"]
