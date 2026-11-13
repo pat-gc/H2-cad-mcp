@@ -1,0 +1,159 @@
+From a410adfa61e6c5af06b51c8aa854d2f45cd19934 Mon Sep 17 00:00:00 2001
+From: patcybermind <pato.gonzalezcabrera@gmail.com>
+Date: Fri, 13 Nov 2026 13:22:58 -0500
+Subject: [PATCH] fix: finalize applied-invalid sketch only after exact UI
+ rollback
+
+---
+ onshape_native/bridge.py | 77 +++++++++++++++++++++++++++++++++++++++-
+ tests/test_bridge.py     | 42 ++++++++++++++++++++++
+ 2 files changed, 118 insertions(+), 1 deletion(-)
+
+diff --git a/onshape_native/bridge.py b/onshape_native/bridge.py
+index f68410d..a5cfdf3 100644
+--- a/onshape_native/bridge.py
++++ b/onshape_native/bridge.py
+@@ -664,6 +664,81 @@ def create_app(config=None):
+             return JSONResponse({"status": "rejected_pre_dispatch", "op_id": op_id,
+                                  "evidence": evidence})
+ 
++    async def finalize_known_invalid_sketch_cancel(request):
++        """Release one applied-invalid write only after its exact UI rollback."""
++        denied = await auth(request)
++        if denied is not None:
++            return denied
++        try:
++            body = await read_body(request)
++        except (ValueError, BridgeError):
++            return JSONResponse({"status": "blocked", "reason": "Invalid rollback request"}, 400)
++        op_id = "sketch-d9d02a9ba8b44bdea72b4bb67281c7e1"
++        target = {"did": "4e078dec822b4e509616b1cb", "wid": "af0627de07264acf086e646a", "eid": "9a062f0eef8bb961f8c84f8e"}
++        if (not isinstance(body, dict) or set(body) != {"op_id", "tab_id"}
++                or body["op_id"] != op_id or type(body["tab_id"]) is not int or body["tab_id"] < 0):
++            return JSONResponse({"status": "blocked", "reason": "Only the known failed sketch can be finalized"}, 400)
++        if not broker.unknown_write or broker.guard_invalid or broker.pending or broker.extension is None:
++            return JSONResponse({"status": "blocked", "reason": "Bridge safety state differs from known failed sketch"}, 409)
++        try:
++            live = await broker.dispatch({"kind": "state", "target": target, "tab_id": body["tab_id"]})
++        except BridgeError as error:
++            return JSONResponse({"status": "blocked", "reason": f"Read-only rollback state unavailable: {error}"}, 409)
++        path = config.get("h2cad_journal")
++        if not isinstance(path, str) or not Path(path).is_absolute():
++            return JSONResponse({"status": "blocked", "reason": "Pinned journal unavailable"}, 409)
++        async with broker.command_lock:
++            if not broker.unknown_write or broker.guard_invalid or broker.pending:
++                return JSONResponse({"status": "blocked", "reason": "Bridge safety state changed"}, 409)
++            try:
++                with sqlite3.connect(path, timeout=2, isolation_level=None) as db:
++                    db.execute("PRAGMA synchronous=FULL")
++                    db.execute("BEGIN IMMEDIATE")
++                    db.row_factory = sqlite3.Row
++                    rows = db.execute("SELECT * FROM writes WHERE state IN ('prepared','sent','unknown')").fetchall()
++                    if len(rows) != 1 or rows[0]["op_id"] != op_id:
++                        raise ValueError("Journal has another unresolved operation")
++                    row = rows[0]
++                    intent = json.loads(row["intent"])
++                    before = intent.get("before_state")
++                    applied = json.loads(row["observation"] or "{}")
++                    feature_id = intent.get("feature_id")
++                    if (row["action"] != "experimental_sketch_populate" or row["state"] != "unknown"
++                            or row["target"] != "/".join(target.values())
++                            or row["error"] != "Sketch command acknowledged but saved definition/idle state is unconfirmed; outcome unknown."
++                            or not isinstance(before, dict) or not isinstance(before.get("tree"), dict)
++                            or before.get("element_microversion") != row["expected_revision"]
++                            or before.get("editingFeatureId") != feature_id
++                            or applied.get("classification") != "applied_invalid"
++                            or applied.get("feature_id") != feature_id
++                            or applied.get("revision_invalid") != "97955554c86d659d57a74a68"
++                            or live.get("target") != target or live.get("connected") is not True
++                            or live.get("editingFeatureId") is not None
++                            or live.get("element_microversion") in {row["expected_revision"], applied["revision_invalid"]}):
++                        raise ValueError("Known applied-invalid journal or rollback state differs")
++                    expected_tree = json.loads(json.dumps(before["tree"]))
++                    expected_tree["children"] = [child for child in expected_tree.get("children", [])
++                                                 if child.get("featureId") != feature_id]
++                    if (len(expected_tree["children"]) != len(before["tree"].get("children", [])) - 1
++                            or live.get("tree") != expected_tree):
++                        raise ValueError("Normal editor did not restore the exact prior default tree")
++                    evidence = {**applied, "classification": "applied_invalid_rolled_back",
++                                "revision_rolled_back": live["element_microversion"],
++                                "default_tree_restored": True}
++                    db.execute("UPDATE writes SET state='rejected', observation=?, error=?, updated_at=CURRENT_TIMESTAMP WHERE op_id=? AND state='unknown'",
++                               (json.dumps(evidence, sort_keys=True), "Applied-invalid sketch canceled; exact default tree observed", op_id))
++                    db.execute("COMMIT")
++            except (OSError, sqlite3.Error, ValueError, KeyError, TypeError) as error:
++                return JSONResponse({"status": "blocked", "reason": str(error)}, 409)
++            broker.unknown_write = False
++            try:
++                broker.save_guard()
++            except BridgeError as error:
++                broker.unknown_write = True
++                return JSONResponse({"status": "blocked", "reason": str(error)}, 409)
++            return JSONResponse({"status": "rejected_after_rollback", "op_id": op_id,
++                                 "evidence": evidence})
++
+     async def extension_reload(request):
+         denied = await auth(request)
+         if denied is not None:
+@@ -844,7 +919,7 @@ def create_app(config=None):
+         except (BridgeError, ValueError) as error:
+             return JSONResponse({"message": str(error)}, 502)
+ 
+-    app = Starlette(routes=[Route("/health", health), Route("/local/reconcile_known_sketch_rejection", reconcile_known_sketch_rejection, methods=["POST"]), Route("/artifacts/{handle}", artifact_download),
++    app = Starlette(routes=[Route("/health", health), Route("/local/reconcile_known_sketch_rejection", reconcile_known_sketch_rejection, methods=["POST"]), Route("/local/finalize_known_invalid_sketch_cancel", finalize_known_invalid_sketch_cancel, methods=["POST"]), Route("/artifacts/{handle}", artifact_download),
+                            Route("/local/extension_reload", extension_reload, methods=["POST"]),
+                            Route("/command", command, methods=["POST"]),
+                            Route("/local/{tool}", local_tool, methods=["POST"]),
+diff --git a/tests/test_bridge.py b/tests/test_bridge.py
+index 60a17c4..d2c2a6b 100644
+--- a/tests/test_bridge.py
++++ b/tests/test_bridge.py
+@@ -118,6 +118,48 @@ async def test_known_pre_dispatch_recovery_requires_exact_idle_tree(tmp_path, ch
+     assert broker.unknown_write is changed
+ 
+ 
++@pytest.mark.asyncio
++@pytest.mark.parametrize("changed", [False, True])
++async def test_applied_invalid_sketch_guard_releases_only_after_exact_rollback(tmp_path, changed):
++    op_id = "sketch-d9d02a9ba8b44bdea72b4bb67281c7e1"
++    target = {"did": "4e078dec822b4e509616b1cb", "wid": "af0627de07264acf086e646a", "eid": "9a062f0eef8bb961f8c84f8e"}
++    sketch = {"featureId": "sourceSketch_0", "featureType": "newSketch", "entities": [], "constraints": []}
++    rollback = {"$type": "bsedit.GBTMRollback", "nodeId": "rollback"}
++    before = {"target": target, "connected": True, "editingFeatureId": "sourceSketch_0",
++              "element_microversion": "c" * 24,
++              "tree": {"$type": "bsedit.GBTMModel", "children": [sketch, rollback]}}
++    applied = {"classification": "applied_invalid", "feature_id": "sourceSketch_0",
++               "revision_invalid": "97955554c86d659d57a74a68"}
++    journal = tmp_path / "intent.sqlite"
++    with sqlite3.connect(journal) as db:
++        db.execute("CREATE TABLE writes(op_id TEXT,target TEXT,expected_revision TEXT,action TEXT,logical_id TEXT,intent TEXT,state TEXT,receipt TEXT,observation TEXT,error TEXT,updated_at TEXT)")
++        db.execute("INSERT INTO writes(op_id,target,expected_revision,action,logical_id,intent,state,observation,error) VALUES(?,?,?,?,?,?,?,?,?)",
++                   (op_id, "/".join(target.values()), before["element_microversion"], "experimental_sketch_populate",
++                    "Outline", json.dumps({"before_state": before, "feature_id": "sourceSketch_0"}),
++                    "unknown", json.dumps(applied),
++                    "Sketch command acknowledged but saved definition/idle state is unconfirmed; outcome unknown."))
++    app = create_app({**CONFIG, "h2cad_journal": str(journal)})
++    broker = app.state.broker
++    broker.unknown_write = True
++    broker.save_guard()
++    broker.extension = object()
++    async def dispatch(job):
++        assert job["kind"] == "state" and job["target"] == target
++        tree = {"$type": "bsedit.GBTMModel", "children": [rollback]}
++        if changed:
++            tree["children"].append({"featureId": "unexpected"})
++        return {"target": target, "connected": True, "editingFeatureId": None,
++                "element_microversion": "e" * 24, "tree": tree}
++    broker.dispatch = dispatch
++    async with httpx.AsyncClient(transport=httpx.ASGITransport(app), base_url="http://127.0.0.1:8766", headers=AUTH) as client:
++        response = await client.post("/local/finalize_known_invalid_sketch_cancel", json={"op_id": op_id, "tab_id": 17})
++    assert response.status_code == (409 if changed else 200)
++    with sqlite3.connect(journal) as db:
++        state = db.execute("SELECT state FROM writes WHERE op_id=?", (op_id,)).fetchone()[0]
++    assert state == ("unknown" if changed else "rejected")
++    assert broker.unknown_write is changed
++
++
+ def test_disposable_depth_edit_validation_is_exact_and_finite():
+     target = {"did": "f5a8353dc826a9ec52106138", "wid": "a3baadfcc7e36a50134951d6", "eid": "a2761fa52794bee99354ae96"}
+     job = {"kind": "partstudio_depth_edit", "target": target,

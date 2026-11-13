@@ -101,6 +101,18 @@ def build_parser() -> argparse.ArgumentParser:
     recover_cmd.add_argument("--bridge-config", type=Path, required=True)
     recover_cmd.add_argument("--tab-id", type=int, required=True)
     recover_cmd.add_argument("--journal", type=Path, required=True)
+    classify_cmd = commands.add_parser("experimental-classify-known-invalid-sketch",
+                                       help="read-only classify the one applied-invalid temporary sketch")
+    classify_cmd.add_argument("op_id")
+    classify_cmd.add_argument("--bridge-config", type=Path, required=True)
+    classify_cmd.add_argument("--tab-id", type=int, required=True)
+    classify_cmd.add_argument("--journal", type=Path, required=True)
+    finalize_cmd = commands.add_parser("experimental-finalize-known-invalid-sketch-cancel",
+                                       help="verify normal UI cancellation of the one applied-invalid sketch")
+    finalize_cmd.add_argument("op_id")
+    finalize_cmd.add_argument("--bridge-config", type=Path, required=True)
+    finalize_cmd.add_argument("--tab-id", type=int, required=True)
+    finalize_cmd.add_argument("--journal", type=Path, required=True)
     reload_cmd = commands.add_parser("extension-reload", help="request one paired Native extension reload after journal preflight")
     reload_cmd.add_argument("--bridge-config", type=Path, required=True)
     reload_cmd.add_argument("--journal", type=Path, required=True)
@@ -111,6 +123,8 @@ async def _bridge_action(args: argparse.Namespace) -> tuple[object, int]:
     if args.command in {"extension-reload", "experimental-depth-edit", "experimental-begin-top-sketch",
                         "experimental-sketch-populate",
                         "experimental-extrude-populate",
+                        "experimental-classify-known-invalid-sketch",
+                        "experimental-finalize-known-invalid-sketch-cancel",
                         "experimental-reconcile-known-sketch-rejection"}:
         config = json.loads(args.bridge_config.read_text(encoding="utf-8"))
         pinned = config.get("h2cad_journal")
@@ -134,6 +148,8 @@ async def _bridge_action(args: argparse.Namespace) -> tuple[object, int]:
             return result, 0 if result.get("status") == "reconnected" else 2
         if args.command == "experimental-reconcile-known-sketch-rejection":
             return await bridge.reconcile_known_sketch_rejection(args.op_id, args.tab_id), 0
+        if args.command == "experimental-finalize-known-invalid-sketch-cancel":
+            return await bridge.finalize_known_invalid_sketch_cancel(args.op_id, args.tab_id), 0
         if args.command == "doctor":
             health = await bridge.health()
             return {"bridge_protocol": health.get("protocol"), "extension_connected": health.get("extension_connected"),
@@ -163,6 +179,12 @@ async def _bridge_action(args: argparse.Namespace) -> tuple[object, int]:
             journal = Journal(args.journal)
             try:
                 return await backend.begin_test_top_sketch(_target(args), journal), 0
+            finally:
+                journal.close()
+        if args.command == "experimental-classify-known-invalid-sketch":
+            journal = Journal(args.journal)
+            try:
+                return await backend.classify_known_invalid_sketch(args.op_id, journal), 0
             finally:
                 journal.close()
         if args.command == "experimental-extrude-populate":

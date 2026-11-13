@@ -412,6 +412,18 @@ class NativeBridge:
             raise BackendError(str(data.get("reason", "Known sketch recovery was refused")))
         return data
 
+    async def finalize_known_invalid_sketch_cancel(self, op_id: str, tab_id: int) -> dict[str, Any]:
+        """Verify UI rollback of the one applied-invalid sketch and release its guard."""
+        try:
+            response = await self.http.post("/local/finalize_known_invalid_sketch_cancel",
+                                            json={"op_id": op_id, "tab_id": tab_id}, timeout=30)
+            data = response.json()
+        except (httpx.HTTPError, ValueError) as exc:
+            raise BackendError("Known invalid sketch rollback inspection unavailable; barrier remains") from exc
+        if response.status_code != 200 or data.get("status") != "rejected_after_rollback":
+            raise BackendError(str(data.get("reason", "Known invalid sketch rollback refused")))
+        return data
+
     async def command(self, job: dict[str, Any]) -> dict[str, Any]:
         if job.get("kind") not in {"state", "schema", "creation_probe", "native", "partstudio_depth_edit", "partstudio_begin_top_sketch", "partstudio_populate_sketch", "partstudio_populate_extrude"}:
             raise Unsupported("Browser-mode adapter permits only native editor jobs")
@@ -761,6 +773,61 @@ class NativeBackend:
                 "revision_before": before.get("element_microversion"),
                 "revision_now": state.get("element_microversion"),
                 "editing_feature_id": state.get("editingFeatureId")}
+
+    async def classify_known_invalid_sketch(self, op_id: str, journal: Journal) -> dict[str, Any]:
+        """Record applied-invalid editor state while retaining the unknown barrier."""
+        if op_id != "sketch-d9d02a9ba8b44bdea72b4bb67281c7e1":
+            raise Unsupported("Only the reviewed failed sketch operation can be classified")
+        row = journal.get(op_id)
+        if (row is None or row["action"] != "experimental_sketch_populate"
+                or row["state"] != "unknown" or row["target"] != "/".join(_NATIVE_CREATE_TEST.values())
+                or row["error"] != "Sketch command acknowledged but saved definition/idle state is unconfirmed; outcome unknown."):
+            raise Unsupported("Known applied-invalid journal row differs")
+        intent = json.loads(row["intent"])
+        before = intent.get("before_state")
+        feature_id = intent.get("feature_id")
+        if (not isinstance(before, dict) or before.get("element_microversion") != row["expected_revision"]
+                or before.get("editingFeatureId") != feature_id):
+            raise Unsupported("Known sketch prewrite snapshot differs")
+        target = Target(**_NATIVE_CREATE_TEST)
+        with journal.target_lock(row["target"]):
+            after = await self.raw_state(target)
+            blueprint_data = intent.get("blueprint")
+            if not isinstance(blueprint_data, dict):
+                raise Unsupported("Known sketch blueprint unavailable")
+            blueprint = NativePairBlueprint(blueprint_data["sketch_logical_id"],
+                                            blueprint_data["extrusion_logical_id"],
+                                            blueprint_data["plane_name"],
+                                            tuple(blueprint_data["rectangle_m"]), blueprint_data["depth_mm"])
+            feature = _live_rectangle_feature(after, blueprint, feature_id=feature_id)
+            _native_rectangle_constraints(feature, blueprint)
+            previous = before["tree"].get("children")
+            current = after["tree"].get("children")
+            if (after.get("connected") is not True or after.get("editingFeatureId") != feature_id
+                    or after.get("element_microversion") != "97955554c86d659d57a74a68"
+                    or not isinstance(previous, list) or not isinstance(current, list)
+                    or len(previous) != len(current)
+                    or any(a != b for a, b in zip(previous, current) if a.get("featureId") != feature_id)
+                    or feature.get("parameters") != next(x for x in previous if x.get("featureId") == feature_id).get("parameters")):
+                raise Unsupported("Current failed sketch or unrelated tree differs from the known attempt")
+            graph = await self.bridge.command({"kind": "native", "target": _NATIVE_CREATE_TEST,
+                                               "tab_id": self.tab_id,
+                                               "command": "ui.sketch.GBTUiSketchGetConstraintGraphCall",
+                                               "body": {"elementId": target.eid, "sketchFeatureId": feature_id,
+                                                        "supportsConsolidatedConstraints": False}})
+            result = graph.get("result")
+            if (not isinstance(result, dict)
+                    or result.get("$type") != "ui.sketch.GBTUiSketchGetConstraintGraphResponse"
+                    or result.get("constraints") not in (None, {})
+                    or result.get("references") not in (None, {})):
+                raise Unsupported("Known failed sketch graph is no longer empty")
+            evidence = {"classification": "applied_invalid", "op_id": op_id,
+                        "feature_id": feature_id, "revision_before": row["expected_revision"],
+                        "revision_invalid": after["element_microversion"],
+                        "definition_present": True, "constraint_graph_empty": True,
+                        "unrelated_tree_preserved": True}
+            journal.annotate_unknown(op_id, evidence)
+            return {"op_id": op_id, "status": "applied_invalid_unresolved", "evidence": evidence}
 
     async def populate_test_extrude(self, target: Target, source: str | Path, *,
                                     sketch_op_id: str, journal: Journal) -> dict[str, Any]:

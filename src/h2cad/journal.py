@@ -116,3 +116,15 @@ class Journal:
             self._db.execute("UPDATE writes SET state=?, receipt=COALESCE(?,receipt), observation=COALESCE(?,observation), error=?, updated_at=CURRENT_TIMESTAMP WHERE op_id=?",
                              (state, json.dumps(receipt, sort_keys=True) if receipt is not None else None,
                               json.dumps(observation, sort_keys=True) if observation is not None else None, error, op_id))
+
+    def annotate_unknown(self, op_id: str, observation: dict[str, Any]) -> None:
+        """Persist read-only evidence while retaining the unresolved write barrier."""
+        encoded = json.dumps(observation, sort_keys=True)
+        with self._lock:
+            row = self.get(op_id)
+            if row is None or row["state"] != "unknown":
+                raise ValueError("Only an unknown operation can receive provisional evidence")
+            if row["observation"] is not None and row["observation"] != encoded:
+                raise ValueError("Conflicting provisional evidence for an unknown operation")
+            self._db.execute("UPDATE writes SET observation=?, updated_at=CURRENT_TIMESTAMP WHERE op_id=? AND state='unknown'",
+                             (encoded, op_id))

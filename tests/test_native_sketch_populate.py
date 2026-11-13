@@ -1,6 +1,7 @@
 """Offline contract tests for the isolated source-driven sketch write."""
 
 import copy
+import json
 from pathlib import Path
 
 import pytest
@@ -187,6 +188,40 @@ def test_cli_exposes_explicit_temp_sketch_command():
                                       "--did", TARGET.did, "--wid", TARGET.wid, "--eid", TARGET.eid,
                                       "--bridge-config", "bridge.json", "--tab-id", "17", "--journal", "intent.sqlite"])
     assert args.command == "experimental-sketch-populate" and args.tab_id == 17
+
+
+@pytest.mark.asyncio
+async def test_known_applied_invalid_sketch_is_recorded_but_remains_blocking(tmp_path):
+    from h2cad.fsgen import compile_fsgen
+    from h2cad.native import stage_minimal_pair
+    before = state()
+    before["element_microversion"] = "c" * 24
+    after = state(populated=True)
+    after["element_microversion"] = "97955554c86d659d57a74a68"
+    after["editingFeatureId"] = "editorAllocated_0"
+    class InvalidBridge:
+        def __init__(self): self.calls = []
+        async def command(self, job):
+            self.calls.append(job["kind"])
+            if job["kind"] == "state": return copy.deepcopy(after)
+            assert job["command"] == "ui.sketch.GBTUiSketchGetConstraintGraphCall"
+            return {"result": {"$type": "ui.sketch.GBTUiSketchGetConstraintGraphResponse"}}
+    journal = Journal(tmp_path / "intent.sqlite")
+    op_id = "sketch-d9d02a9ba8b44bdea72b4bb67281c7e1"
+    key = f"{TARGET.did}/{TARGET.wid}/{TARGET.eid}"
+    blueprint = stage_minimal_pair(compile_fsgen(SOURCE, TARGET))
+    journal.prepare(op_id=op_id, target=key, expected_revision="c" * 24,
+                    action="experimental_sketch_populate", logical_id="Outline",
+                    intent={"before_state": before, "feature_id": "editorAllocated_0",
+                            "blueprint": blueprint.to_dict(), "entity_prefix": "box"})
+    journal.transition(op_id, "unknown", error="Sketch command acknowledged but saved definition/idle state is unconfirmed; outcome unknown.")
+    bridge = InvalidBridge()
+    outcome = await NativeBackend(bridge, tab_id=17).classify_known_invalid_sketch(op_id, journal)
+    assert outcome["status"] == "applied_invalid_unresolved"
+    assert journal.has_unresolved() and journal.get(op_id)["state"] == "unknown"
+    assert json.loads(journal.get(op_id)["observation"])["classification"] == "applied_invalid"
+    assert bridge.calls == ["state", "native"]
+    journal.close()
 
 
 class BeginBridge:
