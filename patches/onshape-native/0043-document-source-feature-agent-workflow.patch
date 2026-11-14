@@ -1,0 +1,207 @@
+From d0b6a61ef466b250e05698aa6552038444be7a0d Mon Sep 17 00:00:00 2001
+From: patcybermind <pato.gonzalezcabrera@gmail.com>
+Date: Sat, 14 Nov 2026 07:33:37 -0500
+Subject: [PATCH] docs: expose source-driven CAD workflow in existing modeling
+ skill
+
+---
+ skills/onshape-native-modeling/SKILL.md       |  28 ++--
+ .../references/h2-source-workflow.md          | 137 ++++++++++++++++++
+ 2 files changed, 148 insertions(+), 17 deletions(-)
+ create mode 100644 skills/onshape-native-modeling/references/h2-source-workflow.md
+
+diff --git a/skills/onshape-native-modeling/SKILL.md b/skills/onshape-native-modeling/SKILL.md
+index 08341a1..2b7b7fc 100644
+--- a/skills/onshape-native-modeling/SKILL.md
++++ b/skills/onshape-native-modeling/SKILL.md
+@@ -1,6 +1,6 @@
+ ---
+ name: onshape-native-modeling
+-description: Inspect, create, and edit Onshape CAD through the local browser-session bridge, starting from an Onshape link or the current Onshape browser tab. Use for native Onshape modeling, sketches, Part Studios, assemblies, materials and mass, document tabs/folders, feature/sidebar organization, history, and exports when using the Onshape Native integration. Uses the onshape_native MCP server without API keys. For an explicit official API-key workflow, use the separate onshape-api skill instead.
++description: Inspect, create, and edit Onshape CAD through the local browser-session bridge, starting from an Onshape link or the current Onshape browser tab. Use for native Onshape modeling, sketches, Part Studios, assemblies, materials and mass, document tabs/folders, feature/sidebar organization, history, and exports when using the Onshape Native integration. Includes the H2 local FSGen source workflow for human-editable native variables, planes, sketches, and extrusions. Uses the onshape_native MCP server without API keys. For an explicit official API-key workflow, use the separate onshape-api skill instead.
+ ---
+ 
+ # Onshape Native modeling
+@@ -9,6 +9,16 @@ Use the `onshape_native` MCP server supplied by this plugin. The browser must be
+ running, signed into Onshape, and connected through the minimal extension. The
+ MCP launcher starts or reuses the local HTTP companion. Do not request API keys.
+ 
++## H2 source-driven CAD
++
++For H2 FSGen-to-native work, follow [the source workflow](references/h2-source-workflow.md)
++before using the general modeling sections below. It defines local validation,
++compiled feature order, normal Browser allocation, deterministic source CLI
++commands, exact logical-to-native bindings, and journal reconciliation. The
++workflow uses this existing plugin/session bridge; it is not a single autonomous
++MCP call. H2 does not use REST CAD writes or Browser canvas modeling. Full car and
++assembly acceptance remain separate from individual feature proofs.
++
+ ## Experimental H2 source-driven plate
+ 
+ When the user explicitly requests the H2 FSGen-to-native plate workflow, use
+@@ -221,19 +231,3 @@ The equivalent HTTP interface is `http://127.0.0.1:8766` with a local bearer tok
+ from the configured `ONSHAPE_NATIVE_RUNTIME/bridge.json`. The companion owns the
+ HTTP listener; the extension executes browser-session commands. Prefer MCP in
+ both clients. Never expose pairing tokens, cookies or private model data in logs.
+-
+-### H2 literal source variables (experimental paired writer)
+-
+-Compile and validate the source locally first. The writer accepts literal ASSIGNED/LENGTH variables in source order; it does not allocate feature IDs. For each variable, use official Browser control to open the normal Variable editor in the exact configured test studio. Leave one fresh unnamed LENGTH draft with zero length. Discover controls from current DOM, never sample IDs or guessed coordinates.
+-
+-Run `h2cad experimental-populate-variable SOURCE --logical-id '#length'` with the exact target, `--bridge-config`, `--tab-id`, and pinned `--journal` arguments. For each subsequent source variable, supply every preceding observed operation in order with repeated `--previous-variable-op-id OP_ID`. Results record logical-to-native identities. The writer rejects named drafts, wrong mode/type, changed source, changed preceding or unrelated tree, and unresolved writes. Native parameter identities/defaults and both source quantity expressions are retained.
+-
+-A candidate receipt or Save invocation is not completion. Require independent exact saved-idle readback and an observed journal operation before allocating the next variable. If pending, inspect the exact target with Browser and complete only through normal controls when available; then run `experimental-reconcile-saved-source-variable OP_ID` with the same pinned config/journal and exact current tab. If a fresh same-target tab is needed to observe saved state, do not replay the write or alter the original pending draft. Reconciliation is read-only and retains the barrier on mismatch.
+-
+-Record normal UI error presentation separately. `regeneration_verified: false` is deliberate: definition readback does not prove dependent expression evaluation. Later dependent planes/sketches must establish it. This is Browser plus CLI skill orchestration, not autonomous standalone allocation. H2 has no REST write fallback.
+-
+-### H2 source rectangles and circles (solver-gated writer)
+-
+-Use `experimental-populate-source-sketch SOURCE --logical-id "Chassis sketch"` with exact target/config/tab/pinned journal, `--baseline SAVED_IDLE_STATE.json`, `--plane-op-id OBSERVED_SOURCE_PLANE_OP`, and `--variable-operations VARIABLE_OP_MAP.json`. The variable map contains exactly the source sketch's variable names and observed operation IDs. Capture the saved-idle baseline before normal Browser allocation of one blank sketch on the exact observed source plane. No canvas drawing is required. Native constructors allocate all new node IDs; the UI owns the sketch feature and plane selection.
+-
+-The writer uses a local numeric origin point with Fix, source expressions and native constraints. It verifies the actual active solver graph, every constrained point and circle radius before Commit. Negative-Y alignment is an inferred candidate checked against source coordinates; failure stops before Commit and retains uncertainty rather than retrying. After Commit, independent saved definition, new identities, unchanged plane/unrelated tree and recorded solver evidence are required. Save invocation alone is not completion. Pending completion uses `experimental-reconcile-saved-source-sketch OP_ID` with the same journal/config and exact tab; if graph evidence was lost, the operation remains unresolved and must not be replayed. Only advance after observed saved state and confirmed marker retirement. Solid/assembly geometry remains a separate gate.
+diff --git a/skills/onshape-native-modeling/references/h2-source-workflow.md b/skills/onshape-native-modeling/references/h2-source-workflow.md
+new file mode 100644
+index 0000000..90f7713
+--- /dev/null
++++ b/skills/onshape-native-modeling/references/h2-source-workflow.md
+@@ -0,0 +1,137 @@
++# H2 source-driven feature workflow
++
++Use this workflow for H2 FSGen source-to-native CAD. It is an **agent skill using
++normal Browser controls, deterministic H2 CLI commands, and the existing Native
++MCP/session bridge**. It is not a single autonomous MCP call. Individual source
++features have live proofs; a complete generated car and assemblies remain
++separate acceptance gates. Do not infer full acceptance from installed commands.
++
++For H2, these instructions override the general skill's REST fallback: no REST
++CAD writes, canvas modeling, guessed RPCs, copied sample IDs, or alternative
++targets. The Browser step allocates or selects ordinary features; the CLI
++generates their geometry from source.
++
++## Establish source, runtime, and target
++
++1. Use the existing compatible H2 Python environment and Native MCP launcher.
++   Inspect `python -m h2cad --help` if command discovery is needed. The bridge
++   config must pin the approved test Part Studio and existing SQLite journal.
++   Keep private configuration, pairing material, model readbacks, and journal
++   files out of the plugin package and published source.
++2. Resolve the exact document/workspace/element URL and connected editor tab.
++   Use `bridge_status`, `native_state`, and `editor_tab` from the existing MCP
++   server for inspection. Use the official Browser plugin for trusted UI input,
++   with controls discovered from the current DOM. A new tab ID is not a new
++   target. Do not change the configured target to bypass a refusal.
++3. Run both local commands before modeling:
++
++   ```text
++   python -m h2cad compile SOURCE --did DID --wid WID --eid EID --output desired.json
++   python -m h2cad validate SOURCE
++   ```
++
++   Require successful local geometry validation. Review the compiled snapshot's
++   feature list and dependencies against supported operations below. Stop on
++   unsupported source semantics; do not substitute imported or opaque geometry.
++4. Check the actual loaded server/page capabilities. The required pairs are
++   `h2_native_variable_populate_server_v1` / `h2_native_variable_populate_page_v1`,
++   `h2_native_plane_populate_server_v1` / `h2_native_plane_populate_page_v1`,
++   `h2_source_sketch_server_v1` / `h2_source_sketch_page_v1`, and
++   `h2_source_extrude_server_v1` / `h2_source_extrude_page_v1`.
++   A source checkout or staged extension is not evidence of an active runtime.
++
++## Consume the compiled feature order
++
++Iterate the compiled snapshot's `features` in order, retaining its logical IDs
++and source expressions. Maintain the small operation-ID binding map needed for
++the CLI inputs; the existing journal remains authoritative. Bind each source
++logical ID to its observed operation and native feature ID. Use original source
++and the same pinned journal throughout. Do not reorder all planes or sketches
++into separate batches, use displayed names as identity, or allocate a duplicate
++feature to work around an uncertain operation.
++
++Before each normal UI allocation, read the exact saved-idle native state. For
++commands requiring `--baseline`, save the complete JSON state returned by
++`python -m h2cad inspect --did DID --wid WID --eid EID --bridge-config CONFIG --tab-id TAB`.
++Its `target`, `connected`, `editingFeatureId`, `element_microversion`, and full
++`tree` must be retained. Capture it **before** opening the next draft, not after.
++
++Each population command has this common form:
++
++```text
++python -m h2cad COMMAND SOURCE --logical-id "SOURCE_LOGICAL_ID" --did DID --wid WID --eid EID --bridge-config CONFIG --tab-id TAB --journal JOURNAL ADDITIONAL_ARGUMENTS
++```
++
++| Source operation | Normal Browser step | Command and additional arguments |
++| --- | --- | --- |
++| Literal ASSIGNED/LENGTH variable | Open one new unnamed Variable draft, LENGTH type, zero default length | `experimental-populate-variable`; repeat `--previous-variable-op-id OP` for every preceding observed source variable, in order |
++| Supported OFFSET plane | Open one normal Plane draft and select its exact observed reference plane; leave other native defaults | `experimental-populate-plane --baseline BASELINE.json --reference-binding BINDING.json --variable-operations VARS.json`; repeat `--previous-plane-op-id OP` for preceding observed source planes |
++| Supported rectangle or circle sketch | Open one blank normal Sketch and select the exact source plane from its observed operation | `experimental-populate-source-sketch --baseline BASELINE.json --plane-op-id PLANE_OP --variable-operations VARS.json` |
++| NEW/SOLID/BLIND extrusion | Select the exact saved source sketch row, open Extrude, verify whole-sketch region binding and NEW mode; retain literal draft depth | `experimental-populate-source-extrusion --baseline BASELINE.json --sketch-op-id SKETCH_OP`; add `--variable-op-id VARIABLE_OP` for a direct source variable depth |
++
++For the first variable or plane, omit the corresponding previous-operation
++flags. Subsequent flags contain all prior operations of that kind in source
++order, not only the immediately preceding one. `VARS.json` is an object mapping
++exact source dependency names to observed variable operation IDs, for example
++`{"#length":"OBSERVED_LENGTH_OP","#width":"OBSERVED_WIDTH_OP"}`. Supply only the
++dependencies required by that plane/sketch, or `{}` when there are none.
++
++For a plane, `BINDING.json` contains `target`, `element_microversion`, `query`, and
++`query_data`. Read `query` from the active plane's sole `entities` query. Resolve
++it with the existing read-only MCP `native_read` and the supported
++`ui.GBTUiGetQueryDataCall`, using that query unchanged. `query_data` is the exact
++single returned query-data item; `target` and revision come from that active
++draft state. Recheck that the state is unchanged. Never synthesize deterministic
++IDs or fill the file from a previous studio's sample. Sketch/extrusion commands
++perform their own query resolution and do not take this plane binding file.
++
++For the basic car, the compiled source starts with seven variables, then
++`Chassis height` → `Chassis sketch` → `Chassis`, followed by its remaining source
++dependencies. This is an example, not a hardcoded execution schedule. The
++Chassis sketch uses the observed plane operation and `#length`/`#width` variable
++operations; Chassis uses the observed sketch operation and source depth `8 mm`.
++Later symbolic extrusions retain their `#bodyHeight` or `#wheelThickness`
++expressions rather than substituting the evaluated number.
++
++## Require proof before advancing
++
++The CLI records intent before a possible write. Native serializer constructors
++allocate new node IDs; normal UI allocation owns feature IDs. The writer preserves
++existing native identities, full source expressions, and unrelated feature data.
++Sketches use a local fixed origin point. Every constrained point and circle
++radius must match the active solver graph before Commit. Opposite-sign alignment
++may be an explicitly inferred candidate; solver failure is not permission to
++retry with another sign. Independent saved readback must still verify the source
++definition and generated identities.
++
++Advance only when the exact operation is journaled `observed`, saved-idle state
++is independently confirmed, and marker retirement/readiness is confirmed. An RPC
++acknowledgement or the receipt fields `normal_ui_save_invoked` and legacy
++`normal_ui_finish` describe invocation only. `completion_pending` is not failure
++to create and is not a retry instruction.
++
++| Original operation | Reconciliation command |
++| --- | --- |
++| Variable | `experimental-reconcile-saved-source-variable` |
++| Plane | `experimental-reconcile-saved-source-plane` |
++| Source sketch | `experimental-reconcile-saved-source-sketch` |
++| Source extrusion | `experimental-reconcile-saved-source-extrude` |
++
++```text
++python -m h2cad RECONCILIATION_COMMAND OP_ID --bridge-config CONFIG --tab-id TAB --journal JOURNAL
++```
++
++Reconciliation reads CAD state and updates the matching journal/marker only
++after positive proof. It never replays geometry. If normal Save completion is
++pending, inspect the exact draft and use normal controls only when appropriate.
++A fresh same-target tab may independently show saved state when the original
++controller is stale. Preserve the original pending operation and draft; do not
++cancel it, overwrite it, or clear a guard by assumption. Missing solver receipts,
++changed source/target, unresolved writes, different definitions, or a mismatched
++marker keep the workflow stopped. A proven pre-dispatch rejection means no
++modeling command was sent, but still inspect and preserve the existing draft.
++
++After source feature creation, independently check final solids, bounds and an
++ordinary parameter edit that regenerates dependent geometry. Restore the
++intended parameter value and recheck identities and definitions. Saved feature
++proof is not complete-car, assembly, or mechanical-design acceptance.
+-- 
+2.54.0.windows.1
+

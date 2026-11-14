@@ -1,10 +1,91 @@
-# Experimental H2 tool in the existing Native MCP server
+# H2 agent workflow in the existing Native plugin
+
+The delivery is the existing **Onshape Native plugin and modeling skill**, backed
+by its `onshape_native` MCP/session bridge and H2 CLI. An agent validates the FSGen
+source locally, allocates each blank feature through normal Browser controls,
+then delegates source geometry to the deterministic CLI and verifies the durable
+journal result. There is no second orchestrator and no single autonomous car MCP
+call. The complete native car and assemblies are not yet accepted; consult
+[current verification status](STATUS.md) rather than inferring acceptance from
+the presence of a command.
+
+The source Chassis sketch and extrusion have saved-definition evidence. Final
+geometry verification and the remaining car groups are underway.
+
+After bootstrap, the packaged instructions are
+`upstream/onshape-native/skills/onshape-native-modeling/SKILL.md`, with the complete
+source workflow in its `references/h2-source-workflow.md`. The existing
+`.codex-plugin/plugin.json` keeps the `onshape-native` identity, skill discovery,
+and generated `.mcp.json` stdio configuration. No new plugin or tool registration
+is needed for the skill workflow. The host must provide local command execution
+and the official Browser plugin; the MCP bridge alone cannot perform the trusted
+Browser allocation steps.
+
+## Source-driven execution
+
+Run `python -m h2cad compile SOURCE --did DID --wid WID --eid EID --output desired.json`
+and `python -m h2cad validate SOURCE` before modeling. Consume `desired.json`'s
+feature order and dependencies. Record each successful operation ID and native
+feature ID against its source logical ID, using the existing journal as the
+authority. Reuse those observed identities for later dependencies; never derive
+IDs from display names or copy IDs from a sample.
+
+All population commands below take `SOURCE`, `--logical-id`, `--did`, `--wid`,
+`--eid`, `--bridge-config`, `--tab-id`, and the same pinned `--journal`.
+
+| Source feature | Population command | Additional binding inputs |
+| --- | --- | --- |
+| Literal length variable | `experimental-populate-variable` | Repeated `--previous-variable-op-id` in source variable order; fresh unnamed LENGTH draft |
+| OFFSET plane | `experimental-populate-plane` | `--baseline`, `--reference-binding`, `--variable-operations`, repeated `--previous-plane-op-id`; normal UI-bound reference plane |
+| Supported rectangle or circle sketch | `experimental-populate-source-sketch` | `--baseline`, `--plane-op-id`, `--variable-operations`; blank sketch on that observed source plane |
+| NEW/SOLID/BLIND extrusion | `experimental-populate-source-extrusion` | `--baseline`, `--sketch-op-id`, optional `--variable-op-id` for symbolic depth; normal whole-sketch region selection |
+
+A baseline is the full saved-idle native state captured **before** allocating the
+next draft, with its exact target, revision, and unchanged tree. Variable-map
+files contain only the dependency names and observed operation IDs required by
+that command. Plane reference binding additionally records the active draft's
+exact query and independently resolved query data at the same revision; the
+packaged workflow describes its fields. Keep these private runtime artifacts
+outside published source.
+
+For the basic car, this means processing its seven variables, then the plane,
+sketch, and extrusion dependencies in the compiled source order. It does not mean
+batching all sketches or all planes first. The Chassis sketch, for example, uses
+the observed `Chassis height` plane operation and the `#length`/`#width` variable
+operations. Geometry and expressions come from the source, not Browser drawing.
+
+After each command, require an observed journal result and independent saved-idle
+readback before allocating the next feature. An RPC acknowledgement, Save click,
+or candidate receipt is insufficient. Sketch Commit additionally requires the
+active solver graph to match source coordinates. Preserve uncertain operations
+and reconcile their original IDs without replay:
+
+| Operation | Read-only reconciliation command |
+| --- | --- |
+| Variable | `experimental-reconcile-saved-source-variable` |
+| Plane | `experimental-reconcile-saved-source-plane` |
+| Source sketch | `experimental-reconcile-saved-source-sketch` |
+| Source extrusion | `experimental-reconcile-saved-source-extrude` |
+
+Each reconciliation command takes `OP_ID`, `--bridge-config`, `--tab-id`, and
+`--journal`. It retains the barrier if the target, definition, solver evidence,
+saved state, or marker retirement is unconfirmed. Missing graph receipts cannot
+be replaced with an assumption. A fresh same-target tab can supply independent
+saved-state readback, but does not authorize replaying or canceling an uncertain
+write. H2 never falls back to REST CAD writes.
+
+Feature definitions, evaluated geometry, and human editability are separate
+checks. Validate the final part count/bounds and an ordinary parameter edit that
+regenerates dependent geometry. Assemblies remain outside this source writer.
+
+## Existing plate MCP entry point
 
 The reviewed Native fork adds `experimental_h2_create_plate` to its existing
 `onshape_native` stdio MCP server and modeling instructions. This is one entry
 point into `python -m h2cad experimental-create-plate`; it does not implement a
-second CAD compiler, server, or REST fallback. It remains experimental until a
-clean empty-studio run and independent saved geometry/editability checks pass.
+second CAD compiler, server, or REST fallback. Plate geometry and editability
+have been verified with documented Browser orchestration and saved-state
+recovery; the standalone wrapper does not automate every intermediate step.
 
 The MCP server and H2 CLI must use the same compatible Python environment. On
 this Windows machine the existing Native `.venv` is ARM64 and cannot import the
@@ -50,9 +131,9 @@ Unresolved writes or an existing extrusion stop continuation; this is not a
 generic retry or a resume path after extrusion allocation. The MCP wrapper
 does not yet expose this CLI option.
 
-This first tool supports one validated Top rectangle and one blind extrusion in
-an isolated empty test Part Studio. Variables, offset planes, circles, dependent
-expressions, multi-body car creation, and assemblies are outside its current
-native operation set. The existing Native MCP server still contains other tools,
+This plate tool supports one validated Top rectangle and one blind extrusion in
+an isolated empty test Part Studio. Its wrapper does not invoke the newer
+source-feature commands listed above or create assemblies. The existing Native
+MCP server still contains other tools,
 including REST tools; the H2 tool itself invokes only H2's browser-session
 native path and never switches to those tools.

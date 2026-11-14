@@ -63,6 +63,9 @@ jobs, with no browser-session REST fallback. See [architecture](docs/ARCHITECTUR
 [Native audit](docs/audits/native.md), [fork patch](docs/native-fork.md), and
 [integration limits](docs/native-integration.md).
 
-The existing Onshape Native MCP server also exposes an experimental H2 plate
-tool. It calls this package's CLI for the same local validation, journaled native
-commands and readback. See [MCP setup and limits](docs/h2cad-mcp.md).
+The existing Onshape Native plugin supplies an agent workflow using its MCP
+session bridge, normal Browser feature allocation, and deterministic H2 source
+commands for variables, planes, sketches, and extrusions. Its separate
+experimental MCP plate tool remains limited to the plate sequence. See
+[plugin workflow, commands, and limits](docs/h2cad-mcp.md). Full native car and
+assembly acceptance remain separate from individual command verification.
