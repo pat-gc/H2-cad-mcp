@@ -34,9 +34,12 @@ def remove_scenario():
     si["source_feature"]=source.provenance["fsgen_feature_json"]
     row.update(logical_id=source.logical_id,intent=json.dumps(si))
     target_source=next(f for f in features if f.logical_id=="Carrier blank")
+    target_sketch=copy.deepcopy(next(n for n in before["tree"]["children"] if n.get("featureId")=="sourceSketch_0"))
+    target_sketch.update(featureId="bodySketch_0",nodeId="body-sketch-node")
+    before["tree"]["children"].insert(1,target_sketch)
     args["journal"][BODY_OP]={"op_id":BODY_OP,"target":"/".join(TARGET.to_dict().values()),"state":"observed",
         "action":"experimental_source_extrude_populate","logical_id":"Carrier blank",
-        "intent":json.dumps({"before_state":{"editingFeatureId":"sourceBody_0"},"source_feature":target_source.provenance["fsgen_feature_json"],"sketch_source_feature":next(f for f in features if f.logical_id=="Carrier outline").provenance["fsgen_feature_json"],"expected_tree":{"children":[body]}}),
+        "intent":json.dumps({"before_state":{"editingFeatureId":"sourceBody_0"},"source_feature":target_source.provenance["fsgen_feature_json"],"sketch_feature_id":"bodySketch_0","saved_sketch_definition":target_sketch,"sketch_source_feature":next(f for f in features if f.logical_id=="Carrier outline").provenance["fsgen_feature_json"],"expected_tree":{"children":[body]}}),
         "observation":json.dumps({"definition_observed":True,"feature_id":"sourceBody_0"})}
     args["baseline"]["tree"]=copy.deepcopy(before["tree"])
     args["baseline"]["tree"]["children"]=[n for n in args["baseline"]["tree"]["children"] if n.get("featureId")!=before["editingFeatureId"]]
@@ -90,4 +93,13 @@ def test_two_circle_target_cannot_be_represented_by_one_native_body_selection():
     intent["sketch_source_feature"]=next(f for f in features if f.logical_id=="Carrier outline").provenance["fsgen_feature_json"]
     row["intent"]=json.dumps(intent)
     with pytest.raises(Unsupported,match="multi-body"):
+        source_extrusion_intent(features,**args)
+
+
+def test_remove_rejects_human_added_target_sketch_contour():
+    features,args=remove_scenario()
+    for state in (args["before"],args["baseline"]):
+        sketch=next(n for n in state["tree"]["children"] if n.get("featureId")=="bodySketch_0")
+        sketch["entities"].append({"entityId":"human-added-circle","nodeId":"new-contour"})
+    with pytest.raises(Unsupported,match="source sketch changed"):
         source_extrusion_intent(features,**args)

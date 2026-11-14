@@ -70,6 +70,11 @@ def source_extrusion_intent(features, logical_id, before, baseline, query_respon
                 or stage_source_extrusion(targets[0],variables)["operation_type"]!="NEW"
                 or targets[0].provenance["source_line"]>=feature.provenance["source_line"]):
             raise Unsupported("REMOVE target source NEW operation provenance differs")
+        target_sketch = ti.get("saved_sketch_definition")
+        if (not isinstance(target_sketch,dict) or target_sketch.get("featureType")!="newSketch"
+                or not target_sketch.get("nodeId") or target_sketch.get("featureId")!=ti.get("sketch_feature_id")
+                or [n for n in before["tree"]["children"] if n.get("featureId")==ti.get("sketch_feature_id")] != [target_sketch]):
+            raise Unsupported("Target NEW source sketch changed since its observed creation")
         target_stage = stage_source_extrusion(targets[0],variables)
         target_sketches = [f for f in features if f.kind=="newSketch" and f.logical_id==target_stage["sketch_logical_id"]]
         if len(target_sketches)!=1 or ti.get("sketch_source_feature")!=target_sketches[0].provenance.get("fsgen_feature_json"):
