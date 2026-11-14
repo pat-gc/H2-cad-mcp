@@ -11,15 +11,26 @@ from .native_extrusions import map_source_extrusion, stage_source_extrusion
 from .native_planes import _observed_row
 
 
-def source_extrusion_intent(features, logical_id, before, baseline, query_response, *,
-                            target, sketch_op_id, variable_op_id, journal, target_body_op_id=None, scope_query_response=None):
-    """Bind source semantics to one observed sketch and one newly allocated draft."""
+def _source_stage_with_cut_guard(features, logical_id):
     matches = [f for f in features if f.kind == "extrude" and f.logical_id == logical_id]
     variables = [f for f in features if f.kind == "assignVariable"]
     if len(matches) != 1:
         raise Unsupported("One explicit source extrusion required")
     feature = matches[0]
     stage = stage_source_extrusion(feature, variables)
+    if stage["operation_type"] == "REMOVE":
+        for earlier in features[:features.index(feature)]:
+            if earlier.kind == "extrude" and earlier.parameters.get("operationType") == "REMOVE":
+                prior = stage_source_extrusion(earlier, variables)
+                if prior["target_body_logical_id"] == stage["target_body_logical_id"]:
+                    raise Unsupported("Repeated REMOVE target requires current complete body-set proof; one cut per source NEW body is supported")
+    return feature, variables, stage
+
+
+def source_extrusion_intent(features, logical_id, before, baseline, query_response, *,
+                            target, sketch_op_id, variable_op_id, journal, target_body_op_id=None, scope_query_response=None):
+    """Bind source semantics to one observed sketch and one newly allocated draft."""
+    feature, variables, stage = _source_stage_with_cut_guard(features, logical_id)
     td = target.to_dict()
     key = "/".join(td[k] for k in ("did", "wid", "eid"))
     if (baseline.get("target") != td or baseline.get("connected") is not True
@@ -115,6 +126,7 @@ async def populate_source_extrusion(backend, target, source, *, logical_id, sket
     if target.to_dict() != backend.create_target or backend.tab_id is None:
         raise Unsupported("Authorized exact source extrusion studio/tab required")
     features = compile_fsgen(source, target).features
+    _, _, requested_stage = _source_stage_with_cut_guard(features, logical_id)
     key = "/".join(target.to_dict()[k] for k in ("did", "wid", "eid"))
     with journal.target_lock(key):
         if journal.has_unresolved():
@@ -125,8 +137,6 @@ async def populate_source_extrusion(backend, target, source, *, logical_id, sket
                 or "h2_source_extrude_page_v1" not in (health.get("extension") or {}).get("capabilities", [])
                 or "h2_native_completion_receipt_page_v1" not in (health.get("extension") or {}).get("capabilities", [])):
             raise Unsupported("Paired source extrusion capability unavailable")
-        requested_stage = stage_source_extrusion(next(f for f in features if f.logical_id==logical_id),
-                                                [f for f in features if f.kind=="assignVariable"])
         if requested_stage["operation_type"]=="REMOVE" and (
                 "h2_source_remove_server_v1" not in health.get("capabilities",[]) or
                 "h2_source_remove_page_v1" not in (health.get("extension") or {}).get("capabilities",[])):

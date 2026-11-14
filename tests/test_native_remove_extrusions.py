@@ -103,3 +103,36 @@ def test_remove_rejects_human_added_target_sketch_contour():
         sketch["entities"].append({"entityId":"human-added-circle","nodeId":"new-contour"})
     with pytest.raises(Unsupported,match="source sketch changed"):
         source_extrusion_intent(features,**args)
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("split_first",[False,True])
+async def test_direct_population_rejects_repeated_source_cut_before_any_bridge_or_journal_write(tmp_path,split_first):
+    from types import SimpleNamespace
+    from h2cad.journal import Journal
+    from h2cad.native_source_extrusions import populate_source_extrusion
+    text=(ROOT/"fixtures/native/carrier_remove_scope_sample.fs").read_text()
+    if split_first:
+        text=text.replace('skCircle(holes, "scopeProbe", {"center" : vector(10, 5) * millimeter, "radius" : 3 * millimeter});',
+            'skRectangle(holes,"split",{"firstCorner":vector(-2,-40)*millimeter,"secondCorner":vector(2,40)*millimeter});')
+    end=text.rfind('}')
+    text=text[:end]+'''    extrude(context,id+"Second cut",{
+        "entities":qSketchRegion(id+"Carrier holes"),"operationType":NewBodyOperationType.REMOVE,
+        "endBound":BoundingType.BLIND,"depth":24*millimeter,"defaultScope":false,
+        "booleanScope":qCreatedBy(id+"Carrier blank",EntityType.BODY)});
+'''+text[end:]
+    class NoBridge:
+        async def health(self):pytest.fail("Repeated source cut reached bridge health")
+        async def command(self,*args,**kwargs):pytest.fail("Repeated source cut reached browser")
+    journal=Journal(tmp_path/"journal.sqlite")
+    backend=SimpleNamespace(create_target=TARGET.to_dict(),tab_id=7,bridge=NoBridge())
+    try:
+        with pytest.raises(Unsupported,match="Repeated REMOVE target"):
+            await populate_source_extrusion(backend,TARGET,text,logical_id="Second cut",
+                sketch_op_id="not-read",target_body_op_id="not-read",baseline={},journal=journal)
+        assert journal._db.execute("SELECT COUNT(*) FROM writes").fetchone()[0]==0
+        features,args=remove_scenario()
+        args["logical_id"]="Second cut"
+        with pytest.raises(Unsupported,match="Repeated REMOVE target"):
+            source_extrusion_intent(compile_fsgen(text,TARGET).features,**args)
+    finally:journal.close()
