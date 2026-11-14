@@ -296,7 +296,8 @@ async def _bridge_action(args: argparse.Namespace) -> tuple[object, int]:
         if args.command == "doctor":
             health = await bridge.health()
             return {"bridge_protocol": health.get("protocol"), "extension_connected": health.get("extension_connected"),
-                    "extension": health.get("extension")}, 0
+                    "extension": health.get("extension"),
+                    "running_creation_target": health.get("h2cad_create_target")}, 0
         backend = NativeBackend(bridge, tab_id=args.tab_id)
         if args.command == "experimental-source-run":
             from .source_run import initialize_run, next_action, apply_staged

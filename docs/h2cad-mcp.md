@@ -83,8 +83,16 @@ regenerates dependent geometry. Assemblies remain outside this source writer.
 `experimental-source-run` coordinates the existing guarded writers in source
 order. It pins the source hash, target, journal and locally validated plan in a
 run file. It does not allocate Browser drafts or create assemblies. The CLI is
-offline-tested, including all 22 car features; live coordinator acceptance is
-still pending. Only NEW extrusions are admitted; REMOVE remains disabled here.
+offline-tested, including all 22 car features, and has created an eight-feature
+carrier setup live with independently measured two-part geometry. Only NEW
+extrusions are admitted by the coordinator; REMOVE remains disabled here.
+
+The companion must run patch44 or later so authenticated health reports its
+startup creation target. `doctor --bridge-config ...` displays this as
+`running_creation_target`. Editing the private configuration file alone does
+not retarget a running companion. The coordinator refuses a missing or stale
+running target before staging; restart the reviewed companion only after
+resolving outstanding journal operations, without replacing pairing material.
 
 Pass the same arguments to each action:
 
