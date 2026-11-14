@@ -46,9 +46,10 @@ def inspect_source_body_history(path, source, target, journal, *, logical_id, cu
             raise Unsupported("Native feature order differs from observed source history")
         target_id=bindings[logical_id]["feature_id"]
         target_index=next(i for i,n in enumerate(nodes) if n.get("featureId")==target_id)
-        for node in nodes[target_index+1:]:
+        for index, node in enumerate(nodes[target_index+1:], start=target_index+1):
             if node.get("featureId") in ids:continue
-            if node.get("$type")=="bsedit.GBTMRollback" and not node.get("featureId"):continue
+            if (node.get("$type")=="bsedit.GBTMRollback" and not node.get("featureId")
+                    and index==len(nodes)-1 and isinstance(node.get("nodeId"),str) and node["nodeId"]):continue
             raise Unsupported("Unbound intervening feature or node after target NEW body")
         modifications=[]
         for feature in run["plan"]:

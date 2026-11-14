@@ -50,9 +50,10 @@ def test_ordered_observed_cut_history_does_not_write_checkpoint_or_journal(histo
     assert path.read_bytes()==before and journal._db.total_changes==count
 
 
-@pytest.mark.parametrize("fault",["unknown","changed","suppressed","missing_latest","reordered","busy","source","unresolved","unknown_observation"])
+@pytest.mark.parametrize("fault",["unknown","changed","suppressed","missing_latest","reordered","busy","source","unresolved","unknown_observation","intervening_rollback"])
 def test_unknown_changed_or_stale_history_is_rejected(history,fault):
     path,journal,state=history;source=SOURCE
+    if fault=="intervening_rollback":state["tree"]["children"].insert(5,{"$type":"bsedit.GBTMRollback","nodeId":"early-rollback"})
     if fault=="unknown":state["tree"]["children"].insert(-1,{"featureId":"unknown-cut","featureType":"extrude"})
     if fault=="changed":state["tree"]["children"][3]["name"]="changed"
     if fault=="suppressed":state["tree"]["children"][8]["suppressed"]=True
