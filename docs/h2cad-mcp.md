@@ -38,7 +38,7 @@ All population commands below take `SOURCE`, `--logical-id`, `--did`, `--wid`,
 | Literal length variable | `experimental-populate-variable` | Repeated `--previous-variable-op-id` in source variable order; fresh unnamed LENGTH draft |
 | OFFSET plane | `experimental-populate-plane` | `--baseline`, `--reference-binding`, `--variable-operations`, repeated `--previous-plane-op-id`; normal UI-bound reference plane |
 | Supported rectangle or circle sketch | `experimental-populate-source-sketch` | `--baseline`, `--plane-op-id`, `--variable-operations`; blank sketch on that observed source plane |
-| NEW/SOLID/BLIND extrusion | `experimental-populate-source-extrusion` | `--baseline`, `--sketch-op-id`, optional `--variable-op-id` for symbolic depth; normal whole-sketch region selection |
+| NEW or scoped REMOVE / SOLID / BLIND extrusion | `experimental-populate-source-extrusion` | `--baseline`, `--sketch-op-id`, optional `--variable-op-id` for symbolic depth; REMOVE requires `--target-body-op-id` referencing its observed single-body NEW operation; normal whole-sketch region selection |
 
 A baseline is the full saved-idle native state captured **before** allocating the
 next draft, with its exact target, revision, and unchanged tree. Variable-map
@@ -84,8 +84,24 @@ regenerates dependent geometry. Assemblies remain outside this source writer.
 order. It pins the source hash, target, journal and locally validated plan in a
 run file. It does not allocate Browser drafts or create assemblies. The CLI is
 offline-tested, including all 22 car features, and has created an eight-feature
-carrier setup live with independently measured two-part geometry. Only NEW
-extrusions are admitted by the coordinator; REMOVE remains disabled here.
+carrier setup live with independently measured two-part geometry. The coordinator
+also supports explicit-scope REMOVE after a preceding single-body NEW extrusion.
+The target must originate from one rectangle or one circle, and its current
+sketch and extrusion definitions must remain identical to the observed journal
+proof. Multiple-body targets, ADD, and implicit all-body scope are rejected.
+
+Before offering a REMOVE `browser_allocate` step, the coordinator requires paired
+`h2_source_remove_server_v1` and `h2_source_remove_page_v1` capabilities (reviewed
+patch46 or later). The step supplies the whole-sketch reference and a separate
+`target_body_reference` with the target source feature and operation IDs. In the
+normal Extrude dialog choose SOLID/REMOVE/BLIND, forward direction
+(`oppositeDirection: false`), disable default scope, and select only that body.
+Onshape may flip direction when REMOVE is selected: check it explicitly. `apply`
+derives the target operation from the immutable source plan and observed journal;
+it never guesses a body ID. The writer independently resolves the selected body
+before changing depth. The run still ends at independent geometry verification.
+The scoped writer has passed a live carrier cut preserving a second witness body;
+the expanded coordinator lifecycle is tested offline.
 
 The companion must run patch44 or later so authenticated health reports its
 startup creation target. `doctor --bridge-config ...` displays this as

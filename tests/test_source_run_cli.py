@@ -67,3 +67,32 @@ def test_source_run_cli_pins_routes_and_closes(tmp_path, monkeypatch, capsys, ac
     else:
         assert events == ["open", action, "close"]
         assert json.loads(output.out)["action"] in {"stage", "browser_allocate"}
+
+
+@pytest.mark.parametrize("body_op",[None,"extrude-"+"d"*32])
+def test_source_extrusion_cli_passes_explicit_target_body_operation(tmp_path,monkeypatch,capsys,body_op):
+    from h2cad import native_source_extrusions
+    target={"did":"a"*24,"wid":"b"*24,"eid":"c"*24}
+    journal=tmp_path/"journal.sqlite";config=tmp_path/"bridge.json";baseline=tmp_path/"baseline.json"
+    config.write_text(json.dumps({"h2cad_journal":str(journal)}));baseline.write_text('{"saved":"baseline"}')
+    events=[]
+    class Bridge:
+        @classmethod
+        def from_config(cls,path):return cls()
+        async def close(self):events.append("closed")
+    monkeypatch.setattr(cli,"NativeBridge",Bridge)
+    monkeypatch.setattr(cli,"NativeBackend",lambda bridge,tab_id:SimpleNamespace(create_target=target,tab_id=tab_id))
+    async def populate(backend,given_target,source,**kw):
+        assert kw["target_body_op_id"]==body_op
+        assert kw["sketch_op_id"]=="source-sketch-proof" and kw["baseline"]=={"saved":"baseline"}
+        assert kw["journal"].path==journal and given_target.to_dict()==target
+        events.append("populate")
+        return {"status":"observed_source_extrusion"}
+    monkeypatch.setattr(native_source_extrusions,"populate_source_extrusion",populate)
+    argv=["experimental-populate-source-extrusion",str(tmp_path/"source.fs"),"--journal",str(journal),
+        "--bridge-config",str(config),"--tab-id","123","--logical-id","Cut","--sketch-op-id","source-sketch-proof",
+        "--baseline",str(baseline)]
+    for k,v in target.items():argv.extend(["--"+k,v])
+    if body_op:argv.extend(["--target-body-op-id",body_op])
+    assert cli.main(argv)==0,capsys.readouterr().err
+    assert events==["populate","closed"]

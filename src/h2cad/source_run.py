@@ -44,9 +44,19 @@ def _plan(text, target):
         elif f.kind == "newSketch":
             stage = source_sketch_plan(f, variables)
         elif f.kind == "extrude":
-            if f.parameters.get("operationType") != "NEW":
-                raise Unsupported("Source runs currently support only NEW extrusions")
             stage = stage_source_extrusion(f, variables)
+            if stage["operation_type"] == "REMOVE":
+                prior = {item["logical_id"]:item for item in result}
+                body = prior.get(stage["target_body_logical_id"])
+                if not body or body["kind"]!="extrude" or body["stage"]["operation_type"]!="NEW":
+                    raise Unsupported("REMOVE requires a preceding source NEW body")
+                profile = prior.get(body["stage"]["sketch_logical_id"])
+                if not profile or profile["kind"]!="newSketch":
+                    raise Unsupported("REMOVE target requires a preceding verified source sketch")
+                shape = profile["stage"]["source_stage"]
+                if not shape.get("rectangle_m") and len(shape.get("circles",[]))!=1:
+                    raise Unsupported("REMOVE target must create one body: one rectangle or one circle")
+
         else:
             raise Unsupported(f"Unsupported source-run feature: {f.kind}")
         result.append({"logical_id": f.logical_id, "kind": f.kind, "stage": stage,
@@ -175,6 +185,10 @@ def _adopt(run, journal):
             continue
         if gap or len(matches) != 1:
             raise Unsupported("Duplicate or out-of-order observed source feature")
+        if f["kind"]=="extrude" and f["stage"]["operation_type"]=="REMOVE":
+            body_binding=bindings.get(f["stage"]["target_body_logical_id"])
+            if (body_binding is None or json.loads(matches[0]["intent"]).get("target_body_op_id")!=body_binding["op_id"]):
+                raise Unsupported("REMOVE journal target-body operation differs from preceding source binding")
         bindings[f["logical_id"]] = _match(matches[0], f, run["plan"])
     if any(bindings.get(k) != v for k, v in run["bindings"].items()):
         raise Unsupported("Previously recorded binding no longer independently observed")
@@ -214,7 +228,21 @@ def _allocation(run, feature):
         name = stage["plane_logical_id"] if kind == "newSketch" else stage["sketch_logical_id"]
         action["reference"] = {"logical_id": name, "feature_id": run["bindings"][name]["feature_id"]}
         action["defaults"] = {"entities": [], "constraints": []} if kind == "newSketch" else {"operationType": "NEW", "bodyType": "SOLID", "endBound": "BLIND", "selection": "whole_sketch"}
+    if kind=="extrude" and stage["operation_type"]=="REMOVE":
+        body=stage["target_body_logical_id"]
+        action["defaults"].update(operationType="REMOVE",defaultScope=False,oppositeDirection=False)
+        action["target_body_reference"]={"logical_id":body,"feature_id":run["bindings"][body]["feature_id"],
+                                          "op_id":run["bindings"][body]["op_id"],"selection":"one_source_body"}
     return action
+
+
+async def _require_remove_capabilities(backend, feature):
+    if feature["kind"]=="extrude" and feature["stage"]["operation_type"]=="REMOVE":
+        health=await backend.bridge.health()
+        if (health.get("extension_connected") is not True
+                or "h2_source_remove_server_v1" not in health.get("capabilities",[])
+                or "h2_source_remove_page_v1" not in (health.get("extension") or {}).get("capabilities",[])):
+            raise Unsupported("Paired explicit-scope REMOVE capability required before browser allocation")
 
 
 async def next_action(path, backend, source, target, journal):
@@ -229,6 +257,7 @@ async def next_action(path, backend, source, target, journal):
             _save(path, run)
             return {"action": "verify_geometry", "source_features_observed": len(run["bindings"]), "geometry_verified": False}
         feature = run["plan"][len(run["bindings"])]
+        await _require_remove_capabilities(backend, feature)
         if run["staged"]:
             old = run["staged"]
             if not _same_snapshot(old["baseline"], state) or old["tab_id"] != backend.tab_id:
@@ -271,6 +300,7 @@ async def apply_staged(path, backend, source, target, journal):
         if staged["tab_id"] != backend.tab_id:
             raise Unsupported("Staged tab changed")
         feature = run["plan"][len(run["bindings"])]
+        await _require_remove_capabilities(backend, feature)
         before = await backend.raw_state(target)
         _state(run, before, target, backend)
         baseline = staged["baseline"]
@@ -301,7 +331,8 @@ async def apply_staged(path, backend, source, target, journal):
                 variable_op_ids={name: op(name) for name in stage["source_stage"]["source_variable_definitions"]}, **common)
         else:
             await populate_source_extrusion(backend, target, text, baseline=baseline, sketch_op_id=op(stage["sketch_logical_id"]),
-                variable_op_id=op(stage["depth_expression"]) if stage["variable"] else None, **common)
+                variable_op_id=op(stage["depth_expression"]) if stage["variable"] else None,
+                **({"target_body_op_id":op(stage["target_body_logical_id"])} if stage["operation_type"]=="REMOVE" else {}), **common)
         _adopt(run, journal)
         _state(run, await backend.raw_state(target), target, backend)
         if feature["logical_id"] not in run["bindings"]:

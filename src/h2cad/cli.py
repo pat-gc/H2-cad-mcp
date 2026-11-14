@@ -146,6 +146,7 @@ def build_parser() -> argparse.ArgumentParser:
     source_extrusion.add_argument("--sketch-op-id", required=True)
     source_extrusion.add_argument("--baseline", type=Path, required=True)
     source_extrusion.add_argument("--variable-op-id")
+    source_extrusion.add_argument("--target-body-op-id", help="observed single-body NEW operation required for scoped REMOVE")
     plane_cmd = commands.add_parser("experimental-populate-plane", help="populate a UI-allocated reference-bound OFFSET plane")
     plane_cmd.add_argument("source", type=Path)
     _add_target(plane_cmd)
@@ -363,7 +364,7 @@ async def _bridge_action(args: argparse.Namespace) -> tuple[object, int]:
                 return await populate_source_extrusion(backend, _target(args), args.source,
                     logical_id=args.logical_id, sketch_op_id=args.sketch_op_id,
                     baseline=json.loads(args.baseline.read_text(encoding="utf-8")),
-                    variable_op_id=args.variable_op_id, journal=journal), 0
+                    variable_op_id=args.variable_op_id, target_body_op_id=args.target_body_op_id, journal=journal), 0
             finally:
                 journal.close()
         if args.command == "experimental-populate-plane":

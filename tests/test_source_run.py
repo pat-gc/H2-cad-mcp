@@ -9,6 +9,7 @@ import pytest
 from h2cad import source_run as run
 from h2cad.backend import Unsupported, UncertainWrite
 from h2cad.journal import Journal
+from h2cad.fsgen import FsgenCompileError
 from h2cad.model import Target
 from h2cad.validation import ValidationReport
 
@@ -191,7 +192,7 @@ def test_inspection_diagnostics_do_not_invalidate_idle_stage(setup):
     assert backend.calls == 0
 
 
-def test_remove_is_rejected_before_validation_or_run_creation(tmp_path, monkeypatch):
+def test_unproven_remove_is_rejected_before_validation_or_run_creation(tmp_path, monkeypatch):
     compiled = run.compile_fsgen(SOURCE.read_text(), TARGET)
     next(f for f in compiled.features if f.kind == 'extrude').parameters['operationType'] = 'REMOVE'
     monkeypatch.setattr(run, 'compile_fsgen', lambda text, target: compiled)
@@ -200,16 +201,25 @@ def test_remove_is_rejected_before_validation_or_run_creation(tmp_path, monkeypa
     monkeypatch.setattr(run, 'validate_fsgen', unexpected_validation)
     journal = Journal(tmp_path / 'journal.sqlite')
     try:
-        with pytest.raises(Unsupported, match='only NEW'):
+        with pytest.raises(Unsupported, match='source and semantic projection differ'):
             run.initialize_run(tmp_path / 'run.json', SOURCE, TARGET, journal)
         assert not (tmp_path / 'run.json').exists()
     finally:
         journal.close()
 
 
-def test_all_car_features_dispatch_in_order_with_observed_dependencies(setup, monkeypatch):
+@pytest.mark.parametrize("source_name",["car","carrier"])
+def test_all_features_dispatch_in_order_with_observed_dependencies(setup, monkeypatch, source_name):
     path, journal, backend = setup
-    plan = run._plan(SOURCE.read_text(), TARGET)
+    source=SOURCE
+    if source_name=="carrier":
+        from h2cad.validation import validate_fsgen
+        monkeypatch.setattr(run,"validate_fsgen",validate_fsgen)
+        source=SOURCE.parents[2]/"artifacts/robot/bearing_carrier_scope_fixture.fs"
+        path=path.with_name("carrier-run.json")
+        run.initialize_run(path,source,TARGET,journal)
+        assert json.loads(path.read_text())["local_validation"]["geometry"]["parts"]==2
+    plan = run._plan(source.read_text(), TARGET)
     observed = {}
     calls = []
 
@@ -234,6 +244,7 @@ def test_all_car_features_dispatch_in_order_with_observed_dependencies(setup, mo
         elif kind == 'extrude':
             assert kw['sketch_op_id'] == observed[stage['sketch_logical_id']]
             assert kw['variable_op_id'] == (observed[stage['depth_expression']] if stage['variable'] else None)
+            assert kw.get('target_body_op_id') == (observed[stage['target_body_logical_id']] if stage['operation_type']=='REMOVE' else None)
         before = copy.deepcopy(backend.state)
         node = backend.state['tree']['children'][-1]
         node['name'] = feature['logical_id']
@@ -241,6 +252,8 @@ def test_all_car_features_dispatch_in_order_with_observed_dependencies(setup, mo
         op_id = f'op-{len(calls)}'
         intent = {'before_state': before, 'expected_tree': copy.deepcopy(backend.state['tree']),
                   'source_feature': feature['source_feature']}
+        if kind=='extrude' and stage['operation_type']=='REMOVE':
+            intent['target_body_op_id']=kw['target_body_op_id']
         if kind in ('assignVariable', 'cPlane'):
             intent['source_stages'] = [f['stage'] for f in plan if f['kind'] == kind]
             intent['source_index'] = len(previous)
@@ -263,22 +276,66 @@ def test_all_car_features_dispatch_in_order_with_observed_dependencies(setup, mo
     monkeypatch.setattr(run, 'populate_source_sketch', sketch)
     monkeypatch.setattr(run, 'populate_source_extrusion', extrude)
     class Bridge:
+        health_state={"extension_connected":True,"capabilities":["h2_source_remove_server_v1"],
+                      "extension":{"capabilities":["h2_source_remove_page_v1"]}}
+        async def health(self):return copy.deepcopy(self.health_state)
         async def command(self, job):
             assert job['kind'] == 'native' and job['command'] == 'ui.GBTUiGetQueryDataCall'
             return {'result': {'$type': 'ui.GBTUiGetQueryDataResponse',
                     'queryData': [{'featureId': plan[len(calls)]['stage']['reference_plane']}]}}
     backend.bridge = Bridge()
     for index, feature in enumerate(plan):
-        action = sync(run.next_action(path, backend, SOURCE, TARGET, journal))
+        if feature['kind']=='extrude' and feature['stage']['operation_type']=='REMOVE':
+            good=copy.deepcopy(backend.bridge.health_state)
+            for bad in ({**good,'capabilities':[]},{**good,'extension':{'capabilities':[]}},
+                        {**good,'extension_connected':False}):
+                backend.bridge.health_state=bad
+                saved=path.read_bytes()
+                with pytest.raises(Unsupported,match='before browser allocation'):
+                    sync(run.next_action(path,backend,source,TARGET,journal))
+                assert path.read_bytes()==saved and backend.state['editingFeatureId'] is None
+                assert len(calls)==index
+            backend.bridge.health_state=good
+        action = sync(run.next_action(path, backend, source, TARGET, journal))
+        if feature['kind']=='extrude' and feature['stage']['operation_type']=='REMOVE':
+            assert action['defaults']=={'operationType':'REMOVE','bodyType':'SOLID','endBound':'BLIND',
+                'selection':'whole_sketch','defaultScope':False,'oppositeDirection':False}
+            assert action['target_body_reference']=={'logical_id':'Carrier blank','feature_id':'feature-3',
+                'op_id':observed['Carrier blank'],'selection':'one_source_body'}
         assert action['action'] == 'browser_allocate' and action['logical_id'] == feature['logical_id']
         node = {'featureType': feature['kind'], 'featureId': f'feature-{index}', 'nodeId': f'node-{index}'}
         if feature['kind'] == 'cPlane':
             node['parameters'] = [{'parameterId': 'entities', 'queries': [{'deterministicIds': [f'query-{index}']}]}]
         backend.state['tree']['children'].append(node)
         backend.state.update(editingFeatureId=node['featureId'], element_microversion=f'{2*index+2:024x}')
-        assert sync(run.apply_staged(path, backend, SOURCE, TARGET, journal))['op_id'] == f'op-{index}'
+        if feature['kind']=='extrude' and feature['stage']['operation_type']=='REMOVE':
+            backend.bridge.health_state={}
+            with pytest.raises(Unsupported,match='capability'):
+                sync(run.apply_staged(path,backend,source,TARGET,journal))
+            assert len(calls)==index
+            backend.bridge.health_state=good
+        assert sync(run.apply_staged(path, backend, source, TARGET, journal))['op_id'] == f'op-{index}'
     assert calls == [f['logical_id'] for f in plan]
-    assert sync(run.next_action(path, backend, SOURCE, TARGET, journal)) == {
-        'action': 'verify_geometry', 'source_features_observed': 22, 'geometry_verified': False}
-    sync(run.apply_staged(path, backend, SOURCE, TARGET, journal))
-    assert len(calls) == 22
+    assert sync(run.next_action(path, backend, source, TARGET, journal)) == {
+        'action': 'verify_geometry', 'source_features_observed': len(plan), 'geometry_verified': False}
+    sync(run.apply_staged(path, backend, source, TARGET, journal))
+    assert len(calls) == len(plan)
+
+
+@pytest.mark.parametrize("fault",["add","missing_body","multi_body"])
+def test_unsupported_remove_plan_fails_before_local_build(tmp_path,monkeypatch,fault):
+    source=SOURCE.parents[1]/"native/carrier_remove_scope_sample.fs"
+    text=source.read_text()
+    if fault=="add":text=text.replace("NewBodyOperationType.REMOVE","NewBodyOperationType.ADD")
+    if fault=="missing_body":text=text.replace('qCreatedBy(id + "Carrier blank", EntityType.BODY)','qCreatedBy(id + "Missing", EntityType.BODY)')
+    if fault=="multi_body":
+        start=text.index('    skRectangle(outline,');end=text.index('    skSolve(outline);',start)
+        text=text[:start]+'''    skCircle(outline,"a",{"center":vector(10,5)*millimeter,"radius":3*millimeter});
+    skCircle(outline,"b",{"center":vector(-10,5)*millimeter,"radius":3*millimeter});
+'''+text[end:]
+    monkeypatch.setattr(run,"validate_fsgen",lambda text:pytest.fail("unsupported plan reached local validation"))
+    journal=Journal(tmp_path/"journal.sqlite")
+    try:
+        with pytest.raises((Unsupported,FsgenCompileError)):run.initialize_run(tmp_path/"run.json",text,TARGET,journal)
+        assert not (tmp_path/"run.json").exists()
+    finally:journal.close()
