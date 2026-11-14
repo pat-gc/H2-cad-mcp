@@ -1,11 +1,17 @@
 # H2 CAD
 
-H2 CAD compiles supported FSGen scripts into a semantic feature plan, validates
-geometry locally with OpenCascade, and records guarded execution intent. Its
-browser adapter inspects the native Onshape editor through a separately installed
-companion. An experimental, explicitly targeted Sketch and Extrude path is under
-live validation. Its revision check is not atomic, so it is restricted to an
-isolated test Part Studio and does not yet establish a repeatable car workflow.
+H2 CAD validates supported FSGen geometry locally with OpenCascade, then creates
+native, human-editable Onshape variables, planes, sketches and extrusions through
+the existing browser-session bridge. It uses ordinary Browser controls to allocate
+features and deterministic source commands to populate them. It does not use
+Onshape REST CAD writes or imported-solid substitutes.
+
+The full native car and seven-hole carrier have passed live geometry measurements
+and ordinary parameter edit/restore checks. Execution remains experimental and
+restricted to explicitly targeted test studios: general profiles, source-backed
+assembly mates and the complete four-axis robotic arm are unfinished. Revision
+checks are not atomic; concurrent edits require inspection and reconciliation.
+See [current status](docs/STATUS.md) and [capability boundaries](docs/CAPABILITIES.md).
 
 ## Set up
 
@@ -67,5 +73,11 @@ The existing Onshape Native plugin supplies an agent workflow using its MCP
 session bridge, normal Browser feature allocation, and deterministic H2 source
 commands for variables, planes, sketches, and extrusions. Its separate
 experimental MCP plate tool remains limited to the plate sequence. See
-[plugin workflow, commands, and limits](docs/h2cad-mcp.md). Full native car and
-assembly acceptance remain separate from individual command verification.
+[plugin workflow, commands, and limits](docs/h2cad-mcp.md). The persistent
+`experimental-source-run` coordinator validates source once, stages each Browser
+allocation, binds observed native features and resumes without replaying uncertain
+writes. Final geometric and editability acceptance remain independent checks.
+
+Live evidence: [native car](artifacts/native-car-full-source-REPORT.md),
+[seven-hole carrier](artifacts/robot/full-carrier-REPORT.md), and
+[current assembly limitation](artifacts/native-car-source-assembly-REPORT.md).

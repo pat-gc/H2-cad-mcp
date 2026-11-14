@@ -43,6 +43,8 @@ Active paired source46 tree: `cc9f5f269fe0134befe4c69b545a909365379c57`. Patch44
 
 Source43 (`bfaf034`) updates existing plugin modeling instructions and adds `references/h2-source-workflow.md`; it is documentation only and does not require interrupting the live runtime. See [MCP/skill workflow](h2cad-mcp.md) and [actual capability boundaries](CAPABILITIES.md). Existing plugin/server identity remains unchanged.
 
+Source47 (`914d844`, tree `13a9995f99bef8af6a3c7f872d35ea7b46d5b812`) updates that bundled workflow with the persistent coordinator, scoped-cut boundary and revision-bound measurement evidence. Bootstrap reproducibility:2passed. This patch changes documentation only; paired modeling runtime46 remains active and no extension reload is needed.
+
 - Main regression suite:277passed after sketch/extrusion integration. Two stale bootstrap assumptions were repaired in `c127ad4`.
 - Patch42 focused validation:37H2/bootstrap,155Native Python,54adapter tests passed.
 - Patch43 documentation: YAML/manifest/reference/CLI checks and two bootstrap tests passed.

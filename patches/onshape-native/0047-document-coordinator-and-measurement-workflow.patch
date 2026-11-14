@@ -1,0 +1,84 @@
+From 914d8447e02fcbf854dc879dc2b1c869acb3a640 Mon Sep 17 00:00:00 2001
+From: patcybermind <pato.gonzalezcabrera@gmail.com>
+Date: Sat, 14 Nov 2026 12:48:05 -0500
+Subject: [PATCH] docs: guide persistent source runs and independent
+ measurement evidence
+
+---
+ .../references/h2-source-workflow.md          | 53 +++++++++++++++++--
+ 1 file changed, 50 insertions(+), 3 deletions(-)
+
+diff --git a/skills/onshape-native-modeling/references/h2-source-workflow.md b/skills/onshape-native-modeling/references/h2-source-workflow.md
+index 90f7713..a95b8cb 100644
+--- a/skills/onshape-native-modeling/references/h2-source-workflow.md
++++ b/skills/onshape-native-modeling/references/h2-source-workflow.md
+@@ -2,9 +2,10 @@
+ 
+ Use this workflow for H2 FSGen source-to-native CAD. It is an **agent skill using
+ normal Browser controls, deterministic H2 CLI commands, and the existing Native
+-MCP/session bridge**. It is not a single autonomous MCP call. Individual source
+-features have live proofs; a complete generated car and assemblies remain
+-separate acceptance gates. Do not infer full acceptance from installed commands.
++MCP/session bridge**. It is not a single autonomous MCP call. The full native car
++and nine-feature seven-hole carrier have live geometry and edit/restore proofs.
++General assemblies, mates and the complete robotic arm remain separate acceptance
++gates. Consult H2 `docs/STATUS.md` and `docs/CAPABILITIES.md` for current evidence.
+ 
+ For H2, these instructions override the general skill's REST fallback: no REST
+ CAD writes, canvas modeling, guessed RPCs, copied sample IDs, or alternative
+@@ -40,6 +41,52 @@ generates their geometry from source.
+    `h2_source_extrude_server_v1` / `h2_source_extrude_page_v1`.
+    A source checkout or staged extension is not evidence of an active runtime.
+ 
++## Prefer the persistent source-run coordinator
++
++For supported complete sources, use `experimental-source-run` to manage the
++ordered bindings and saved baselines rather than rebuilding an operation map by
++hand. All actions take SOURCE, `--run-state RUN.json`, exact `--did/--wid/--eid`,
++`--bridge-config CONFIG`, `--journal JOURNAL`, and `--tab-id TAB`.
++
++1. `init` validates the complete source locally and pins its hash, semantics,
++   target and journal. Resume the existing run after interruption; never create
++   a new run to bypass observed features or an unresolved operation.
++2. `next` verifies saved idle state and returns `browser_allocate`, with exact
++   source references and required native defaults. Allocate only that blank
++   feature using normal Browser controls. Do not draw source geometry manually.
++3. `apply` validates the fresh draft against its saved baseline, populates it
++   using the existing guarded writers, and adopts only independently observed
++   journal results. Repeat from `next`. Do not replay an uncertain operation.
++4. Final `verify_geometry` means feature definitions are saved, not automatically
++   proven solids. Measure solid count, volume, area and bounds independently;
++   edit and restore a native variable and compare identities and definitions.
++
++The companion must report its loaded creation target, matching the private config
++and requested target. `doctor --bridge-config CONFIG` reports this target.
++Editing the config alone does not retarget the running companion. A target change
++requires the coordinated companion restart after saved idle/clear journal checks.
++
++Explicit REMOVE additionally requires both `h2_source_remove_server_v1` and
++`h2_source_remove_page_v1`. The coordinator returns a separate
++`target_body_reference` bound to a previously observed NEW extrusion from a single
++rectangle or circle. Choose SOLID/REMOVE/BLIND, whole source sketch, forward
++direction (`oppositeDirection: false`), and only the indicated body with
++`defaultScope: false`. Selecting REMOVE may automatically reverse direction in
++Onshape; check it before applying. Multiple-body targets and a second cut of an
++already-cut body are not supported by the coordinator. Do not bypass these limits
++using direct commands. Native query lineage and complete current body scope need
++separate proof before expanding that support.
++
++After Browser measurements, optional `record-measurements --measurements FILE.json`
++records caller-supplied totals and screenshot hashes against the current revision.
++The JSON contains `target`, `source_sha256`, `revision`,
++`method: "browser_mass_properties"`, integer `parts`, positive `volume_mm3` and
++`area_mm2`, and `screenshots` (PNG/JPEG paths relative to the JSON). Counts must
++match the local model; volume/area tolerance is 0.002 absolute or 1e-7 relative.
++This comparison does not read pixels or acquire measurements automatically:
++`geometry_verified` remains false. Later `next` calls flag a stale revision or
++changed/missing evidence. Retain the independent geometric and editability report.
++
+ ## Consume the compiled feature order
+ 
+ Iterate the compiled snapshot's `features` in order, retaining its logical IDs
+-- 
+2.54.0.windows.1
+
