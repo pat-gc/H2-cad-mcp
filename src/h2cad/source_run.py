@@ -47,6 +47,10 @@ def _plan(text, target):
         elif f.kind == "extrude":
             stage = stage_source_extrusion(f, variables)
             if stage["operation_type"] == "REMOVE":
+                if any(item["kind"] == "extrude" and item["stage"]["operation_type"] == "REMOVE"
+                       and item["stage"]["target_body_logical_id"] == stage["target_body_logical_id"]
+                       for item in result):
+                    raise Unsupported("Repeated REMOVE target requires current complete body-set proof; one cut per source NEW body is supported")
                 prior = {item["logical_id"]:item for item in result}
                 body = prior.get(stage["target_body_logical_id"])
                 if not body or body["kind"]!="extrude" or body["stage"]["operation_type"]!="NEW":

@@ -373,3 +373,25 @@ def test_unsupported_remove_plan_fails_before_local_build(tmp_path,monkeypatch,f
         with pytest.raises((Unsupported,FsgenCompileError)):run.initialize_run(tmp_path/"run.json",text,TARGET,journal)
         assert not (tmp_path/"run.json").exists()
     finally:journal.close()
+
+
+@pytest.mark.parametrize("split_first",[False,True])
+def test_second_remove_of_same_new_body_rejected_before_local_build(tmp_path,monkeypatch,split_first):
+    text=(SOURCE.parents[1]/"native/carrier_remove_scope_sample.fs").read_text()
+    if split_first:
+        text=text.replace('skCircle(holes, "scopeProbe", {"center" : vector(10, 5) * millimeter, "radius" : 3 * millimeter});',
+            'skRectangle(holes,"split",{"firstCorner":vector(-2,-40)*millimeter,"secondCorner":vector(2,40)*millimeter});')
+    closing=text.rfind('}')
+    text=text[:closing]+'''    extrude(context,id+"Second cut",{
+        "entities":qSketchRegion(id+"Carrier holes"),
+        "operationType":NewBodyOperationType.REMOVE,
+        "endBound":BoundingType.BLIND,"depth":24*millimeter,
+        "defaultScope":false,"booleanScope":qCreatedBy(id+"Carrier blank",EntityType.BODY)});
+'''+text[closing:]
+    monkeypatch.setattr(run,"validate_fsgen",lambda text:pytest.fail("Repeated cut reached local build"))
+    journal=Journal(tmp_path/"journal.sqlite")
+    try:
+        with pytest.raises(Unsupported,match="Repeated REMOVE target"):
+            run.initialize_run(tmp_path/"run.json",text,TARGET,journal)
+        assert not (tmp_path/"run.json").exists()
+    finally:journal.close()
