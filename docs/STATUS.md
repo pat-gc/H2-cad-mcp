@@ -1,10 +1,10 @@
-> **Current reserve:** user clarified to continue until the meter shows less than 95% remaining. Last observed meter: 1% used (99% remaining). Root works sequentially and checks between batches; workers remain paused. No reset or credits were consumed.
+> **Current reserve:** continue until less than 95% remaining. Latest meter: 4% used (96% remaining). Root checks between bounded batches; one REMOVE implementation worker is active. No credits/reset consumed.
 >
-> **Latest work:** native car replacement completed; evidence is in `artifacts/native-car-replacement-REPORT.md`. New Astra `cadder` delivered the initial robot plan/calculations and local carrier fixture in commit `3f28224`, then stopped pending primitives. The experimental source-run coordinator and CLI have 28 passing offline tests, including all 22 car features, duplicate prevention, recovery and target/journal pinning. Live coordinator validation remains outstanding. Centered-circle/REMOVE changes remain uncommitted work in progress and are not activated. No new robot Onshape writes occurred.
+> **Latest work:** source-run coordinator created and verified the eight-feature carrier prefix live, including two solids. Independent native volumes 43,200 + 10,800 = 54,000 mm³ match local geometry. See `artifacts/robot/carrier-prefix-REPORT.md`. REMOVE schema captured; owned sample draft canceled back to exact saved baseline. No cut committed yet. Patch44 companion is active; extension remains42. Current root live target is Robot - Carrier Scope Test, EID `423a1c4eec848f03a9800ba5`, tab941741361, revision `076e2127daeaffcc472f0fe4`. Root is sole live owner. Plane-mapping worker owns offline REMOVE development; all other workers stopped. Cadder plan remains conditional. Robot workspace check passes802 positions; collisions and complete assembly remain unverified.
 
 # H2 CAD development status
 
-Updated 2026-11-14. This is the project lead's live state authority. Root owns handoffs and acceptance; tester alone owns browser/bridge/journal mutations. The watchdog remains stopped. Read [coordination rules](AGENT-COORDINATION.md) before work; use `followup_task` to restart a completed agent, because `send_message` alone does not restart it.
+Updated 2026-11-14. This is the project lead's live state authority. Root owns handoffs and acceptance; Root currently owns browser/bridge/journal mutations; tester is stopped. The watchdog remains stopped. Read [coordination rules](AGENT-COORDINATION.md) before work; use `followup_task` to restart a completed agent, because `send_message` alone does not restart it.
 
 ## Objective and current result
 
@@ -46,7 +46,7 @@ Source43 (`bfaf034`) updates existing plugin modeling instructions and adds `ref
 - Main regression suite:277passed after sketch/extrusion integration. Two stale bootstrap assumptions were repaired in `c127ad4`.
 - Patch42 focused validation:37H2/bootstrap,155Native Python,54adapter tests passed.
 - Patch43 documentation: YAML/manifest/reference/CLI checks and two bootstrap tests passed.
-- Latest Graphify refresh:632nodes,2345edges,30communities,47/48files cached; no external model. Refresh once after each substantive integrated src/scripts/tests batch, not for documentation-only edits.
+- Latest Graphify refresh before this batch:697nodes,2546edges,22communities,47/51files cached; no external model. Refresh once after each substantive integrated src/scripts/tests batch, not for documentation-only edits.
 
 Earlier plate proof remains in [Test03](../artifacts/native-mvp-checkpoint/test03-clean-source-plate-2026-11-14.md). It passed with supported fresh-tab saved-state recovery. Detailed variable/plane/sketch/extrusion samples and transport repairs are in [development evidence](../artifacts/native-car-origin-circle-and-plane37-REPORT.md).
 

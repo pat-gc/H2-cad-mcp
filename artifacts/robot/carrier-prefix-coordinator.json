@@ -1,0 +1,52 @@
+{
+  "target": {
+    "did": "4e078dec822b4e509616b1cb",
+    "eid": "423a1c4eec848f03a9800ba5",
+    "wid": "af0627de07264acf086e646a"
+  },
+  "prefix_source_sha256": "39d6e5472da3735da01e90cbbf9c3274cd73335680fdef62c360686b2aef8746",
+  "source_path": "fixtures/native/carrier_remove_scope_sample.fs",
+  "full_source_sha256": "8fc780285177905e01b8995eb1d0c5e2bea20832ed5196640b312bf56c08ffe5",
+  "prefix_description": "Exact source preceding final Carrier through bores extrusion, plus closing build brace",
+  "source_features_observed": 8,
+  "bindings": {
+    "#carrierThickness": {
+      "op_id": "variable-21e0cd2f38aa47c0a0b60ca677991785",
+      "feature_id": "Fahvt7Yzhs1Czrc_0"
+    },
+    "Carrier blank": {
+      "op_id": "extrude-2732e13b1d204a10817489572242ca85",
+      "feature_id": "FZT3wk30E2c6tsM_0"
+    },
+    "Carrier holes": {
+      "op_id": "source-sketch-56cff91766d9479888f5cc75189ea118",
+      "feature_id": "FzfObEamq9axe4Z_2"
+    },
+    "Carrier outline": {
+      "op_id": "source-sketch-25a30f893c8b43179b53f72e02efcc92",
+      "feature_id": "F2bSfsiw3pLeZsr_0"
+    },
+    "Carrier plane": {
+      "op_id": "plane-11ad3dcfa33d4fdba9dcb4b7a1ff0cad",
+      "feature_id": "FWxD163iuTgdgtx_0"
+    },
+    "Untouched witness": {
+      "op_id": "extrude-448a1e038cc34c54bf32ca14436b1957",
+      "feature_id": "FROcem81nGqRQvz_1"
+    },
+    "Witness outline": {
+      "op_id": "source-sketch-e60a0d193f16461a85dfb51800beb923",
+      "feature_id": "FfFPssRZTkZCTOp_1"
+    },
+    "Witness plane": {
+      "op_id": "plane-7cd69b08e846433e9f046e755d372ee0",
+      "feature_id": "FikBK0lyXMhoCD8_1"
+    }
+  },
+  "saved_revision": "076e2127daeaffcc472f0fe4",
+  "scope_probe_cancel_restored_exact_tree": true,
+  "native_remove_committed": false,
+  "carrier_blank_volume_mm3": 43200,
+  "witness_volume_mm3": 10800,
+  "combined_volume_mm3": 54000
+}

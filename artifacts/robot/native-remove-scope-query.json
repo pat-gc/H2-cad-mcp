@@ -1,0 +1,91 @@
+{
+  "target": {
+    "did": "4e078dec822b4e509616b1cb",
+    "wid": "af0627de07264acf086e646a",
+    "eid": "423a1c4eec848f03a9800ba5"
+  },
+  "revision": "98111c5df4e7e70e16d40d40",
+  "feature_id": "FfNbT4ngldSVx8v_2",
+  "scope_parameter": {
+    "$type": "bsedit.GBTMParameterQueryList",
+    "filter": {
+      "$type": "bsedit.GBTAndFilter",
+      "operand1": {
+        "$type": "bsedit.GBTAndFilter",
+        "operand1": {
+          "$type": "bsedit.GBTAndFilter",
+          "operand1": {
+            "$type": "bsedit.GBTEntityTypeFilter",
+            "entityType": 3
+          },
+          "operand2": {
+            "$type": "bsedit.GBTBodyTypeFilter",
+            "bodyType": 0
+          }
+        },
+        "operand2": {
+          "$type": "bsedit.GBTModifiableEntityOnlyFilter",
+          "modifiableOnly": true
+        }
+      },
+      "operand2": {
+        "$type": "bsedit.GBTAllowMeshGeometryFilter",
+        "allowsMeshGeometry": true
+      }
+    },
+    "hasUserCode": false,
+    "libraryRelationType": 0,
+    "nodeId": "xzE2aFQ3MKVCcMkt",
+    "parameterId": "booleanScope",
+    "parameterName": "",
+    "queries": [
+      {
+        "$type": "bsedit.GBTMIndividualQuery",
+        "deterministicIds": [
+          "JID"
+        ],
+        "hasUserCode": false,
+        "nodeId": "MtWwswfIjUNj5+W03",
+        "queryString": "",
+        "sourceParseTreeNodes": {}
+      }
+    ],
+    "sourceParseTreeNodes": {}
+  },
+  "operation_type": "REMOVE",
+  "opposite_direction": false,
+  "default_scope": false,
+  "query_response": {
+    "microversion_after": "e4b7a5c20802de0d704419cd",
+    "microversion_before": "e4b7a5c20802de0d704419cd",
+    "next": "Read native_state and check regeneration; an acknowledgement alone does not prove correct geometry.",
+    "result": {
+      "$type": "ui.GBTUiGetQueryDataResponse",
+      "queryData": [
+        {
+          "$type": "display.GBTQueryData",
+          "deterministicIds": [
+            "JID"
+          ],
+          "evaluationDetails": {
+            "$type": "display.GBTQueryEvaluationDetails",
+            "candidates": [],
+            "entityType": 3,
+            "fidelity": 1,
+            "fullOperationId": "FZT3wk30E2c6tsM_0.opExtrude",
+            "outsideExactDependencies": false,
+            "status": 0
+          },
+          "featureId": "FZT3wk30E2c6tsM_0",
+          "hasErrorEntity": false,
+          "isTemporaryFakeDataForSelection": false,
+          "nodeId": "",
+          "queryVariableName": "",
+          "selectionName": "Part",
+          "specializedPurpose": 0
+        }
+      ]
+    },
+    "tab_id": 941741361
+  }
+}
