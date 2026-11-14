@@ -1,0 +1,201 @@
+{
+  "status": "analytical concept; hardware and CAD acceptance outstanding",
+  "mass_items": [
+    {
+      "name": "link1_2020",
+      "kg": 0.11,
+      "segments_m": [
+        0.11,
+        0,
+        0
+      ]
+    },
+    {
+      "name": "elbow_motor",
+      "kg": 0.39,
+      "segments_m": [
+        0.15,
+        0,
+        0
+      ]
+    },
+    {
+      "name": "elbow_bearings_shaft_plates_pulley",
+      "kg": 0.22,
+      "segments_m": [
+        0.22,
+        0,
+        0
+      ]
+    },
+    {
+      "name": "link2_2020",
+      "kg": 0.08,
+      "segments_m": [
+        0.22,
+        0.08,
+        0
+      ]
+    },
+    {
+      "name": "wrist_motor",
+      "kg": 0.39,
+      "segments_m": [
+        0.22,
+        0.09,
+        0
+      ]
+    },
+    {
+      "name": "wrist_bearings_shaft_plates_pulley",
+      "kg": 0.15,
+      "segments_m": [
+        0.22,
+        0.16,
+        0
+      ]
+    },
+    {
+      "name": "tool",
+      "kg": 0.1,
+      "segments_m": [
+        0.22,
+        0.16,
+        0.02
+      ]
+    },
+    {
+      "name": "payload",
+      "kg": 0.2,
+      "segments_m": [
+        0.22,
+        0.16,
+        0.02
+      ]
+    },
+    {
+      "name": "link_brackets_fasteners",
+      "kg": 0.35,
+      "segments_m": [
+        0.18,
+        0,
+        0
+      ]
+    },
+    {
+      "name": "moving_cable",
+      "kg": 0.1,
+      "segments_m": [
+        0.22,
+        0.04,
+        0
+      ]
+    }
+  ],
+  "mass_reserve_factor": 1.25,
+  "arm_mass_with_payload_kg": 2.09,
+  "lift_design_mass_kg": 3.3625,
+  "gravity_moment_Nm": 6.497898750000001,
+  "rotary_factored_output_torques_Nm": [
+    0.61699,
+    0.20262375,
+    0.0284
+  ],
+  "motor_required_Nm": [
+    0.1371088888888889,
+    0.056284375,
+    0.010518518518518519
+  ],
+  "motor_design_available_Nm": 0.25,
+  "motor_margin": [
+    1.8233682879787354,
+    4.441730053855977,
+    23.767605633802816
+  ],
+  "motor_max_rpm": [
+    23.8732414637843,
+    19.098593171027442,
+    14.32394487827058
+  ],
+  "lift_force_N": 38.322375,
+  "lift_motor_required_Nm": 0.06776883791412525,
+  "lift_motor_rpm": 150.0,
+  "lift_dynamic_margin": 3.6890111693636083,
+  "brake_backdrive_ideal_Nm": 0.010499809694394294,
+  "brake_static_margin": 23.809955349330913,
+  "rail_couple_per_block_N": 32.48949375,
+  "base_bearing_couple_N": 108.29831250000002,
+  "elbow_bearing_upper_bound_N": 185.65425000000002,
+  "beam_only_tip_deflection_mm": 0.5389734563606002,
+  "mast_rotation_tip_effect_mm": 0.5711266919606236,
+  "mast_translation_mm": 0.3212587642278508,
+  "extrusion_bending_stress_MPa": 8.757275943396229,
+  "belts": [
+    {
+      "axis": "base",
+      "teeth": [
+        20,
+        100
+      ],
+      "center_nominal_mm": 80.0,
+      "pitch_length_mm": 288.10569469138704,
+      "small_wrap_deg": 142.8785105662077,
+      "engaged_teeth": 7.937695031455982,
+      "design_tension_difference_N": 19.383312513383665
+    },
+    {
+      "axis": "elbow",
+      "teeth": [
+        20,
+        80
+      ],
+      "center_nominal_mm": 70.0,
+      "pitch_length_mm": 245.21080373017742,
+      "small_wrap_deg": 148.33368487253972,
+      "engaged_teeth": 8.240760270696653,
+      "design_tension_difference_N": 7.957016055535185
+    },
+    {
+      "axis": "wrist",
+      "teeth": [
+        20,
+        60
+      ],
+      "center_nominal_mm": 65.0,
+      "pitch_length_mm": 212.4940599050422,
+      "small_wrap_deg": 157.40737798679427,
+      "engaged_teeth": 8.744854332599683,
+      "design_tension_difference_N": 1.487020522699169
+    }
+  ],
+  "workspace_points": [
+    {
+      "x_mm": 400.0,
+      "y_mm": 0,
+      "base_deg": 0.0,
+      "elbow_deg": 0.0,
+      "wrist_deg": 0
+    },
+    {
+      "x_mm": 300.0,
+      "y_mm": -200.0,
+      "base_deg": -56.720373342133364,
+      "elbow_deg": 51.59529588530262,
+      "wrist_deg": 0
+    },
+    {
+      "x_mm": 300.0,
+      "y_mm": 0,
+      "base_deg": -36.57954283751154,
+      "elbow_deg": 83.32937018328616,
+      "wrist_deg": 0
+    },
+    {
+      "x_mm": 300.0,
+      "y_mm": 200.0,
+      "base_deg": 10.65976170982622,
+      "elbow_deg": 51.59529588530262,
+      "wrist_deg": 0
+    }
+  ]
+}
