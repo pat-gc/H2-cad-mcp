@@ -1,0 +1,137 @@
+From b8a3be0ff713c744f382517a45ab3eb0d28d2740 Mon Sep 17 00:00:00 2001
+From: patcybermind <pato.gonzalezcabrera@gmail.com>
+Date: Sat, 14 Nov 2026 05:48:32 -0500
+Subject: [PATCH] Expose bounded editor busy causes without changing guards
+
+---
+ extension/editor-tabs.js   |  8 ++++++++
+ extension/page-adapter.js  | 21 ++++++++++++++++++++-
+ tests/adapter.test.mjs     | 32 ++++++++++++++++++++++++++++++++
+ tests/editor-tabs.test.mjs | 15 +++++++++++++++
+ 4 files changed, 75 insertions(+), 1 deletion(-)
+
+diff --git a/extension/editor-tabs.js b/extension/editor-tabs.js
+index 6fbc012..c847b12 100644
+--- a/extension/editor-tabs.js
++++ b/extension/editor-tabs.js
+@@ -49,6 +49,14 @@ export function createEditorTabs(browser, probe, {sleep = ms => new Promise(r =>
+       return {ready: state?.connected === true, stale: state?.connected === false,
+         reason: state?.connected === true ? 'connected' : state?.connected === false ? 'disconnected' : 'connection_unknown',
+         busy: !!(state?.editingFeatureId || state?.rpc_pending || state?.motion_active || state?.incomplete_edit),
++        busy_reasons: state?.busy_reasons ? Object.fromEntries(
++          ['feature_edit','pending_rpc','motion','incomplete_feature_edit','incomplete_transform','drag']
++            .map(key=>[key, state.busy_reasons[key] === true])) : null,
++        incomplete_feature_marker: state?.incomplete_feature_marker ? {
++          stage: state.incomplete_feature_marker.stage,
++          op_id: state.incomplete_feature_marker.op_id,
++          target: state.incomplete_feature_marker.target
++        } : null,
+         microversion: state?.microversion, element_microversion: state?.element_microversion};
+     } catch {
+       return {ready: false, stale: false, reason: 'Editor probe unavailable; inspect the tab or explicitly refresh it.'};
+diff --git a/extension/page-adapter.js b/extension/page-adapter.js
+index 304513f..46827d4 100644
+--- a/extension/page-adapter.js
++++ b/extension/page-adapter.js
+@@ -153,12 +153,31 @@ export async function pageCommand(job) {
+     if (!elementModel || !getMicroversion()) throw new Error("Target editor is not ready.");
+     const motion = controller.__onshapeNativeMotionV1;
+     const closed = controller.connection?.isClosed?.();
++    const marker = controller.__onshapeNativeIncompleteFeatureEdit;
++    const busyReasons = {
++      feature_edit: !!elementModel?.get("idEditingFeature"),
++      pending_rpc: !!controller.__onshapeNativePendingDisplayRpc?.pending,
++      motion: !!(motion && !['restored', 'invalidated'].includes(motion.state)),
++      incomplete_feature_edit: !!marker,
++      incomplete_transform: !!controller.__onshapeNativeIncompleteTransform,
++      drag: !!elementModel?.get("isInMiddleOfDrag")
++    };
++    // Only bounded lifecycle metadata: never serialize a marker's model data.
++    // Older markers have no target; null means unknown, not the active target.
++    const markerTarget = marker?.target;
++    const markerInfo = marker ? {
++      stage: typeof marker.stage === "string" && /^[a-z][a-z0-9-]{0,63}$/.test(marker.stage) ? marker.stage : null,
++      op_id: typeof marker.op_id === "string" && /^(?:begin-sketch|begin-extrude|sketch|extrude)-[a-f0-9]{32}$/.test(marker.op_id) ? marker.op_id : null,
++      target: markerTarget && ['did','wid','eid'].every(k=>typeof markerTarget[k] === "string" && /^[a-f0-9]{24}$/.test(markerTarget[k]))
++        ? {did:markerTarget.did,wid:markerTarget.wid,eid:markerTarget.eid} : null
++    } : null;
+     return {connected: typeof closed === 'boolean' ? !closed : null,
+       microversion: getMicroversion(), element_microversion: getElementMicroversion(),
+       editingFeatureId: elementModel?.get("idEditingFeature") || null,
+       rpc_pending: !!controller.__onshapeNativePendingDisplayRpc?.pending,
+       incomplete_edit: !!(controller.__onshapeNativeIncompleteFeatureEdit || controller.__onshapeNativeIncompleteTransform || elementModel?.get("isInMiddleOfDrag")),
+-      motion_active: !!(motion && !['restored', 'invalidated'].includes(motion.state))};
++      motion_active: !!(motion && !['restored', 'invalidated'].includes(motion.state)),
++      busy_reasons: busyReasons, incomplete_feature_marker: markerInfo};
+   }
+   // The serializer registry includes nested types absent from the public barrel,
+   // e.g. partstudio.GBTPSOIdentity in material and assembly insertion payloads.
+diff --git a/tests/adapter.test.mjs b/tests/adapter.test.mjs
+index 9361e57..86d59d6 100644
+--- a/tests/adapter.test.mjs
++++ b/tests/adapter.test.mjs
+@@ -797,6 +797,38 @@ test('editor health reports connection and transient work without serializing mo
+ });
+ 
+ 
++test('health distinguishes busy causes and exposes only bounded marker metadata without retiring it',async()=>{
++  const modules=setup(undefined,false,micro);
++  const controller=modules.__controller;
++  const values={};
++  controller.documentModel.get=k=>k==='microversionId'?{theId:micro}:{get:key=>values[key]};
++  for (const cause of ['feature','transform','drag','editing','rpc','motion']) {
++    delete controller.__onshapeNativeIncompleteFeatureEdit;
++    delete controller.__onshapeNativeIncompleteTransform;
++    delete controller.__onshapeNativePendingDisplayRpc;
++    delete controller.__onshapeNativeMotionV1;
++    values.idEditingFeature=null; values.isInMiddleOfDrag=false;
++    if(cause==='feature') controller.__onshapeNativeIncompleteFeatureEdit={stage:'commit',op_id:'extrude-'+'a'.repeat(32),
++      target:{...target,secret:'must-not-leak'},model:{secret:'must-not-leak'}};
++    if(cause==='transform') controller.__onshapeNativeIncompleteTransform={secret:'must-not-leak'};
++    if(cause==='drag') values.isInMiddleOfDrag=true;
++    if(cause==='editing') values.idEditingFeature='active';
++    if(cause==='rpc') controller.__onshapeNativePendingDisplayRpc={pending:true};
++    if(cause==='motion') controller.__onshapeNativeMotionV1={state:'playing'};
++    const marker=controller.__onshapeNativeIncompleteFeatureEdit;
++    const health=await pageCommand({kind:'editor_health',target});
++    assert.deepEqual(Object.keys(health.busy_reasons).filter(k=>health.busy_reasons[k]),
++      [{feature:'incomplete_feature_edit',transform:'incomplete_transform',drag:'drag',editing:'feature_edit',rpc:'pending_rpc',motion:'motion'}[cause]]);
++    assert.equal(controller.__onshapeNativeIncompleteFeatureEdit,marker);
++    assert(!JSON.stringify(health).includes('must-not-leak'));
++    if(cause==='feature') assert.deepEqual(health.incomplete_feature_marker,{stage:'commit',op_id:'extrude-'+'a'.repeat(32),target});
++  }
++  controller.__onshapeNativeIncompleteFeatureEdit={stage:'x'.repeat(1000),op_id:'private',target:{did:'wrong'}};
++  const health=await pageCommand({kind:'editor_health',target});
++  assert.deepEqual(health.incomplete_feature_marker,{stage:null,op_id:null,target:null});
++  assert.equal(sent.length,0);
++});
++
+ test('multipart chunks are pinned, bounded and submitted exactly once as a browser Blob', async()=>{
+   setup(); globalThis.document={cookie:'XSRF-TOKEN=fixture'};
+   const previous=globalThis.fetch; let sent=0;
+diff --git a/tests/editor-tabs.test.mjs b/tests/editor-tabs.test.mjs
+index 345f6f2..3ba7a06 100644
+--- a/tests/editor-tabs.test.mjs
++++ b/tests/editor-tabs.test.mjs
+@@ -141,3 +141,18 @@ test('new browser session loses ownership and cannot close restored user tab', a
+   const f = fixture(), r = await open(f); delete f.session.managedEditors;
+   assert.equal((await control(f, r.tab_id, {action: 'close'})).closed, false);
+ });
++
++test('status forwards bounded busy diagnostics while preserving the existing close guard', async()=>{
++  const f=fixture(), r=await open(f);
++  f.setState({connected:true,incomplete_edit:true,
++    busy_reasons:{feature_edit:false,pending_rpc:false,motion:false,incomplete_feature_edit:false,
++      incomplete_transform:false,drag:true,secret:'must-not-leak'},
++    incomplete_feature_marker:{stage:'commit',op_id:null,target:null,model:'must-not-leak'}});
++  const status=await control(f,r.tab_id,{action:'status'});
++  assert.equal(status.ready,true); assert.equal(status.busy,true);
++  assert.equal(status.busy_reasons.drag,true);
++  assert.equal(status.busy_reasons.incomplete_feature_edit,false);
++  assert.deepEqual(status.incomplete_feature_marker,{stage:'commit',op_id:null,target:null});
++  assert(!JSON.stringify(status).includes('must-not-leak'));
++  await assert.rejects(control(f,r.tab_id,{action:'close'}),/Finish/);
++});
+-- 
+2.54.0.windows.1
+
