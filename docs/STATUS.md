@@ -1,6 +1,6 @@
 # H2 CAD development status
 
-Updated 2026-11-13. **This is the development lead's current status page.** Read it before starting a new stage; at each substantive handoff, the owner reports the exact row change and evidence to Astra for integration. Historical trials and plans retain their own dates.
+Updated 2026-11-13. **This is the project lead's current status page.** Read it before starting a new stage; at each substantive handoff, the owner reports the exact row change and evidence to Root, copying Astra when implementation review applies. Historical trials and plans retain their own dates.
 
 After integrating a substantive `src/`, `scripts/`, or `tests/` batch, refresh the local code map once from the main checkout using the [Graphify workflow](GRAPHIFY.md) before the handoff.
 Use the [agent coordination rules](AGENT-COORDINATION.md) for owned files, exact evidence handoffs, and shared browser/journal safety. This page remains the live state authority.
@@ -48,12 +48,12 @@ The first checkpoint Part Studio `1926791d173990d5d45f70ef` contained an ownersh
 
 ## Owners and handoff
 
-- **Astra:** development lead, review, integration, acceptance decisions and this status page. Patch 30's read diagnostics are integrated through `755d926`; local staging and live activation are separate gates.
+- **Root:** project lead for sustained supervision, end-to-end completion, acceptance and user coordination. Root receives actionable worker completions, failures and blockers, and owns the next-task decision. Root starts `cadder` only after the full repeatable native car acceptance described above.
+- **Astra:** sublead for Root-assigned implementation review and coordination; backup for actionable escalation when Root is unavailable. Patch 30's read diagnostics are integrated through `755d926`; local staging and live activation are separate gates.
 - **Native Sol:** implementation owner for exact read path and partial-intent reconciliation, then later car source coverage. Patch 29 fixes the nested query dependency field offline; patch 30 defers unnecessary serializer registry enumeration and adds phased timeout diagnostics. Both have offline verification, with no live read or Top-binding proof. Patch 25's automatic Sketch Save remains unproved live.
 - **Tester Sol:** sole live Onshape validation owner. Test 02 is currently closed; old tab ID `941740810` now belongs to the different checkpoint Part Studio. Supported Computer Use stopped on URL-confidence enforcement when attempting normal restoration from Edge's Search Tabs overlay. The installed skill has no specific repair recipe; no workaround or additional browser input followed. Patch 30 was staged **locally only**. Private bridge config, pairing material, journal, WAL/SHM and guard bytes were preserved; no broker restart, extension reload, CAD read or write followed this staging.
-- **Root:** oversight and user input only. Root starts `cadder` only after the full repeatable native car acceptance described above.
 
-Next sequence: Native reusable normal-editor initiation → Astra review → tester clean plate flow from an empty studio with no manual modeling, including saved/timeout/restart recovery → native car variables/planes/circles/expressions and eight-part parity → verified car edit and identity preservation → authorized replacement of the old generated car. Each owner should update the matching table row with observed evidence, not transport acknowledgments or inferred success.
+Next sequence: Native reusable normal-editor initiation → Root-directed review with Astra as sublead → tester clean plate flow from an empty studio with no manual modeling, including saved/timeout/restart recovery → native car variables/planes/circles/expressions and eight-part parity → verified car edit and identity preservation → authorized replacement of the old generated car. Each owner should update the matching table row with observed evidence, not transport acknowledgments or inferred success. Actionable completion, failure or a blocked live gate escalates to Root promptly; copy Astra when its review is needed. No completion time is promised before the live gates pass.
 
 After integrated test guard `20dc15f`, one main-checkout syntax-only Graphify
 refresh succeeded: 454 nodes, 1615 edges, 10 communities; one of 30 files was
