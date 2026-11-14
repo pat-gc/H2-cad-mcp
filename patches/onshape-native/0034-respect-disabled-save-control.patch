@@ -1,0 +1,193 @@
+From 7858133384b9f6018d04a0dca378b0d374a3a7d9 Mon Sep 17 00:00:00 2001
+From: patcybermind <pato.gonzalezcabrera@gmail.com>
+Date: Sat, 14 Nov 2026 05:52:05 -0500
+Subject: [PATCH] Respect disabled Save DIV and report invocation truthfully
+
+---
+ extension/page-adapter.js               | 25 +++++++++++----------
+ skills/onshape-native-modeling/SKILL.md |  5 +++++
+ tests/adapter.test.mjs                  | 29 ++++++++++++++++++++++++-
+ 3 files changed, 47 insertions(+), 12 deletions(-)
+
+diff --git a/extension/page-adapter.js b/extension/page-adapter.js
+index 46827d4..733ae12 100644
+--- a/extension/page-adapter.js
++++ b/extension/page-adapter.js
+@@ -149,6 +149,11 @@ export async function pageCommand(job) {
+     const value = elementModel?.getMicroversionId?.() ?? elementModel?.get?.("microversionId");
+     return typeof value === "string" ? value : value?.theId || "";
+   };
++  const featureSaveEnabled = node => !node.disabled &&
++    node.getAttribute("aria-disabled") !== "true" && !node.classList?.contains("disabled");
++  // Compatibility field normal_ui_finish means invocation only, never acceptance
++  // or saved state. Consumers should prefer the explicit new field.
++  const saveInvocation = invoked => ({normal_ui_save_invoked:invoked,normal_ui_finish:invoked});
+   if (job.kind === "editor_health") {
+     if (!elementModel || !getMicroversion()) throw new Error("Target editor is not ready.");
+     const motion = controller.__onshapeNativeMotionV1;
+@@ -332,7 +337,7 @@ export async function pageCommand(job) {
+         parentTag: el.parentElement?.tagName?.toLowerCase() || null,
+         parentClassName: String(el.parentElement?.className || "").slice(0, 180),
+         visible: el.getClientRects().length > 0 && getComputedStyle(el).visibility !== "hidden",
+-        enabled: !el.disabled && el.getAttribute("aria-disabled") !== "true",
++        enabled: featureSaveEnabled(el),
+         centerHit: hit === el ? "self" : hit && el.contains(hit) ? "descendant" : hit ? "other" : "unavailable",
+         hitTag: hit?.tagName?.toLowerCase() || null,
+         hitClassName: String(hit?.className || "").slice(0, 180)};
+@@ -725,13 +730,12 @@ export async function pageCommand(job) {
+           return {op_id:job.op_id,feature_id:edit.feature_id,feature_node_id:sketch.nodeId,
+             element_microversion_before:job.expected_element_microversion,
+             element_microversion_after:getElementMicroversion(),
+-            definition_candidate:true,active_constraint_graph:activeGraph,normal_ui_finish:saveClicked,
++            definition_candidate:true,active_constraint_graph:activeGraph,...saveInvocation(saveClicked),
+             verification:"Independent saved state and editable UI checks required"};
+         }
+         if (!saveClicked && elementModel?.get("idEditingFeature") === edit.feature_id) {
+           const buttons = [...document.querySelectorAll('.feature-dialog .ns-dialog-button-ok')]
+-            .filter(node=>node.getClientRects().length>0 && !node.disabled &&
+-              node.getAttribute("aria-disabled")!=="true");
++            .filter(node=>node.getClientRects().length>0 && featureSaveEnabled(node));
+           if (buttons.length === 1) {
+             if (controller.connection?.isClosed?.() !== false ||
+                 controller.getActiveElementTabId() !== target.eid ||
+@@ -754,7 +758,7 @@ export async function pageCommand(job) {
+         location.pathname === `/documents/${target.did}/w/${target.wid}/e/${target.eid}`) {
+       controller.__onshapeNativeIncompleteFeatureEdit.stage = "await-saved-readback";
+       return {op_id:job.op_id,feature_id:edit.feature_id,definition_candidate:true,
+-        active_constraint_graph:activeGraph,normal_ui_finish:saveClicked,completion_pending:true,
++        active_constraint_graph:activeGraph,...saveInvocation(saveClicked),completion_pending:true,
+         verification:"Commit acknowledged; saved idle state requires independent readback"};
+     }
+     throw new Error("Sketch command acknowledged but saved definition/idle state is unconfirmed; outcome unknown.");
+@@ -867,13 +871,12 @@ export async function pageCommand(job) {
+           return {op_id:job.op_id,feature_id:edit.feature_id,sketch_feature_id:edit.sketch_feature_id,
+             element_microversion_before:job.expected_element_microversion,
+             element_microversion_after:getElementMicroversion(),definition_candidate:true,
+-            region_source_verified:true,normal_ui_finish:saveClicked,
++            region_source_verified:true,...saveInvocation(saveClicked),
+             verification:"Independent tree, regenerated solid, and editable UI inspection required"};
+         }
+         if (!saveClicked && elementModel?.get("idEditingFeature")===edit.feature_id) {
+           const buttons = [...document.querySelectorAll('.feature-dialog .ns-dialog-button-ok')]
+-            .filter(node=>node.getClientRects().length>0 && !node.disabled &&
+-              node.getAttribute("aria-disabled")!=="true");
++            .filter(node=>node.getClientRects().length>0 && featureSaveEnabled(node));
+           if (buttons.length===1) {
+             if (controller.connection?.isClosed?.() !== false ||
+                 controller.getActiveElementTabId() !== target.eid ||
+@@ -890,7 +893,7 @@ export async function pageCommand(job) {
+     }
+     const candidate = root()?.children?.filter(node=>node?.featureId===edit.feature_id);
+     const candidateDepth = candidate?.[0]?.parameters?.filter(p=>p?.parameterId==="depth");
+-    if (saveClicked && candidate?.length===1 && candidate[0].nodeId===feature.nodeId &&
++    if (candidate?.length===1 && candidate[0].nodeId===feature.nodeId &&
+         candidateDepth?.length===1 && candidateDepth[0].value===edit.to_mm &&
+         candidateDepth[0].expression===`${edit.to_mm} mm` &&
+         getElementMicroversion()!==job.expected_element_microversion &&
+@@ -898,8 +901,8 @@ export async function pageCommand(job) {
+         location.pathname===`/documents/${target.did}/w/${target.wid}/e/${target.eid}`) {
+       controller.__onshapeNativeIncompleteFeatureEdit.stage="await-saved-readback";
+       return {op_id:job.op_id,feature_id:edit.feature_id,sketch_feature_id:edit.sketch_feature_id,
+-        definition_candidate:true,region_source_verified:true,normal_ui_finish:true,
+-        completion_pending:true,verification:"Save invoked; saved idle state requires independent readback"};
++        definition_candidate:true,region_source_verified:true,...saveInvocation(saveClicked),
++        completion_pending:true,verification:"Commit acknowledged; saved idle state requires independent readback"};
+     }
+     throw new Error("Extrusion command acknowledged but saved definition/idle state is unconfirmed; outcome unknown.");
+   }
+diff --git a/skills/onshape-native-modeling/SKILL.md b/skills/onshape-native-modeling/SKILL.md
+index d6cdd84..351175d 100644
+--- a/skills/onshape-native-modeling/SKILL.md
++++ b/skills/onshape-native-modeling/SKILL.md
+@@ -27,6 +27,11 @@ The result `h2_command_completed` reports H2 definition checks only. Independent
+ verify saved solid geometry and human editability. If the tool returns
+ `needs_readback`, inspect the pinned journal and exact editor state; never invoke
+ the tool again on that target until the uncertain operation is reconciled.
++The receipt field `normal_ui_save_invoked` reports only whether the adapter
++invoked the Save control; legacy `normal_ui_finish` is an invocation-only alias.
++Neither proves that Onshape accepted Save or closed the editor. A CSS-disabled
++Save DIV is not invoked. `completion_pending` preserves the original operation
++for exact saved-state reconciliation, including when Save was not invoked.
+ 
+ The standalone MCP plate command does not yet orchestrate the normal browser
+ selection needed between saving the sketch and starting Extrude. For this H2
+diff --git a/tests/adapter.test.mjs b/tests/adapter.test.mjs
+index 86d59d6..8feb4b7 100644
+--- a/tests/adapter.test.mjs
++++ b/tests/adapter.test.mjs
+@@ -92,6 +92,9 @@ test('UI inspection describes the feature Save hit target without dispatching an
+   assert.equal(result.featureSave.controls[0].centerHit,'descendant');
+   assert.equal(result.featureSave.controls[0].hitTag,'span');
+   assert.equal(result.featureSave.controls[0].enabled,true);
++  save.classList={contains:name=>name==='disabled'};
++  const disabled=await pageCommand({kind:'ui_inspect',target});
++  assert.equal(disabled.featureSave.controls[0].enabled,false);
+   assert.equal(result.controls.length,0);
+   assert.equal(sent.length,0);
+ });
+@@ -184,9 +187,12 @@ test('source rectangle populates an editor allocated blank sketch with typed nat
+     expected_element_microversion:'a'.repeat(24),sketch_edit:{feature_id:'newlyAllocated_0',
+       entity_prefix:'box',rectangle_m:[0,0,.04,.02]}});
+   assert.equal(saved.normal_ui_finish,true,JSON.stringify(saved));
++  assert.equal(saved.normal_ui_save_invoked,true);
+   assert.equal(sketchSaveClicks,1);
+   delayedCommit=true;revision='a'.repeat(24);editing=sketch.featureId;root.children[1]=sketch;
+-  globalThis.document={querySelectorAll:()=>[]};
++  globalThis.document={querySelectorAll:selector=>selector==='.feature-dialog .ns-dialog-button-ok'?[{
++    tagName:'DIV',getClientRects:()=>[1],getAttribute:()=>null,
++    classList:{contains:name=>name==='disabled'},click:()=>{throw Error('Disabled Save must not be clicked');}}]:[]};
+   const delayed=setup(undefined,false,revision,root,types,respond,temp);
+   delayed.__controller.documentModel.get=k=>k==='microversionId'?{theId:micro}:
+     {get:x=>x==='microversionId'?revision:x==='idEditingFeature'?editing:null};
+@@ -194,6 +200,9 @@ test('source rectangle populates an editor allocated blank sketch with typed nat
+     expected_element_microversion:'a'.repeat(24),sketch_edit:{feature_id:'newlyAllocated_0',
+       entity_prefix:'box',rectangle_m:[0,0,.04,.02]}});
+   assert.equal(pending.completion_pending,true,JSON.stringify(pending));
++  assert.equal(pending.normal_ui_save_invoked,false);
++  assert.equal(pending.normal_ui_finish,false);
++  assert.equal(editing,sketch.featureId);
+   assert.equal(pending.op_id,'sketch-'+ 'a'.repeat(32));
+   assert.deepEqual(sent.map(m=>m.getMessageName()),['ui.GBTUiSpecifyFeature',
+     'ui.sketch.GBTUiSketchGetConstraintGraphCall','ui.GBTUiCommit']);
+@@ -458,6 +467,7 @@ test('source extrusion updates only the UI bound region feature through typed ed
+   assert.equal(result.definition_candidate,true,JSON.stringify(result));
+   assert.equal(result.region_source_verified,true);
+   assert.equal(result.normal_ui_finish,true);
++  assert.equal(result.normal_ui_save_invoked,true);
+   assert.equal(saveClicks,1);
+   assert.deepEqual(sent.map(m=>m.getMessageName()),['ui.GBTUiGetQueryDataCall','ui.GBTUiSpecifyFeature','ui.GBTUiCommit']);
+   assert.equal(sent[1].featureChange.oldNode.nodeId,'fresh-depth-node');
+@@ -482,6 +492,8 @@ test('source extrusion updates only the UI bound region feature through typed ed
+       sketch_feature_id:'savedSketch_0',from_mm:25,to_mm:5}});
+   assert.equal(pending.completion_pending,true,JSON.stringify(pending));
+   assert.equal(pending.op_id,'extrude-'+ 'a'.repeat(32));
++  assert.equal(pending.normal_ui_save_invoked,true);
++  assert.equal(editing,extrude.featureId); // Invoked does not mean saved.
+   assert.equal(saveClicks,1);
+   assert.deepEqual(sent.map(m=>m.getMessageName()),['ui.GBTUiGetQueryDataCall','ui.GBTUiSpecifyFeature','ui.GBTUiCommit']);
+   assert.equal(delayed.__controller.__onshapeNativeIncompleteFeatureEdit?.stage,'await-saved-readback');
+@@ -490,6 +502,21 @@ test('source extrusion updates only the UI bound region feature through typed ed
+   assert.equal(delayed.__controller.__onshapeNativeIncompleteFeatureEdit?.stage,'await-saved-readback');
+   await pageCommand({kind:'state',target:temp,retire_acknowledged_op_id:'extrude-'+ 'a'.repeat(32)});
+   assert.equal(delayed.__controller.__onshapeNativeIncompleteFeatureEdit,undefined);
++  revision='a'.repeat(24);editing=extrude.featureId;depth.value=25;depth.expression='25 mm';
++  globalThis.document={querySelectorAll:selector=>selector==='.feature-dialog .ns-dialog-button-ok'?[{
++    tagName:'DIV',getClientRects:()=>[1],getAttribute:()=>null,
++    classList:{contains:name=>name==='disabled'},click:()=>{throw Error('Disabled Save must not be clicked');}}]:[]};
++  const disabledPending=await pageCommand({kind:'partstudio_populate_extrude',op_id:'extrude-'+ 'b'.repeat(32),target:temp,
++    expected_element_microversion:'a'.repeat(24),extrude_edit:{feature_id:'newExtrude_0',
++      sketch_feature_id:'savedSketch_0',from_mm:25,to_mm:5}});
++  assert.equal(disabledPending.completion_pending,true,JSON.stringify(disabledPending));
++  assert.equal(disabledPending.normal_ui_save_invoked,false);
++  assert.equal(disabledPending.normal_ui_finish,false);
++  assert.equal(disabledPending.region_source_verified,true);
++  assert.equal(editing,extrude.featureId);
++  assert.equal(delayed.__controller.__onshapeNativeIncompleteFeatureEdit?.stage,'await-saved-readback');
++  globalThis.document={querySelectorAll:selector=>selector==='.feature-dialog .ns-dialog-button-ok'?[{
++    getClientRects:()=>[1],disabled:false,getAttribute:()=>null,click:()=>{saveClicks++;}}]:[]};
+   const SketchRegion=Type('bsedit.GBTMIndividualSketchRegionQuery',{
+     featureId:'savedSketch_0',filterInnerLoops:true,deterministicIds:['editor-region']});
+   regions.queries=[new SketchRegion()];
+-- 
+2.54.0.windows.1
+
