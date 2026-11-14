@@ -1,0 +1,1390 @@
+From 0a1095e3257a773e397d3daae85cdd4e0069151a Mon Sep 17 00:00:00 2001
+From: patcybermind <pato.gonzalezcabrera@gmail.com>
+Date: Sat, 14 Nov 2026 06:11:33 -0500
+Subject: [PATCH] feat: populate journaled native literal variables from fresh
+ UI drafts
+
+---
+ extension/connection.js                     |   2 +-
+ extension/page-adapter.js                   |  99 ++-
+ onshape_native/bridge.py                    | 168 ++++-
+ skills/onshape-native-modeling/SKILL.md     |  10 +
+ tests/adapter.test.mjs                      |  60 ++
+ tests/fixtures/native_variable_default.json | 766 ++++++++++++++++++++
+ tests/test_variable_writer.py               | 109 +++
+ 7 files changed, 1203 insertions(+), 11 deletions(-)
+ create mode 100644 tests/fixtures/native_variable_default.json
+ create mode 100644 tests/test_variable_writer.py
+
+diff --git a/extension/connection.js b/extension/connection.js
+index 3fab527..b436de4 100644
+--- a/extension/connection.js
++++ b/extension/connection.js
+@@ -79,7 +79,7 @@ export function createConnection({browser, token, execute, Socket = WebSocket,
+       if (socket !== current) return;
+       current.send(JSON.stringify({type: 'hello', token, version: browser.runtime.getManifest().version,
+         runtime_id: browser.runtime.id, instance_id: instanceId, build: 'h2-extension-reload-v1',
+-        capabilities: ['tab_context_v1', 'assembly_sidebar_map_v1', 'display_v1', 'native_modeling_v1', 'element_revision_v1', 'editor_tabs_v1', 'ui_exports_v1', 'chunked_upload_v1', 'chunked_response_v1', 'viewer_mesh_v1', 'h2_depth_edit_page_v1', 'h2_native_begin_top_sketch_page_v1', 'h2_native_begin_top_ready_page_v1', 'h2_native_typed_top_plane_page_v1', 'h2_native_begin_source_extrude_page_v1', 'h2_native_sketch_populate_page_v1', 'h2_native_fixed_origin_page_v1', 'h2_native_extrude_populate_page_v1', 'h2_native_source_region_page_v1', 'h2_native_extrude_recheck_page_v1', 'h2_native_completion_receipt_page_v1', 'h2_extension_reload_v1']}));
++        capabilities: ['tab_context_v1', 'assembly_sidebar_map_v1', 'display_v1', 'native_modeling_v1', 'element_revision_v1', 'editor_tabs_v1', 'ui_exports_v1', 'chunked_upload_v1', 'chunked_response_v1', 'viewer_mesh_v1', 'h2_depth_edit_page_v1', 'h2_native_begin_top_sketch_page_v1', 'h2_native_begin_top_ready_page_v1', 'h2_native_typed_top_plane_page_v1', 'h2_native_begin_source_extrude_page_v1', 'h2_native_sketch_populate_page_v1', 'h2_native_fixed_origin_page_v1', 'h2_native_extrude_populate_page_v1', 'h2_native_variable_populate_page_v1', 'h2_native_source_region_page_v1', 'h2_native_extrude_recheck_page_v1', 'h2_native_completion_receipt_page_v1', 'h2_extension_reload_v1']}));
+     };
+     let lastPong = now(), chunkedResponses = false;
+     current.onmessage = async event => {
+diff --git a/extension/page-adapter.js b/extension/page-adapter.js
+index 733ae12..92bfedf 100644
+--- a/extension/page-adapter.js
++++ b/extension/page-adapter.js
+@@ -172,7 +172,7 @@ export async function pageCommand(job) {
+     const markerTarget = marker?.target;
+     const markerInfo = marker ? {
+       stage: typeof marker.stage === "string" && /^[a-z][a-z0-9-]{0,63}$/.test(marker.stage) ? marker.stage : null,
+-      op_id: typeof marker.op_id === "string" && /^(?:begin-sketch|begin-extrude|sketch|extrude)-[a-f0-9]{32}$/.test(marker.op_id) ? marker.op_id : null,
++      op_id: typeof marker.op_id === "string" && /^(?:begin-sketch|begin-extrude|sketch|extrude|variable)-[a-f0-9]{32}$/.test(marker.op_id) ? marker.op_id : null,
+       target: markerTarget && ['did','wid','eid'].every(k=>typeof markerTarget[k] === "string" && /^[a-f0-9]{24}$/.test(markerTarget[k]))
+         ? {did:markerTarget.did,wid:markerTarget.wid,eid:markerTarget.eid} : null
+     } : null;
+@@ -763,6 +763,101 @@ export async function pageCommand(job) {
+     }
+     throw new Error("Sketch command acknowledged but saved definition/idle state is unconfirmed; outcome unknown.");
+   }
++  if (job.kind === "partstudio_populate_variable") {
++    const edit = job.variable_edit;
++    if (!/^variable-[a-f0-9]{32}$/.test(job.op_id || "") ||
++        target.did !== "4e078dec822b4e509616b1cb" || target.wid !== "af0627de07264acf086e646a" ||
++        !/^[a-f0-9]{24}$/.test(target.eid) || ["45730d1931712e2c548fae00","39a2e2afc5bc43eea167e938"].includes(target.eid))
++      throw new Error("Journaled variable in authorized temporary studio required.");
++    if (!/^[A-Za-z][A-Za-z0-9_]*$/.test(edit?.name || "") ||
++        typeof edit?.expression !== "string" || !/^[+-]?(?:\d+(?:\.\d*)?|\.\d+)\s*mm$/.test(edit.expression.trim()))
++      throw new Error("Named literal millimeter variable required.");
++    const value = Number(edit.expression.trim().slice(0,-2));
++    if (!Number.isFinite(value)) throw new Error("Finite variable required.");
++    const root = () => controller.documentClientCache?.getModelTreeState(target.eid)?.diffableModelTree?.getRoot();
++    const exactEditor = () => controller.connection?.isClosed?.() === false &&
++      controller.getActiveElementTabId() === target.eid &&
++      location.pathname === `/documents/${target.did}/w/${target.wid}/e/${target.eid}`;
++    if (!exactEditor() || controller.__onshapeNativeIncompleteFeatureEdit ||
++        elementModel?.get("idEditingFeature") !== edit.feature_id ||
++        !job.expected_element_microversion || getElementMicroversion() !== job.expected_element_microversion)
++      throw new Error("Exact fresh variable editor unavailable.");
++    const matches = root()?.children?.filter(n=>n?.featureId===edit.feature_id && n.featureType==="assignVariable");
++    if (matches?.length!==1 || !matches[0].nodeId || matches[0].suppressed!==false)
++      throw new Error("One active unsuppressed variable required.");
++    const feature = matches[0];
++    const params = feature.parameters;
++    const byId = id => params?.filter(p=>p?.parameterId===id);
++    for (const [id,type,expected] of [["mode","GBTMParameterEnum","ASSIGNED"],
++      ["variableType","GBTMParameterEnum","LENGTH"],["measurementMode","GBTMParameterEnum","DISTANCE"],
++      ["name","GBTMParameterString",""]]) {
++      const p = byId(id);
++      if (p?.length!==1 || p[0].getMessageName?.()!==`bsedit.${type}` || !p[0].nodeId || p[0].value!==expected)
++        throw new Error("Blank ASSIGNED/LENGTH variable draft required.");
++    }
++    for (const id of ["lengthValue","value"]) {
++      const p = byId(id);
++      if (p?.length!==1 || p[0].getMessageName?.()!=="bsedit.GBTMParameterQuantity" || !p[0].nodeId ||
++          p[0].value!==0 || p[0].expression!=="0 mm" || p[0].units!=="millimeter")
++        throw new Error("Blank literal length parameters required.");
++    }
++    if (root().children.some(n=>n!==feature && n.featureType==="assignVariable" &&
++        n.parameters?.some(p=>p.parameterId==="name" && p.value===edit.name)))
++      throw new Error("Source variable already exists; reconcile instead of replay.");
++    const expected = plain(root());
++    const newFeature = expected.children.find(n=>n.featureId===edit.feature_id);
++    for (const p of newFeature.parameters) {
++      if (p.parameterId==="name") p.value=edit.name;
++      if (["lengthValue","value"].includes(p.parameterId)) { p.value=value; p.expression=edit.expression; }
++    }
++    const make = (name,fields={}) => hydrate({$type:name,...plain(fields)});
++    const specify = make("ui.GBTUiSpecifyFeature",{elementId:target.eid,featureNodeId:feature.nodeId,
++      featureChange:make("diff.GBTTreeEditChange",{oldNode:make("tree.GBTNodeReference",{nodeId:feature.nodeId}),newNode:hydrate(newFeature)}),
++      sequenceId:1,selectionMicroversion:null,inContextEntitiesToAdd:null,editDescription:"Set H2 source variable"});
++    const commit = make("ui.GBTUiCommit",{elementId:target.eid,featureNodeId:feature.nodeId,editDescription:"Insert feature : H2 source variable"});
++    if (typeof controller.elementConnection?.callAndPromise!=="function") throw new Error("Native editor connection unavailable.");
++    if (!exactEditor() || elementModel?.get("idEditingFeature")!==edit.feature_id ||
++        getElementMicroversion()!==job.expected_element_microversion)
++      throw new Error("Variable editor changed before dispatch.");
++    controller.__onshapeNativeIncompleteFeatureEdit={node_id:feature.nodeId,feature_id:edit.feature_id,target:{...target},
++      expected_revision:job.expected_element_microversion,op_id:job.op_id,stage:"prepared"};
++    for (const [i,command] of [specify,commit].entries()) {
++      if (!exactEditor() || elementModel?.get("idEditingFeature")!==edit.feature_id)
++        throw new Error("Variable editor changed; outcome unknown.");
++      controller.__onshapeNativeIncompleteFeatureEdit.stage=i===0?"specify":"commit";
++      h2CadRpcSent=true;
++      const response=await controller.elementConnection.callAndPromise(command);
++      if (response?.error || response?.errorCode || response?.errorEnum) throw new Error("Variable command rejected; inspect before another mutation.");
++    }
++    // A candidate is not a saved result. The broker retains its journal barrier
++    // until independent stable idle readback proves this exact whole tree.
++    const stable = x => Array.isArray(x) ? x.map(stable) : x && typeof x === "object"
++      ? Object.fromEntries(Object.keys(x).sort().map(k=>[k,stable(x[k])])) : x;
++    const expectedJSON = JSON.stringify(stable(expected));
++    let candidate=false;
++    for (let attempt=0;attempt<30;attempt++) {
++      if (!exactEditor()) break;
++      if (JSON.stringify(stable(plain(root())))===expectedJSON && getElementMicroversion()!==job.expected_element_microversion) {
++        candidate=true; break;
++      }
++      await new Promise(resolve=>setTimeout(resolve,100));
++    }
++    if (!candidate)
++      throw new Error("Variable saved definition unconfirmed; outcome unknown.");
++    let invoked=false;
++    if (elementModel?.get("idEditingFeature")===edit.feature_id) {
++      const buttons=[...document.querySelectorAll('.feature-dialog .ns-dialog-button-ok')]
++        .filter(n=>n.getClientRects().length>0 && featureSaveEnabled(n));
++      if (buttons.length===1) {
++        if (!exactEditor() || elementModel?.get("idEditingFeature")!==edit.feature_id)
++          throw new Error("Variable editor changed before Save; outcome unknown.");
++        buttons[0].click(); invoked=true;
++      }
++    }
++    controller.__onshapeNativeIncompleteFeatureEdit.stage="await-saved-readback";
++    return {op_id:job.op_id,feature_id:edit.feature_id,definition_candidate:true,
++      completion_pending:true,...saveInvocation(invoked),regeneration_verified:false};
++  }
+   if (job.kind === "partstudio_populate_extrude") {
+     const edit = job.extrude_edit;
+     if (!/^extrude-[a-f0-9]{32}$/.test(job.op_id || ""))
+@@ -1042,7 +1137,7 @@ export async function pageCommand(job) {
+     // Chrome discards a rejected executeScript promise's exception details.
+     // Return a bounded diagnostic, never a stack or the request object.
+     return {error: String(error?.message || error?.errorMessage || error?.getMessageName?.() || "Onshape page command rejected").slice(0,500),
+-      ...(["partstudio_begin_top_sketch", "partstudio_begin_source_extrude", "partstudio_populate_sketch", "partstudio_populate_extrude"].includes(job.kind)
++      ...(["partstudio_begin_top_sketch", "partstudio_begin_source_extrude", "partstudio_populate_sketch", "partstudio_populate_extrude", "partstudio_populate_variable"].includes(job.kind)
+         ? {write_stage: h2CadRpcSent ? "submitted_or_uncertain" : "pre_dispatch"} : {}),
+       outcome: "Inspect current state before retrying a mutation."};
+   }
+diff --git a/onshape_native/bridge.py b/onshape_native/bridge.py
+index 2a21bc8..6fcb8ad 100644
+--- a/onshape_native/bridge.py
++++ b/onshape_native/bridge.py
+@@ -2,6 +2,7 @@
+ from __future__ import annotations
+ 
+ import asyncio
++import copy
+ from contextlib import asynccontextmanager
+ import json
+ import hashlib
+@@ -446,11 +447,58 @@ def valid_instance_id(value):
+     return parsed.version == 4 and str(parsed) == value
+ 
+ 
++def verify_saved_source_variable(before, expected_tree, after, target, stage):
++    """Prove a blank draft changed only its source name and literal quantities."""
++    fid = before.get("editingFeatureId")
++    if (before.get("target") != target or after.get("target") != target
++            or before.get("connected") is not True or after.get("connected") is not True
++            or not fid or after.get("editingFeatureId") is not None
++            or not re.fullmatch(r"[a-f0-9]{24}", str(after.get("element_microversion", "")))
++            or after.get("element_microversion") == before.get("element_microversion")):
++        raise ValueError("Variable saved idle target or revision unconfirmed")
++    expected = copy.deepcopy(before["tree"])
++    matches = [n for n in expected["children"] if n.get("featureId") == fid]
++    if len(matches) != 1 or matches[0].get("featureType") != "assignVariable" or not matches[0].get("nodeId"):
++        raise ValueError("Exact allocated variable identity unavailable")
++    params = matches[0]["parameters"]
++    by_id = {p["parameterId"]: p for p in params}
++    if len(by_id) != len(params):
++        raise ValueError("Duplicate variable parameters")
++    for name, value in (("mode", "ASSIGNED"), ("variableType", "LENGTH"), ("measurementMode", "DISTANCE")):
++        if by_id[name].get("$type") != "bsedit.GBTMParameterEnum" or by_id[name].get("value") != value:
++            raise ValueError("Variable mode differs")
++    expression, name = stage.get("expression"), stage.get("name")
++    if (not isinstance(expression, str) or not re.fullmatch(r"[+-]?(?:\d+(?:\.\d*)?|\.\d+)\s*mm", expression.strip())
++            or not isinstance(name, str) or not re.fullmatch(r"[A-Za-z][A-Za-z0-9_]*", name)
++            or stage.get("logical_id") != "#" + name):
++        raise ValueError("Source literal differs")
++    source = {p["parameterId"]: p for p in stage["source_template"]["parameters"]}
++    if source["name"].get("value") != name or any(source[k].get("expression") != expression for k in ("lengthValue", "value")):
++        raise ValueError("Source expression provenance differs")
++    value = float(expression.strip()[:-2])
++    if not math.isfinite(value) or by_id["name"].get("$type") != "bsedit.GBTMParameterString" or by_id["name"].get("value") != "":
++        raise ValueError("Named or nonliteral draft cannot be overwritten")
++    by_id["name"]["value"] = name
++    for key in ("lengthValue", "value"):
++        p = by_id[key]
++        if (p.get("$type") != "bsedit.GBTMParameterQuantity" or not p.get("nodeId")
++                or p.get("units") != "millimeter" or p.get("value") != 0 or p.get("expression") != "0 mm"):
++            raise ValueError("Blank native length draft required")
++        p.update(expression=expression, value=value)
++    if (expected != expected_tree or not isinstance(after.get("tree"), dict)
++            or _tab_tolerance_node_normalized(after["tree"]) != _tab_tolerance_node_normalized(expected)):
++        raise ValueError("Variable source definition or unrelated tree differs")
++    return {"feature_id": fid, "node_id": matches[0]["nodeId"], "logical_id": stage["logical_id"],
++            "name": name, "expression": expression, "definition_observed": True,
++            "revision_before": before["element_microversion"], "revision_after": after["element_microversion"],
++            "regeneration_verified": False, "ui_editability_verified": False}
++
++
+ def validate_job(job):
+     if not isinstance(job, dict):
+         raise BridgeError("Expected a JSON object.")
+     kind = job.get("kind")
+-    if not isinstance(kind, str) or kind not in {"rest", "native", "state", "schema", "creation_probe", "tabs", "open", "editor_tab", "ui_inspect", "ui_action", "display", "viewer_mesh", "partstudio_depth_edit", "partstudio_begin_top_sketch", "partstudio_begin_source_extrude", "partstudio_populate_sketch", "partstudio_populate_extrude"}:
++    if not isinstance(kind, str) or kind not in {"rest", "native", "state", "schema", "creation_probe", "tabs", "open", "editor_tab", "ui_inspect", "ui_action", "display", "viewer_mesh", "partstudio_depth_edit", "partstudio_begin_top_sketch", "partstudio_begin_source_extrude", "partstudio_populate_sketch", "partstudio_populate_extrude", "partstudio_populate_variable"}:
+         raise BridgeError("Unknown command kind.")
+     if kind == "rest":
+         path = job.get("path", "")
+@@ -495,7 +543,7 @@ def validate_job(job):
+         if args["action"] == "read" and any(not isinstance(args.get(k), str) for k in
+                 ("expected_microversion", "full_element_id", "occurrence_path", "body_id")):
+             raise BridgeError("Viewer mesh read requires exact part reference and revision.")
+-    if kind in {"native", "state", "schema", "creation_probe", "open", "editor_tab", "ui_inspect", "ui_action", "display", "viewer_mesh", "partstudio_depth_edit", "partstudio_begin_top_sketch", "partstudio_begin_source_extrude", "partstudio_populate_sketch", "partstudio_populate_extrude"}:
++    if kind in {"native", "state", "schema", "creation_probe", "open", "editor_tab", "ui_inspect", "ui_action", "display", "viewer_mesh", "partstudio_depth_edit", "partstudio_begin_top_sketch", "partstudio_begin_source_extrude", "partstudio_populate_sketch", "partstudio_populate_extrude", "partstudio_populate_variable"}:
+         target = job.get("target", {})
+         if not isinstance(target, dict) or set(target) != {"did", "wid", "eid"} or any(not isinstance(x, str) or not re.fullmatch(r"[a-f0-9]{24}", x) for x in target.values()):
+             raise BridgeError("Native commands require exact did, wid, eid target IDs.")
+@@ -586,6 +634,18 @@ def validate_job(job):
+             raise BridgeError("Source Extrude initiation requires an exact fresh element revision.")
+         if not re.fullmatch(r"[A-Za-z0-9_]{4,80}", str(job.get("sketch_feature_id", ""))):
+             raise BridgeError("Source Extrude initiation requires an exact source sketch ID.")
++    if kind == "partstudio_populate_variable":
++        edit = job.get("variable_edit")
++        if (not is_create_project_target(target)
++                or not re.fullmatch(r"variable-[a-f0-9]{32}", str(job.get("op_id", "")))
++                or not re.fullmatch(r"[a-f0-9]{24}", str(job.get("expected_element_microversion", "")))
++                or not isinstance(edit, dict) or set(edit) != {"feature_id", "name", "expression"}
++                or not re.fullmatch(r"[A-Za-z0-9_]{4,80}", str(edit.get("feature_id", "")))
++                or not re.fullmatch(r"[A-Za-z][A-Za-z0-9_]*", str(edit.get("name", "")))
++                or not isinstance(edit.get("expression"), str)
++                or not re.fullmatch(r"[+-]?(?:\d+(?:\.\d*)?|\.\d+)\s*mm", edit["expression"].strip())
++                or not math.isfinite(float(edit["expression"].strip()[:-2]))):
++            raise BridgeError("Variable population requires exact journal, target, fresh draft and literal source.")
+     if kind == "partstudio_populate_extrude":
+         if not re.fullmatch(r"extrude-[a-f0-9]{32}", str(job.get("op_id", ""))):
+             raise BridgeError("Extrusion population requires its durable journal operation ID.")
+@@ -665,7 +725,7 @@ class Broker:
+ 
+     async def dispatch(self, job, timeout=50, redirects=0):
+         validate_job(job)
+-        if (job.get("kind") in {"partstudio_begin_top_sketch", "partstudio_begin_source_extrude", "partstudio_populate_sketch", "partstudio_populate_extrude"}
++        if (job.get("kind") in {"partstudio_begin_top_sketch", "partstudio_begin_source_extrude", "partstudio_populate_sketch", "partstudio_populate_extrude", "partstudio_populate_variable"}
+                 and job.get("target") != configured_create_target(self.config)):
+             raise BridgeError("Native creation target differs from the configured test Part Studio")
+         if self.reload_record and (self.reload_record.get("status") == "pending" or
+@@ -696,13 +756,15 @@ class Broker:
+                 raise BridgeError("Loaded extension lacks h2_native_sketch_populate_page_v1; reload and reconnect before editing.")
+             if job.get("kind") == "partstudio_populate_sketch" and "h2_native_fixed_origin_page_v1" not in capabilities:
+                 raise BridgeError("Loaded extension lacks h2_native_fixed_origin_page_v1; reload and reconnect before editing.")
++            if job.get("kind") == "partstudio_populate_variable" and "h2_native_variable_populate_page_v1" not in capabilities:
++                raise BridgeError("Loaded extension lacks native variable population capability.")
+             if job.get("kind") == "partstudio_populate_extrude" and "h2_native_extrude_populate_page_v1" not in capabilities:
+                 raise BridgeError("Loaded extension lacks h2_native_extrude_populate_page_v1; reload and reconnect before editing.")
+             if job.get("kind") == "partstudio_populate_extrude" and "h2_native_source_region_page_v1" not in capabilities:
+                 raise BridgeError("Loaded extension lacks h2_native_source_region_page_v1; reload and reconnect before editing.")
+             if job.get("kind") == "partstudio_populate_extrude" and "h2_native_extrude_recheck_page_v1" not in capabilities:
+                 raise BridgeError("Loaded extension lacks h2_native_extrude_recheck_page_v1; reload and reconnect before editing.")
+-            if job.get("kind") in {"partstudio_populate_sketch", "partstudio_populate_extrude"} and "h2_native_completion_receipt_page_v1" not in capabilities:
++            if job.get("kind") in {"partstudio_populate_sketch", "partstudio_populate_extrude", "partstudio_populate_variable"} and "h2_native_completion_receipt_page_v1" not in capabilities:
+                 raise BridgeError("Loaded extension lacks h2_native_completion_receipt_page_v1; reload and reconnect before editing.")
+             if job.get("kind") == "partstudio_depth_edit" and "h2_depth_edit_page_v1" not in capabilities:
+                 raise BridgeError("Loaded extension lacks h2_depth_edit_page_v1; reload and reconnect before editing.")
+@@ -740,7 +802,7 @@ class Broker:
+             finally:
+                 self.pending.pop(command_id, None)
+                 self.result_chunks.pop(command_id, None)
+-            if (job.get("kind") in {"partstudio_begin_top_sketch", "partstudio_begin_source_extrude", "partstudio_populate_sketch", "partstudio_populate_extrude"}
++            if (job.get("kind") in {"partstudio_begin_top_sketch", "partstudio_begin_source_extrude", "partstudio_populate_sketch", "partstudio_populate_extrude", "partstudio_populate_variable"}
+                     and isinstance(result, dict) and result.get("error")
+                     and result.get("write_stage") == "pre_dispatch"):
+                 # The trusted page adapter reports that no CAD RPC was called.
+@@ -750,7 +812,7 @@ class Broker:
+                 if self.guard_path:
+                     self.save_guard()
+             elif not is_cad_read(job) and not (not isinstance(result, dict) or result.get("error") or
+-                    job.get("kind") in {"partstudio_populate_sketch", "partstudio_populate_extrude"} or
++                    job.get("kind") in {"partstudio_populate_sketch", "partstudio_populate_extrude", "partstudio_populate_variable"} or
+                     job.get("kind") == "rest" and (type(result.get("status")) is not int or
+                                                     not 200 <= result["status"] < 300)):
+                 self.unknown_write = False
+@@ -996,7 +1058,7 @@ def create_app(config=None):
+         return JSONResponse({"protocol": 1, "extension_connected": broker.extension is not None,
+                              "extension": broker.extension_info, "pending": len(broker.pending),
+                              "reload": broker.reload_record,
+-                             "capabilities": ["ui_exports_v1", "chunked_upload_v1", "chunked_response_v1", "artifact_download_v1", "viewer_mesh_v1", "h2_depth_edit_server_v1", "h2_native_begin_top_sketch_server_v1", "h2_native_typed_top_plane_server_v1", "h2_native_begin_source_extrude_server_v1", "h2_native_sketch_populate_server_v1", "h2_native_extrude_populate_server_v1", "h2_native_completion_receipt_server_v1", "h2_extension_reload_server_v1"]})
++                             "capabilities": ["ui_exports_v1", "chunked_upload_v1", "chunked_response_v1", "artifact_download_v1", "viewer_mesh_v1", "h2_depth_edit_server_v1", "h2_native_begin_top_sketch_server_v1", "h2_native_typed_top_plane_server_v1", "h2_native_begin_source_extrude_server_v1", "h2_native_sketch_populate_server_v1", "h2_native_extrude_populate_server_v1", "h2_native_variable_populate_server_v1", "h2_native_completion_receipt_server_v1", "h2_extension_reload_server_v1"]})
+ 
+     async def reconcile_completed_top_begin(request):
+         """Resolve a journaled Top begin from exact saved or active readback."""
+@@ -1174,6 +1236,96 @@ def create_app(config=None):
+             return JSONResponse({"status": "observed_delayed_source_sketch" if pending_receipt else "observed_manual_source_completion", "op_id": body["op_id"],
+                                  "evidence": evidence})
+ 
++    async def reconcile_saved_source_variable(request):
++        """Reconcile exact saved variable evidence; never issue a modeling command."""
++        denied = await auth(request)
++        if denied is not None:
++            return denied
++        try:
++            body = await read_body(request)
++            if (not isinstance(body, dict) or set(body) != {"op_id", "tab_id"}
++                    or not re.fullmatch(r"variable-[a-f0-9]{32}", str(body["op_id"]))
++                    or type(body["tab_id"]) is not int or body["tab_id"] < 0):
++                raise ValueError("Exact variable operation and tab required")
++        except (ValueError, BridgeError) as error:
++            return JSONResponse({"status": "blocked", "reason": str(error)}, 400)
++        target = configured_create_target(config)
++        path = config.get("h2cad_journal")
++        def safety_ready():
++            return (broker.unknown_write and not broker.guard_invalid and not broker.pending
++                    and broker.extension is not None
++                    and "h2_native_variable_populate_page_v1" in (broker.extension_info or {}).get("capabilities", []))
++        if not safety_ready() or not isinstance(path, str) or not Path(path).is_absolute():
++            return JSONResponse({"status": "blocked", "reason": "Pinned journal or bridge safety state differs"}, 409)
++        try:
++            first = await broker.dispatch({"kind": "state", "target": target, "tab_id": body["tab_id"]})
++            live = await broker.dispatch({"kind": "state", "target": target, "tab_id": body["tab_id"],
++                                          "retire_acknowledged_op_id": body["op_id"]})
++            if any(first.get(k) != live.get(k) for k in ("target", "connected", "editingFeatureId", "element_microversion", "tree")):
++                raise ValueError("Variable changed during independent readback")
++        except (BridgeError, ValueError) as error:
++            return JSONResponse({"status": "blocked", "reason": str(error)}, 409)
++        async with broker.command_lock:
++            if not safety_ready():
++                return JSONResponse({"status": "blocked", "reason": "Bridge safety state changed"}, 409)
++            try:
++                with sqlite3.connect(path, timeout=2, isolation_level=None) as db:
++                    db.execute("PRAGMA synchronous=FULL")
++                    db.execute("BEGIN IMMEDIATE")
++                    db.row_factory = sqlite3.Row
++                    rows = db.execute("SELECT * FROM writes WHERE state IN ('prepared','sent','unknown')").fetchall()
++                    row = db.execute("SELECT * FROM writes WHERE op_id=?", (body["op_id"],)).fetchone()
++                    if (row is None or row["state"] not in {"sent", "unknown", "observed"}
++                            or row["action"] != "experimental_variable_populate"
++                            or row["target"] != "/".join(target[k] for k in ("did", "wid", "eid"))):
++                        raise ValueError("One matching unresolved variable intent required")
++                    if ((row["state"] == "observed" and rows) or (row["state"] != "observed"
++                            and (len(rows) != 1 or rows[0]["op_id"] != body["op_id"]))):
++                        raise ValueError("Another unresolved operation differs")
++                    intent = json.loads(row["intent"])
++                    before = intent["before_state"]
++                    stages, index = intent["source_stages"], intent["source_index"]
++                    if (type(index) is not int or not 0 <= index < len(stages)
++                            or stages[index]["logical_id"] != row["logical_id"]
++                            or before.get("element_microversion") != row["expected_revision"]):
++                        raise ValueError("Variable source intent differs")
++                    previous = intent["previous_op_ids"]
++                    if len(previous) != index or len(set(previous)) != index:
++                        raise ValueError("Variable source order differs")
++                    identity_map = {}
++                    for i, previous_id in enumerate(previous):
++                        prior = db.execute("SELECT * FROM writes WHERE op_id=?", (previous_id,)).fetchone()
++                        if (prior is None or prior["state"] != "observed" or prior["target"] != row["target"]
++                                or prior["action"] != row["action"] or prior["logical_id"] != stages[i]["logical_id"]):
++                            raise ValueError("Preceding source variable is unverified")
++                        prior_intent = json.loads(prior["intent"])
++                        prior_observation = json.loads(prior["observation"])
++                        if (prior_intent.get("source_stages") != stages or prior_intent.get("source_index") != i
++                                or prior_observation.get("definition_observed") is not True):
++                            raise ValueError("Preceding variable provenance differs")
++                        identity_map[prior["logical_id"]] = prior_observation["feature_id"]
++                    if intent["identity_map"] != identity_map:
++                        raise ValueError("Variable identity map differs")
++                    evidence = verify_saved_source_variable(before, intent["expected_tree"], live, target, stages[index])
++                    evidence["op_id"] = body["op_id"]
++                    evidence["identity_map"] = {**intent["identity_map"], row["logical_id"]: evidence["feature_id"]}
++                    if row["state"] == "observed":
++                        if json.loads(row["observation"] or "{}") != evidence:
++                            raise ValueError("Previously observed variable differs")
++                    else:
++                        db.execute("UPDATE writes SET state='observed', observation=?, error=NULL, updated_at=CURRENT_TIMESTAMP WHERE op_id=?",
++                                   (json.dumps(evidence, sort_keys=True), body["op_id"]))
++                    db.execute("COMMIT")
++            except (OSError, sqlite3.Error, ValueError, KeyError, TypeError, AttributeError, IndexError) as error:
++                return JSONResponse({"status": "blocked", "reason": str(error)}, 409)
++            broker.unknown_write = False
++            try:
++                broker.save_guard()
++            except BridgeError as error:
++                broker.unknown_write = True
++                return JSONResponse({"status": "blocked", "reason": str(error)}, 409)
++            return JSONResponse({"status": "observed_source_variable", "op_id": body["op_id"], "evidence": evidence})
++
+     async def reconcile_saved_source_extrude(request):
+         """Confirm an eventually saved extrusion without replaying editor commands."""
+         denied = await auth(request)
+@@ -1619,7 +1771,7 @@ def create_app(config=None):
+         except (BridgeError, ValueError) as error:
+             return JSONResponse({"message": str(error)}, 502)
+ 
+-    app = Starlette(routes=[Route("/health", health), Route("/local/reconcile_saved_source_extrude", reconcile_saved_source_extrude, methods=["POST"]), Route("/local/reconcile_completed_source_sketch", reconcile_completed_source_sketch, methods=["POST"]), Route("/local/reconcile_completed_top_begin", reconcile_completed_top_begin, methods=["POST"]), Route("/local/reconcile_known_sketch_rejection", reconcile_known_sketch_rejection, methods=["POST"]), Route("/local/finalize_known_invalid_sketch_cancel", finalize_known_invalid_sketch_cancel, methods=["POST"]), Route("/artifacts/{handle}", artifact_download),
++    app = Starlette(routes=[Route("/health", health), Route("/local/reconcile_saved_source_variable", reconcile_saved_source_variable, methods=["POST"]), Route("/local/reconcile_saved_source_extrude", reconcile_saved_source_extrude, methods=["POST"]), Route("/local/reconcile_completed_source_sketch", reconcile_completed_source_sketch, methods=["POST"]), Route("/local/reconcile_completed_top_begin", reconcile_completed_top_begin, methods=["POST"]), Route("/local/reconcile_known_sketch_rejection", reconcile_known_sketch_rejection, methods=["POST"]), Route("/local/finalize_known_invalid_sketch_cancel", finalize_known_invalid_sketch_cancel, methods=["POST"]), Route("/artifacts/{handle}", artifact_download),
+                            Route("/local/extension_reload", extension_reload, methods=["POST"]),
+                            Route("/command", command, methods=["POST"]),
+                            Route("/local/{tool}", local_tool, methods=["POST"]),
+diff --git a/skills/onshape-native-modeling/SKILL.md b/skills/onshape-native-modeling/SKILL.md
+index 351175d..593a766 100644
+--- a/skills/onshape-native-modeling/SKILL.md
++++ b/skills/onshape-native-modeling/SKILL.md
+@@ -221,3 +221,13 @@ The equivalent HTTP interface is `http://127.0.0.1:8766` with a local bearer tok
+ from the configured `ONSHAPE_NATIVE_RUNTIME/bridge.json`. The companion owns the
+ HTTP listener; the extension executes browser-session commands. Prefer MCP in
+ both clients. Never expose pairing tokens, cookies or private model data in logs.
++
++### H2 literal source variables (experimental paired writer)
++
++Compile and validate the source locally first. The writer accepts literal ASSIGNED/LENGTH variables in source order; it does not allocate feature IDs. For each variable, use official Browser control to open the normal Variable editor in the exact configured test studio. Leave one fresh unnamed LENGTH draft with zero length. Discover controls from current DOM, never sample IDs or guessed coordinates.
++
++Run `h2cad experimental-populate-variable SOURCE --logical-id '#length'` with the exact target, `--bridge-config`, `--tab-id`, and pinned `--journal` arguments. For each subsequent source variable, supply every preceding observed operation in order with repeated `--previous-variable-op-id OP_ID`. Results record logical-to-native identities. The writer rejects named drafts, wrong mode/type, changed source, changed preceding or unrelated tree, and unresolved writes. Native parameter identities/defaults and both source quantity expressions are retained.
++
++A candidate receipt or Save invocation is not completion. Require independent exact saved-idle readback and an observed journal operation before allocating the next variable. If pending, inspect the exact target with Browser and complete only through normal controls when available; then run `experimental-reconcile-saved-source-variable OP_ID` with the same pinned config/journal and exact current tab. If a fresh same-target tab is needed to observe saved state, do not replay the write or alter the original pending draft. Reconciliation is read-only and retains the barrier on mismatch.
++
++Record normal UI error presentation separately. `regeneration_verified: false` is deliberate: definition readback does not prove dependent expression evaluation. Later dependent planes/sketches must establish it. This is Browser plus CLI skill orchestration, not autonomous standalone allocation. H2 has no REST write fallback.
+diff --git a/tests/adapter.test.mjs b/tests/adapter.test.mjs
+index 8feb4b7..ad520a2 100644
+--- a/tests/adapter.test.mjs
++++ b/tests/adapter.test.mjs
+@@ -902,3 +902,63 @@ test('extension GET accepts inspection responses over the old 64 MiB boundary',
+   globalThis.fetch=async()=>new Response(JSON.stringify(body),{headers:{'content-type':'application/json'}});
+   assert.deepEqual((await restGet({path:'/api/v17/example'})).body,body);
+ });
++
++
++test('native variable populates only fresh LENGTH defaults and keeps pending until readback', async()=>{
++  const temp={did:'4e078dec822b4e509616b1cb',wid:'af0627de07264acf086e646a',eid:'e'.repeat(24)};
++  const fixture=JSON.parse(readFileSync(new URL('./fixtures/native_variable_default.json',import.meta.url),'utf8'));
++  const specs={};
++  function collect(x){
++    if(!x || typeof x!=='object') return;
++    if(x.$type) specs[x.$type]={...(specs[x.$type]||{}),...Object.fromEntries(Object.entries(x).filter(([k])=>k!=='$type'))};
++    for(const v of Object.values(x))collect(v);
++  }
++  collect(fixture);
++  Object.assign(specs,{'diff.GBTTreeEditChange':{oldNode:null,newNode:null},
++    'ui.GBTUiSpecifyFeature':{elementId:'',featureNodeId:'',featureChange:null,sequenceId:0,selectionMicroversion:null,inContextEntitiesToAdd:null,editDescription:''},
++    'ui.GBTUiCommit':{elementId:'',featureNodeId:'',editDescription:''}});
++  const types={};
++  for(const [name,defaults] of Object.entries(specs)) types[name]=class {
++    constructor(){Object.assign(this,structuredClone(defaults));}
++    getMessageName(){return name;} getClassId(){return 1;}
++  };
++  function typed(x){
++    if(!x || typeof x!=='object')return x;
++    if(Array.isArray(x))return x.map(typed);
++    const out=x.$type?new types[x.$type]():{};
++    for(const [k,v]of Object.entries(x))if(k!=='$type')out[k]=typed(v);
++    return out;
++  }
++  for(const fault of [null,'named','ANY','stale','rpc-error','editor-switch','disabled-save']){
++    let feature=typed(fixture),revision='a'.repeat(24),editing=fixture.featureId,clicks=0;
++    const param=id=>feature.parameters.find(p=>p.parameterId===id);
++    if(fault==='named')param('name').value='preserve';
++    if(fault==='ANY')param('variableType').value='ANY';
++    const root={children:[feature,{nodeId:'rollback'}]};
++    const modules=setup(undefined,false,revision,root,types,m=>{
++      if(fault==='rpc-error')return {errorEnum:1};
++      if(m.getMessageName()==='ui.GBTUiSpecifyFeature'){feature=m.featureChange.newNode;root.children[0]=feature;if(fault==='editor-switch')editing='other';}
++      if(m.getMessageName()==='ui.GBTUiCommit')revision='b'.repeat(24);
++      return {errorEnum:0};
++    },temp);
++    modules.__controller.documentModel.get=k=>k==='microversionId'?{theId:micro}:{get:x=>x==='microversionId'?revision:x==='idEditingFeature'?editing:null};
++    globalThis.document={querySelectorAll:()=>[{getClientRects:()=>[1],getAttribute:()=>null,
++      classList:{contains:()=>fault==='disabled-save'},click:()=>{clicks++;editing=null;}}]};
++    const result=await pageCommand({kind:'partstudio_populate_variable',target:temp,op_id:'variable-'+'a'.repeat(32),
++      expected_element_microversion:(fault==='stale'?'c':'a').repeat(24),
++      variable_edit:{feature_id:fixture.featureId,name:'length',expression:'180 mm'}});
++    if(['named','ANY','stale'].includes(fault)){
++      assert.ok(result.error);assert.equal(result.write_stage,'pre_dispatch');assert.equal(sent.length,0);
++    }else if(fault==='rpc-error'||fault==='editor-switch'){
++      assert.ok(result.error);assert.notEqual(result.write_stage,'pre_dispatch');assert.equal(sent.length,1);
++    }else{
++      assert.equal(result.definition_candidate,true,JSON.stringify(result));assert.equal(result.completion_pending,true);
++      assert.equal(result.regeneration_verified,false);assert.equal(sent.length,2);
++      assert.equal(clicks,fault==='disabled-save'?0:1);
++      assert.equal(param('name').value,'length');assert.equal(param('lengthValue').expression,'180 mm');
++      assert.equal(param('value').expression,'180 mm');assert.equal(param('conversionFactor').value,0);
++      assert.equal(root.children[1].nodeId,'rollback');
++      assert.equal(modules.__controller.__onshapeNativeIncompleteFeatureEdit.stage,'await-saved-readback');
++    }
++  }
++});
+diff --git a/tests/fixtures/native_variable_default.json b/tests/fixtures/native_variable_default.json
+new file mode 100644
+index 0000000..a3b3261
+--- /dev/null
++++ b/tests/fixtures/native_variable_default.json
+@@ -0,0 +1,766 @@
++{
++  "$type": "bsedit.GBTMFeature",
++  "featureId": "freshVariable_0",
++  "featureType": "assignVariable",
++  "hasUserCode": false,
++  "name": "###name = #value",
++  "nameParseNode": {
++    "$type": "tree.GBTNodeReference",
++    "nodeId": ""
++  },
++  "namespace": "",
++  "nodeId": "fixture-node-1",
++  "parameterLibraries": [],
++  "parameters": [
++    {
++      "$type": "bsedit.GBTMParameterQueryList",
++      "filter": {
++        "$type": "bsedit.GBTAndFilter",
++        "operand1": {
++          "$type": "bsedit.GBTOrFilter",
++          "operand1": {
++            "$type": "bsedit.GBTOrFilter",
++            "operand1": {
++              "$type": "bsedit.GBTOrFilter",
++              "operand1": {
++                "$type": "bsedit.GBTOrFilter",
++                "operand1": {
++                  "$type": "bsedit.GBTEntityTypeFilter",
++                  "entityType": 2
++                },
++                "operand2": {
++                  "$type": "bsedit.GBTEntityTypeFilter",
++                  "entityType": 1
++                }
++              },
++              "operand2": {
++                "$type": "bsedit.GBTEntityTypeFilter",
++                "entityType": 0
++              }
++            },
++            "operand2": {
++              "$type": "bsedit.GBTAndFilter",
++              "operand1": {
++                "$type": "bsedit.GBTEntityTypeFilter",
++                "entityType": 3
++              },
++              "operand2": {
++                "$type": "bsedit.GBTSketchObjectFilter",
++                "isSketchObject": false,
++                "objectType": 0
++              }
++            }
++          },
++          "operand2": {
++            "$type": "bsedit.GBTBodyTypeFilter",
++            "bodyType": 4
++          }
++        },
++        "operand2": {
++          "$type": "bsedit.GBTFlatSheetMetalFilter",
++          "allows": 2
++        }
++      },
++      "hasUserCode": false,
++      "libraryRelationType": 0,
++      "nodeId": "fixture-node-2",
++      "parameterId": "initEntities",
++      "parameterName": "",
++      "queries": [],
++      "sourceParseTreeNodes": {}
++    },
++    {
++      "$type": "bsedit.GBTMParameterEnum",
++      "enumName": "VariableMode",
++      "hasUserCode": false,
++      "libraryRelationType": 0,
++      "namespace": "",
++      "nodeId": "fixture-node-3",
++      "parameterId": "mode",
++      "parameterName": "",
++      "sourceParseTreeNodes": {},
++      "value": "ASSIGNED"
++    },
++    {
++      "$type": "bsedit.GBTMParameterEnum",
++      "enumName": "VariableType",
++      "hasUserCode": false,
++      "libraryRelationType": 0,
++      "namespace": "",
++      "nodeId": "fixture-node-4",
++      "parameterId": "variableType",
++      "parameterName": "",
++      "sourceParseTreeNodes": {},
++      "value": "LENGTH"
++    },
++    {
++      "$type": "bsedit.GBTMParameterEnum",
++      "enumName": "VariableMeasurementMode",
++      "hasUserCode": false,
++      "libraryRelationType": 0,
++      "namespace": "",
++      "nodeId": "fixture-node-5",
++      "parameterId": "measurementMode",
++      "parameterName": "",
++      "sourceParseTreeNodes": {},
++      "value": "DISTANCE"
++    },
++    {
++      "$type": "bsedit.GBTMParameterString",
++      "hasUserCode": false,
++      "libraryRelationType": 0,
++      "nodeId": "fixture-node-6",
++      "parameterId": "name",
++      "parameterName": "",
++      "sourceParseTreeNodes": {},
++      "value": ""
++    },
++    {
++      "$type": "bsedit.GBTMParameterQuantity",
++      "expression": "0 mm",
++      "hasUserCode": false,
++      "isInteger": false,
++      "libraryRelationType": 0,
++      "nodeId": "fixture-node-7",
++      "parameterId": "lengthValue",
++      "parameterName": "",
++      "sourceParseTreeNodes": {},
++      "units": "millimeter",
++      "value": 0
++    },
++    {
++      "$type": "bsedit.GBTMParameterQuantity",
++      "expression": "0 deg",
++      "hasUserCode": false,
++      "isInteger": false,
++      "libraryRelationType": 0,
++      "nodeId": "fixture-node-8",
++      "parameterId": "angleValue",
++      "parameterName": "",
++      "sourceParseTreeNodes": {},
++      "units": "degree",
++      "value": 0
++    },
++    {
++      "$type": "bsedit.GBTMParameterQuantity",
++      "expression": "0",
++      "hasUserCode": false,
++      "isInteger": false,
++      "libraryRelationType": 0,
++      "nodeId": "fixture-node-9",
++      "parameterId": "numberValue",
++      "parameterName": "",
++      "sourceParseTreeNodes": {},
++      "units": "",
++      "value": 0
++    },
++    {
++      "$type": "bsedit.GBTMParameterQuantity",
++      "expression": "0",
++      "hasUserCode": false,
++      "isInteger": false,
++      "libraryRelationType": 0,
++      "nodeId": "fixture-node-10",
++      "parameterId": "anyValue",
++      "parameterName": "",
++      "sourceParseTreeNodes": {},
++      "units": "",
++      "value": 0
++    },
++    {
++      "$type": "bsedit.GBTMParameterQuantity",
++      "expression": "0 mm",
++      "hasUserCode": false,
++      "isInteger": false,
++      "libraryRelationType": 0,
++      "nodeId": "fixture-node-11",
++      "parameterId": "value",
++      "parameterName": "",
++      "sourceParseTreeNodes": {},
++      "units": "millimeter",
++      "value": 0
++    },
++    {
++      "$type": "bsedit.GBTMParameterReferenceTable",
++      "elementLibraryData": {
++        "$type": "bsedit.GBTElementLibraryReferenceData",
++        "elementLibraryId": "",
++        "elementLibrarySelectionPath": [],
++        "elementLibraryVersion": ""
++      },
++      "hasUserCode": false,
++      "libraryRelationType": 0,
++      "namespace": "",
++      "nodeId": "fixture-node-12",
++      "parameterId": "csv",
++      "parameterName": "",
++      "revisionData": {
++        "$type": "bsedit.GBTRevisionCustomData",
++        "partNumber": "",
++        "revision": ""
++      },
++      "sourceParseTreeNodes": {}
++    },
++    {
++      "$type": "bsedit.GBTMParameterEnum",
++      "enumName": "AccessType",
++      "hasUserCode": false,
++      "libraryRelationType": 0,
++      "namespace": "",
++      "nodeId": "fixture-node-13",
++      "parameterId": "rowAccessType",
++      "parameterName": "",
++      "sourceParseTreeNodes": {},
++      "value": "INDEX"
++    },
++    {
++      "$type": "bsedit.GBTMParameterQuantity",
++      "expression": "0",
++      "hasUserCode": false,
++      "isInteger": true,
++      "libraryRelationType": 0,
++      "nodeId": "fixture-node-14",
++      "parameterId": "rowIndex",
++      "parameterName": "",
++      "sourceParseTreeNodes": {},
++      "units": "",
++      "value": 0
++    },
++    {
++      "$type": "bsedit.GBTMParameterString",
++      "hasUserCode": false,
++      "libraryRelationType": 0,
++      "nodeId": "fixture-node-15",
++      "parameterId": "rowValue",
++      "parameterName": "",
++      "sourceParseTreeNodes": {},
++      "value": ""
++    },
++    {
++      "$type": "bsedit.GBTMParameterBoolean",
++      "hasUserCode": false,
++      "libraryRelationType": 0,
++      "nodeId": "fixture-node-16",
++      "parameterId": "rowRegexp",
++      "parameterName": "",
++      "sourceParseTreeNodes": {},
++      "value": false
++    },
++    {
++      "$type": "bsedit.GBTMParameterQuantity",
++      "expression": "0",
++      "hasUserCode": false,
++      "isInteger": true,
++      "libraryRelationType": 0,
++      "nodeId": "fixture-node-17",
++      "parameterId": "rowMinIndex",
++      "parameterName": "",
++      "sourceParseTreeNodes": {},
++      "units": "",
++      "value": 0
++    },
++    {
++      "$type": "bsedit.GBTMParameterQuantity",
++      "expression": "0",
++      "hasUserCode": false,
++      "isInteger": true,
++      "libraryRelationType": 0,
++      "nodeId": "fixture-node-18",
++      "parameterId": "rowMaxIndex",
++      "parameterName": "",
++      "sourceParseTreeNodes": {},
++      "units": "",
++      "value": 0
++    },
++    {
++      "$type": "bsedit.GBTMParameterEnum",
++      "enumName": "ResultType",
++      "hasUserCode": false,
++      "libraryRelationType": 0,
++      "namespace": "",
++      "nodeId": "fixture-node-19",
++      "parameterId": "rowResult",
++      "parameterName": "",
++      "sourceParseTreeNodes": {},
++      "value": "SINGLE"
++    },
++    {
++      "$type": "bsedit.GBTMParameterQuantity",
++      "expression": "0",
++      "hasUserCode": false,
++      "isInteger": true,
++      "libraryRelationType": 0,
++      "nodeId": "fixture-node-20",
++      "parameterId": "rowLabelIndex",
++      "parameterName": "",
++      "sourceParseTreeNodes": {},
++      "units": "",
++      "value": 0
++    },
++    {
++      "$type": "bsedit.GBTMParameterEnum",
++      "enumName": "AccessType",
++      "hasUserCode": false,
++      "libraryRelationType": 0,
++      "namespace": "",
++      "nodeId": "fixture-node-21",
++      "parameterId": "columnAccessType",
++      "parameterName": "",
++      "sourceParseTreeNodes": {},
++      "value": "INDEX"
++    },
++    {
++      "$type": "bsedit.GBTMParameterQuantity",
++      "expression": "0",
++      "hasUserCode": false,
++      "isInteger": true,
++      "libraryRelationType": 0,
++      "nodeId": "fixture-node-22",
++      "parameterId": "columnIndex",
++      "parameterName": "",
++      "sourceParseTreeNodes": {},
++      "units": "",
++      "value": 0
++    },
++    {
++      "$type": "bsedit.GBTMParameterString",
++      "hasUserCode": false,
++      "libraryRelationType": 0,
++      "nodeId": "fixture-node-23",
++      "parameterId": "columnValue",
++      "parameterName": "",
++      "sourceParseTreeNodes": {},
++      "value": ""
++    },
++    {
++      "$type": "bsedit.GBTMParameterBoolean",
++      "hasUserCode": false,
++      "libraryRelationType": 0,
++      "nodeId": "fixture-node-24",
++      "parameterId": "columnRegexp",
++      "parameterName": "",
++      "sourceParseTreeNodes": {},
++      "value": false
++    },
++    {
++      "$type": "bsedit.GBTMParameterQuantity",
++      "expression": "0",
++      "hasUserCode": false,
++      "isInteger": true,
++      "libraryRelationType": 0,
++      "nodeId": "fixture-node-25",
++      "parameterId": "columnMinIndex",
++      "parameterName": "",
++      "sourceParseTreeNodes": {},
++      "units": "",
++      "value": 0
++    },
++    {
++      "$type": "bsedit.GBTMParameterQuantity",
++      "expression": "0",
++      "hasUserCode": false,
++      "isInteger": true,
++      "libraryRelationType": 0,
++      "nodeId": "fixture-node-26",
++      "parameterId": "columnMaxIndex",
++      "parameterName": "",
++      "sourceParseTreeNodes": {},
++      "units": "",
++      "value": 0
++    },
++    {
++      "$type": "bsedit.GBTMParameterEnum",
++      "enumName": "ResultType",
++      "hasUserCode": false,
++      "libraryRelationType": 0,
++      "namespace": "",
++      "nodeId": "fixture-node-27",
++      "parameterId": "columnResult",
++      "parameterName": "",
++      "sourceParseTreeNodes": {},
++      "value": "SINGLE"
++    },
++    {
++      "$type": "bsedit.GBTMParameterQuantity",
++      "expression": "0",
++      "hasUserCode": false,
++      "isInteger": true,
++      "libraryRelationType": 0,
++      "nodeId": "fixture-node-28",
++      "parameterId": "columnLabelIndex",
++      "parameterName": "",
++      "sourceParseTreeNodes": {},
++      "units": "",
++      "value": 0
++    },
++    {
++      "$type": "bsedit.GBTMParameterBoolean",
++      "hasUserCode": false,
++      "libraryRelationType": 0,
++      "nodeId": "fixture-node-29",
++      "parameterId": "useConversionFactor",
++      "parameterName": "",
++      "sourceParseTreeNodes": {},
++      "value": false
++    },
++    {
++      "$type": "bsedit.GBTMParameterQuantity",
++      "expression": "0",
++      "hasUserCode": false,
++      "isInteger": false,
++      "libraryRelationType": 0,
++      "nodeId": "fixture-node-30",
++      "parameterId": "conversionFactor",
++      "parameterName": "",
++      "sourceParseTreeNodes": {},
++      "units": "",
++      "value": 0
++    },
++    {
++      "$type": "bsedit.GBTMParameterQueryList",
++      "filter": {
++        "$type": "bsedit.GBTAndFilter",
++        "operand1": {
++          "$type": "bsedit.GBTOrFilter",
++          "operand1": {
++            "$type": "bsedit.GBTOrFilter",
++            "operand1": {
++              "$type": "bsedit.GBTOrFilter",
++              "operand1": {
++                "$type": "bsedit.GBTOrFilter",
++                "operand1": {
++                  "$type": "bsedit.GBTEntityTypeFilter",
++                  "entityType": 2
++                },
++                "operand2": {
++                  "$type": "bsedit.GBTEntityTypeFilter",
++                  "entityType": 1
++                }
++              },
++              "operand2": {
++                "$type": "bsedit.GBTEntityTypeFilter",
++                "entityType": 0
++              }
++            },
++            "operand2": {
++              "$type": "bsedit.GBTAndFilter",
++              "operand1": {
++                "$type": "bsedit.GBTEntityTypeFilter",
++                "entityType": 3
++              },
++              "operand2": {
++                "$type": "bsedit.GBTSketchObjectFilter",
++                "isSketchObject": false,
++                "objectType": 0
++              }
++            }
++          },
++          "operand2": {
++            "$type": "bsedit.GBTBodyTypeFilter",
++            "bodyType": 4
++          }
++        },
++        "operand2": {
++          "$type": "bsedit.GBTFlatSheetMetalFilter",
++          "allows": 2
++        }
++      },
++      "hasUserCode": false,
++      "libraryRelationType": 0,
++      "nodeId": "fixture-node-31",
++      "parameterId": "entityCouple",
++      "parameterName": "",
++      "queries": [],
++      "sourceParseTreeNodes": {}
++    },
++    {
++      "$type": "bsedit.GBTMParameterEnum",
++      "enumName": "VariableMinMaxSelection",
++      "hasUserCode": false,
++      "libraryRelationType": 0,
++      "namespace": "",
++      "nodeId": "fixture-node-32",
++      "parameterId": "minmax",
++      "parameterName": "",
++      "sourceParseTreeNodes": {},
++      "value": "MINIMUM"
++    },
++    {
++      "$type": "bsedit.GBTMParameterBoolean",
++      "hasUserCode": false,
++      "libraryRelationType": 0,
++      "nodeId": "fixture-node-33",
++      "parameterId": "extendEntities",
++      "parameterName": "",
++      "sourceParseTreeNodes": {},
++      "value": false
++    },
++    {
++      "$type": "bsedit.GBTMParameterBoolean",
++      "hasUserCode": false,
++      "libraryRelationType": 0,
++      "nodeId": "fixture-node-34",
++      "parameterId": "measureFromAxis",
++      "parameterName": "",
++      "sourceParseTreeNodes": {},
++      "value": false
++    },
++    {
++      "$type": "bsedit.GBTMParameterQuantity",
++      "expression": "0 mm",
++      "hasUserCode": false,
++      "isInteger": false,
++      "libraryRelationType": 0,
++      "nodeId": "fixture-node-35",
++      "parameterId": "distance",
++      "parameterName": "",
++      "sourceParseTreeNodes": {},
++      "units": "millimeter",
++      "value": 0
++    },
++    {
++      "$type": "bsedit.GBTMParameterQuantity",
++      "expression": "0 mm",
++      "hasUserCode": false,
++      "isInteger": false,
++      "libraryRelationType": 0,
++      "nodeId": "fixture-node-36",
++      "parameterId": "xOffset",
++      "parameterName": "",
++      "sourceParseTreeNodes": {},
++      "units": "millimeter",
++      "value": 0
++    },
++    {
++      "$type": "bsedit.GBTMParameterQuantity",
++      "expression": "0 mm",
++      "hasUserCode": false,
++      "isInteger": false,
++      "libraryRelationType": 0,
++      "nodeId": "fixture-node-37",
++      "parameterId": "yOffset",
++      "parameterName": "",
++      "sourceParseTreeNodes": {},
++      "units": "millimeter",
++      "value": 0
++    },
++    {
++      "$type": "bsedit.GBTMParameterQuantity",
++      "expression": "0 mm",
++      "hasUserCode": false,
++      "isInteger": false,
++      "libraryRelationType": 0,
++      "nodeId": "fixture-node-38",
++      "parameterId": "zOffset",
++      "parameterName": "",
++      "sourceParseTreeNodes": {},
++      "units": "millimeter",
++      "value": 0
++    },
++    {
++      "$type": "bsedit.GBTMParameterEnum",
++      "enumName": "AxisWithCustom",
++      "hasUserCode": false,
++      "libraryRelationType": 0,
++      "namespace": "",
++      "nodeId": "fixture-node-39",
++      "parameterId": "componentSelector",
++      "parameterName": "",
++      "sourceParseTreeNodes": {},
++      "value": "DISTANCE"
++    },
++    {
++      "$type": "bsedit.GBTMParameterQueryList",
++      "filter": {
++        "$type": "bsedit.GBTOrFilter",
++        "operand1": {
++          "$type": "bsedit.GBTOrFilter",
++          "operand1": {
++            "$type": "bsedit.GBTOrFilter",
++            "operand1": {
++              "$type": "bsedit.GBTGeometryFilter",
++              "geometryType": 0
++            },
++            "operand2": {
++              "$type": "bsedit.GBTOrFilter",
++              "operand1": {
++                "$type": "bsedit.GBTGeometryFilter",
++                "geometryType": 1
++              },
++              "operand2": {
++                "$type": "bsedit.GBTOrFilter",
++                "operand1": {
++                  "$type": "bsedit.GBTGeometryFilter",
++                  "geometryType": 2
++                },
++                "operand2": {
++                  "$type": "bsedit.GBTOrFilter",
++                  "operand1": {
++                    "$type": "bsedit.GBTGeometryFilter",
++                    "geometryType": 4
++                  },
++                  "operand2": {
++                    "$type": "bsedit.GBTOrFilter",
++                    "operand1": {
++                      "$type": "bsedit.GBTGeometryFilter",
++                      "geometryType": 5
++                    },
++                    "operand2": {
++                      "$type": "bsedit.GBTGeometryFilter",
++                      "geometryType": 12
++                    }
++                  }
++                }
++              }
++            }
++          },
++          "operand2": {
++            "$type": "bsedit.GBTMateConnectorFilter",
++            "allowImplicitMateConnector": false,
++            "excludeSuppressed": false,
++            "isMateConnectorInferenceEnabledByDefault": false,
++            "requiresOccurrence": false
++          }
++        },
++        "operand2": {
++          "$type": "bsedit.GBTGeometryFilter",
++          "geometryType": 3
++        }
++      },
++      "hasUserCode": false,
++      "libraryRelationType": 0,
++      "nodeId": "fixture-node-40",
++      "parameterId": "customDirection",
++      "parameterName": "",
++      "queries": [],
++      "sourceParseTreeNodes": {}
++    },
++    {
++      "$type": "bsedit.GBTMParameterQuantity",
++      "expression": "0 mm",
++      "hasUserCode": false,
++      "isInteger": false,
++      "libraryRelationType": 0,
++      "nodeId": "fixture-node-41",
++      "parameterId": "customOffset",
++      "parameterName": "",
++      "sourceParseTreeNodes": {},
++      "units": "millimeter",
++      "value": 0
++    },
++    {
++      "$type": "bsedit.GBTMParameterQueryList",
++      "filter": {
++        "$type": "bsedit.GBTAndFilter",
++        "operand1": {
++          "$type": "bsedit.GBTOrFilter",
++          "operand1": {
++            "$type": "bsedit.GBTEntityTypeFilter",
++            "entityType": 1
++          },
++          "operand2": {
++            "$type": "bsedit.GBTAndFilter",
++            "operand1": {
++              "$type": "bsedit.GBTAndFilter",
++              "operand1": {
++                "$type": "bsedit.GBTEntityTypeFilter",
++                "entityType": 3
++              },
++              "operand2": {
++                "$type": "bsedit.GBTBodyTypeFilter",
++                "bodyType": 2
++              }
++            },
++            "operand2": {
++              "$type": "bsedit.GBTSketchObjectFilter",
++              "isSketchObject": false,
++              "objectType": 0
++            }
++          }
++        },
++        "operand2": {
++          "$type": "bsedit.GBTFlatSheetMetalFilter",
++          "allows": 2
++        }
++      },
++      "hasUserCode": false,
++      "libraryRelationType": 0,
++      "nodeId": "fixture-node-42",
++      "parameterId": "lengthEntities",
++      "parameterName": "",
++      "queries": [],
++      "sourceParseTreeNodes": {}
++    },
++    {
++      "$type": "bsedit.GBTMParameterBoolean",
++      "hasUserCode": false,
++      "libraryRelationType": 0,
++      "nodeId": "fixture-node-43",
++      "parameterId": "radius",
++      "parameterName": "",
++      "sourceParseTreeNodes": {},
++      "value": false
++    },
++    {
++      "$type": "bsedit.GBTMParameterQueryList",
++      "filter": {
++        "$type": "bsedit.GBTAndFilter",
++        "operand1": {
++          "$type": "bsedit.GBTOrFilter",
++          "operand1": {
++            "$type": "bsedit.GBTOrFilter",
++            "operand1": {
++              "$type": "bsedit.GBTOrFilter",
++              "operand1": {
++                "$type": "bsedit.GBTGeometryFilter",
++                "geometryType": 1
++              },
++              "operand2": {
++                "$type": "bsedit.GBTGeometryFilter",
++                "geometryType": 2
++              }
++            },
++            "operand2": {
++              "$type": "bsedit.GBTGeometryFilter",
++              "geometryType": 4
++            }
++          },
++          "operand2": {
++            "$type": "bsedit.GBTGeometryFilter",
++            "geometryType": 6
++          }
++        },
++        "operand2": {
++          "$type": "bsedit.GBTFlatSheetMetalFilter",
++          "allows": 2
++        }
++      },
++      "hasUserCode": false,
++      "libraryRelationType": 0,
++      "nodeId": "fixture-node-44",
++      "parameterId": "diameterEntity",
++      "parameterName": "",
++      "queries": [],
++      "sourceParseTreeNodes": {}
++    },
++    {
++      "$type": "bsedit.GBTMParameterString",
++      "hasUserCode": false,
++      "libraryRelationType": 0,
++      "nodeId": "fixture-node-45",
++      "parameterId": "description",
++      "parameterName": "",
++      "sourceParseTreeNodes": {},
++      "value": ""
++    }
++  ],
++  "returnAfterSubfeatures": false,
++  "sourceParseTreeNodes": {},
++  "subFeatures": [],
++  "suppressed": false,
++  "suppressedParseNode": {
++    "$type": "tree.GBTNodeReference",
++    "nodeId": ""
++  },
++  "suppressionState": null
++}
+diff --git a/tests/test_variable_writer.py b/tests/test_variable_writer.py
+new file mode 100644
+index 0000000..eaa5fd4
+--- /dev/null
++++ b/tests/test_variable_writer.py
+@@ -0,0 +1,109 @@
++"""Native variable saved-state contract and journal barrier tests."""
++import copy
++import json
++import sqlite3
++from pathlib import Path
++
++import httpx
++import pytest
++from onshape_native.bridge import create_app, validate_job, BridgeError, verify_saved_source_variable
++
++TARGET = {"did": "4e078dec822b4e509616b1cb", "wid": "af0627de07264acf086e646a", "eid": "e" * 24}
++TOKEN = "test-variable-token-" + "a" * 32
++OP = "variable-" + "a" * 32
++
++
++def states():
++    feature = json.loads((Path(__file__).parent / "fixtures/native_variable_default.json").read_text())
++    before = {"target": TARGET, "connected": True, "editingFeatureId": feature["featureId"],
++              "element_microversion": "a" * 24,
++              "tree": {"children": [feature, {"nodeId": "unrelated"}]}}
++    stage = {"logical_id": "#length", "name": "length", "expression": "180 mm",
++             "source_template": {"parameters": [{"parameterId": "name", "value": "length"},
++                 {"parameterId": "lengthValue", "expression": "180 mm"},
++                 {"parameterId": "value", "expression": "180 mm"}]}}
++    expected = copy.deepcopy(before["tree"])
++    for p in expected["children"][0]["parameters"]:
++        if p["parameterId"] == "name": p["value"] = "length"
++        if p["parameterId"] in {"lengthValue", "value"}: p.update(value=180, expression="180 mm")
++    after = {**before, "tree": copy.deepcopy(expected), "editingFeatureId": None, "element_microversion": "b" * 24}
++    return before, expected, after, stage
++
++
++@pytest.mark.parametrize("fault", [None, "busy", "revision", "target", "unrelated", "expression", "source"])
++def test_exact_saved_variable_proof(fault):
++    before, expected, after, stage = states()
++    if fault == "busy": after["editingFeatureId"] = before["editingFeatureId"]
++    if fault == "revision": after["element_microversion"] = before["element_microversion"]
++    if fault == "target": after["target"] = {**TARGET, "eid": "f" * 24}
++    if fault == "unrelated": after["tree"]["children"][-1]["nodeId"] = "changed"
++    if fault == "expression": after["tree"]["children"][0]["parameters"][5]["expression"] = "181 mm"
++    if fault == "source": stage["source_template"]["parameters"][2]["expression"] = "181 mm"
++    if fault:
++        with pytest.raises(ValueError): verify_saved_source_variable(before, expected, after, TARGET, stage)
++    else:
++        proof = verify_saved_source_variable(before, expected, after, TARGET, stage)
++        assert proof["definition_observed"] and proof["regeneration_verified"] is False
++        assert proof["feature_id"] == before["editingFeatureId"]
++
++
++@pytest.mark.asyncio
++@pytest.mark.parametrize("fault", [None, "unstable", "busy", "changed", "other_pending", "source", "expected", "wrong_row"])
++async def test_variable_reconcile_is_read_only_and_preserves_unknown_on_mismatch(tmp_path, fault):
++    before, expected, after, stage = states()
++    journal = tmp_path / "journal.sqlite"
++    intent = {"before_state": before, "expected_tree": expected, "source_stages": [stage],
++              "source_index": 0, "identity_map": {}, "previous_op_ids": []}
++    with sqlite3.connect(journal) as db:
++        db.execute("CREATE TABLE writes(op_id TEXT,target TEXT,expected_revision TEXT,action TEXT,logical_id TEXT,intent TEXT,state TEXT,receipt TEXT,observation TEXT,error TEXT,updated_at TEXT)")
++        db.execute("INSERT INTO writes(op_id,target,expected_revision,action,logical_id,intent,state) VALUES(?,?,?,?,?,?,?)",
++                   (OP, "/".join(TARGET.values()), before["element_microversion"], "experimental_variable_populate", "#length", json.dumps(intent), "unknown"))
++        if fault == "other_pending":
++            db.execute("INSERT INTO writes(op_id,state) VALUES('other','sent')")
++    if fault in {"source", "expected", "wrong_row"}:
++        if fault == "source": intent["source_stages"][0]["source_template"]["parameters"][2]["expression"] = "181 mm"
++        if fault == "expected": intent["expected_tree"]["children"][-1]["nodeId"] = "changed"
++        with sqlite3.connect(journal) as db:
++            db.execute("UPDATE writes SET intent=?", (json.dumps(intent),))
++            if fault == "wrong_row": db.execute("UPDATE writes SET action='other'")
++    app = create_app({"token": TOKEN, "port": 8766, "h2cad_journal": str(journal), "h2cad_create_target": TARGET})
++    broker = app.state.broker
++    broker.unknown_write = True
++    broker.extension = object()
++    broker.extension_info = {"capabilities": ["h2_native_variable_populate_page_v1"]}
++    dispatched = []
++    async def dispatch(job):
++        dispatched.append(job)
++        assert job["kind"] == "state"
++        live = copy.deepcopy(after)
++        if fault == "busy": live["editingFeatureId"] = before["editingFeatureId"]
++        if fault == "changed": live["tree"]["children"][-1]["nodeId"] = "changed"
++        if fault == "unstable" and len(dispatched) == 2: live["element_microversion"] = "c" * 24
++        return live
++    broker.dispatch = dispatch
++    async with httpx.AsyncClient(transport=httpx.ASGITransport(app), base_url="http://127.0.0.1:8766", headers={"Authorization": "Bearer " + TOKEN}) as client:
++        response = await client.post("/local/reconcile_saved_source_variable", json={"op_id": OP, "tab_id": 7})
++    assert response.status_code == (409 if fault else 200), response.text
++    assert len(dispatched) == 2
++    assert broker.unknown_write is bool(fault)
++    with sqlite3.connect(journal) as db:
++        assert db.execute("SELECT state FROM writes WHERE op_id=?", (OP,)).fetchone()[0] == ("unknown" if fault else "observed")
++
++
++def test_variable_job_validation():
++    job = {"kind": "partstudio_populate_variable", "target": TARGET, "op_id": OP,
++           "expected_element_microversion": "a" * 24,
++           "variable_edit": {"feature_id": "freshVariable_0", "name": "length", "expression": "180 mm"}}
++    assert validate_job(job) == job
++    for field, value in [("expression", "#other"), ("feature_id", ""), ("name", "bad name")]:
++        with pytest.raises(BridgeError): validate_job({**job, "variable_edit": {**job["variable_edit"], field: value}})
++
++
++def test_only_observed_per_tab_tolerance_identity_is_normalized():
++    before, expected, after, stage = states()
++    for tree in (before["tree"], expected, after["tree"]):
++        tree["modelAnnotations"] = {"toleranceSchemaForParts": {"nodeId": "old", "value": 1}}
++    after["tree"]["modelAnnotations"]["toleranceSchemaForParts"]["nodeId"] = "new-tab"
++    assert verify_saved_source_variable(before, expected, after, TARGET, stage)["definition_observed"]
++    after["tree"]["modelAnnotations"]["toleranceSchemaForParts"]["value"] = 2
++    with pytest.raises(ValueError): verify_saved_source_variable(before, expected, after, TARGET, stage)
+-- 
+2.54.0.windows.1
+

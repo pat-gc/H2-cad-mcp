@@ -113,6 +113,19 @@ def build_parser() -> argparse.ArgumentParser:
     begin_cmd.add_argument("--bridge-config", type=Path, required=True)
     begin_cmd.add_argument("--tab-id", type=int, required=True)
     begin_cmd.add_argument("--journal", type=Path, required=True)
+    variable_cmd = commands.add_parser("experimental-populate-variable", help="populate one blank UI-allocated LENGTH variable from source")
+    variable_cmd.add_argument("source", type=Path)
+    _add_target(variable_cmd)
+    variable_cmd.add_argument("--bridge-config", type=Path, required=True)
+    variable_cmd.add_argument("--tab-id", type=int, required=True)
+    variable_cmd.add_argument("--journal", type=Path, required=True)
+    variable_cmd.add_argument("--logical-id", required=True)
+    variable_cmd.add_argument("--previous-variable-op-id", action="append", default=[])
+    variable_reconcile = commands.add_parser("experimental-reconcile-saved-source-variable")
+    variable_reconcile.add_argument("op_id")
+    variable_reconcile.add_argument("--bridge-config", type=Path, required=True)
+    variable_reconcile.add_argument("--tab-id", type=int, required=True)
+    variable_reconcile.add_argument("--journal", type=Path, required=True)
     extrude_cmd = commands.add_parser("experimental-extrude-populate", help="set source depth on one UI-bound native extrusion")
     extrude_cmd.add_argument("source", type=Path)
     _add_target(extrude_cmd)
@@ -183,6 +196,7 @@ async def _bridge_action(args: argparse.Namespace) -> tuple[object, int]:
     if args.command in {"extension-reload", "experimental-depth-edit", "experimental-begin-top-sketch",
                         "experimental-sketch-populate",
                         "experimental-extrude-populate", "experimental-begin-source-extrude",
+                        "experimental-populate-variable", "experimental-reconcile-saved-source-variable",
                         "experimental-create-plate",
                         "experimental-classify-known-invalid-sketch",
                         "experimental-finalize-known-invalid-sketch-cancel",
@@ -217,6 +231,8 @@ async def _bridge_action(args: argparse.Namespace) -> tuple[object, int]:
             return result, 2 if result.get("status") == "observed_partial_top_begin" else 0
         if args.command == "experimental-reconcile-completed-source-sketch":
             return await bridge.reconcile_completed_source_sketch(args.op_id, args.tab_id), 0
+        if args.command == "experimental-reconcile-saved-source-variable":
+            return await bridge.reconcile_saved_source_variable(args.op_id, args.tab_id), 0
         if args.command == "experimental-reconcile-saved-source-extrude":
             return await bridge.reconcile_saved_source_extrude(args.op_id, args.tab_id), 0
         if args.command == "experimental-finalize-known-invalid-sketch-cancel":
@@ -256,6 +272,13 @@ async def _bridge_action(args: argparse.Namespace) -> tuple[object, int]:
             journal = Journal(args.journal)
             try:
                 return await backend.classify_known_invalid_sketch(args.op_id, journal), 0
+            finally:
+                journal.close()
+        if args.command == "experimental-populate-variable":
+            journal = Journal(args.journal)
+            try:
+                return await backend.populate_test_variable(_target(args), args.source,
+                    logical_id=args.logical_id, previous_op_ids=args.previous_variable_op_id, journal=journal), 0
             finally:
                 journal.close()
         if args.command == "experimental-extrude-populate":

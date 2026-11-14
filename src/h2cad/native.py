@@ -499,6 +499,18 @@ class NativeBridge:
             raise BackendError(str(data.get("reason", "Source sketch reconciliation refused")))
         return data
 
+    async def reconcile_saved_source_variable(self, op_id: str, tab_id: int) -> dict[str, Any]:
+        """Read-only completion of one journaled literal variable."""
+        try:
+            response = await self.http.post("/local/reconcile_saved_source_variable",
+                                            json={"op_id": op_id, "tab_id": tab_id}, timeout=30)
+            data = response.json()
+        except (httpx.HTTPError, ValueError) as exc:
+            raise BackendError("Variable reconciliation unavailable; safety barrier remains") from exc
+        if response.status_code != 200 or data.get("status") != "observed_source_variable":
+            raise BackendError(str(data.get("reason", "Variable reconciliation refused")))
+        return data
+
     async def reconcile_saved_source_extrude(self, op_id: str, tab_id: int) -> dict[str, Any]:
         """Verify an eventually saved source extrusion without replaying it."""
         try:
@@ -524,7 +536,7 @@ class NativeBridge:
         return data
 
     async def command(self, job: dict[str, Any]) -> dict[str, Any]:
-        if job.get("kind") not in {"state", "schema", "creation_probe", "native", "partstudio_depth_edit", "partstudio_begin_top_sketch", "partstudio_begin_source_extrude", "partstudio_populate_sketch", "partstudio_populate_extrude"}:
+        if job.get("kind") not in {"state", "schema", "creation_probe", "native", "partstudio_depth_edit", "partstudio_begin_top_sketch", "partstudio_begin_source_extrude", "partstudio_populate_sketch", "partstudio_populate_extrude", "partstudio_populate_variable"}:
             raise Unsupported("Browser-mode adapter permits only native editor jobs")
         try:
             response = await self.http.post("/command", json=job)
@@ -537,10 +549,10 @@ class NativeBridge:
                                            "page_reply", "response_transfer"}
                     and type(data.get("elapsed_ms")) is int and 0 <= data["elapsed_ms"] <= 60000):
                 diagnostic = f" [read_phase={data['read_phase']}, elapsed_ms={data['elapsed_ms']}]"
-            if (job.get("kind") in {"partstudio_begin_top_sketch", "partstudio_begin_source_extrude", "partstudio_populate_sketch", "partstudio_populate_extrude"}
+            if (job.get("kind") in {"partstudio_begin_top_sketch", "partstudio_begin_source_extrude", "partstudio_populate_sketch", "partstudio_populate_extrude", "partstudio_populate_variable"}
                     and data.get("write_stage") == "pre_dispatch"):
                 raise PreDispatchRejected(str(data["error"]))
-            if job.get("kind") in {"partstudio_depth_edit", "partstudio_begin_top_sketch", "partstudio_begin_source_extrude", "partstudio_populate_sketch", "partstudio_populate_extrude"}:
+            if job.get("kind") in {"partstudio_depth_edit", "partstudio_begin_top_sketch", "partstudio_begin_source_extrude", "partstudio_populate_sketch", "partstudio_populate_extrude", "partstudio_populate_variable"}:
                 raise UncertainWrite(str(data["error"]))
             raise BackendError(str(data["error"]) + diagnostic)
         if response.status_code != 200 or not isinstance(data, dict):
@@ -559,6 +571,68 @@ def _schema_fields(defaults: dict[str, Any], required: set[str]) -> None:
     missing = required - defaults.keys()
     if missing:
         raise Unsupported("Runtime serializer lacks fields: " + ", ".join(sorted(missing)))
+
+
+def _variable_expected_tree(before: dict, staged: dict) -> dict:
+    """Populate only a blank native LENGTH draft, retaining its allocated identities."""
+    tree = before.get("tree", {})
+    children = tree.get("children")
+    fid = before.get("editingFeatureId")
+    if (before.get("connected") is not True or tree.get("$type") != "bsedit.GBTMModel"
+            or not isinstance(children, list) or not fid):
+        raise Unsupported("Connected UI-allocated variable draft required")
+    matches = [n for n in children if n.get("featureId") == fid]
+    if (len(matches) != 1 or matches[0].get("featureType") != "assignVariable"
+            or not matches[0].get("nodeId") or matches[0].get("suppressed") is not False):
+        raise Unsupported("Exactly one active native variable draft required")
+    feature = matches[0]
+    params = feature.get("parameters", [])
+    native = {p.get("parameterId"): p for p in params}
+    if len(native) != len(params) or any(not p.get("nodeId") for p in params):
+        raise Unsupported("Variable parameter identities are incomplete or duplicated")
+    source = staged["source_template"]["parameters"]
+    if set(native) != {p["parameterId"] for p in source} | {"anyValue", "conversionFactor"}:
+        raise Unsupported("Native variable schema differs from observed defaults")
+    for p in source:
+        actual = native[p["parameterId"]]
+        expected_type = "bsedit.G" + p["btType"].split("-")[0]
+        if actual.get("$type") != expected_type:
+            raise Unsupported("Native variable parameter type differs from source")
+        if p["parameterId"] in {"name", "lengthValue", "value"}:
+            continue
+        for key in ("expression", "value", "enumName", "queries"):
+            if key in p and actual.get(key) != p[key]:
+                raise Unsupported("Native variable defaults differ from source semantics")
+        if p.get("elementLibraryData") is not None:
+            raise Unsupported("Referenced variable tables are unsupported")
+    for name in ("anyValue", "conversionFactor"):
+        p = native[name]
+        if (p.get("$type") != "bsedit.GBTMParameterQuantity" or p.get("expression") != "0"
+                or p.get("value") != 0 or p.get("units") != ""):
+            raise Unsupported("Native extra variable defaults differ")
+    if native["name"].get("value") != "":
+        raise Unsupported("Variable draft must be unnamed; existing variables cannot be overwritten")
+    for name in ("lengthValue", "value"):
+        p = native[name]
+        if p.get("expression") != "0 mm" or p.get("value") != 0 or p.get("units") != "millimeter":
+            raise Unsupported("Variable draft must have blank default length")
+    for node in children:
+        if node is feature:
+            continue
+        if any(p.get("parameterId") == "name" and p.get("value") == staged["name"]
+               for p in node.get("parameters", [])) and node.get("featureType") == "assignVariable":
+            raise Unsupported("Source variable already exists; reconcile instead of duplicating")
+    value = float(staged["expression"].strip()[:-2])
+    if not math.isfinite(value):
+        raise Unsupported("Finite literal variable required")
+    expected = copy.deepcopy(tree)
+    changed = next(n for n in expected["children"] if n.get("featureId") == fid)
+    for p in changed["parameters"]:
+        if p["parameterId"] == "name":
+            p["value"] = staged["name"]
+        elif p["parameterId"] in {"lengthValue", "value"}:
+            p.update(expression=staged["expression"], value=value)
+    return expected
 
 
 def stage_length_variable(feature: Feature) -> dict[str, Any]:
@@ -1135,6 +1209,77 @@ class NativeBackend:
                       "active_draft_observed": True, "region_query_evidence": resolved}
             journal.transition(op_id, "observed", observation=result)
             return result
+
+    async def populate_test_variable(self, target: Target, source: str | Path, *,
+                                     logical_id: str, previous_op_ids: list[str], journal: Journal) -> dict[str, Any]:
+        """Write one source literal into a fresh normal-editor variable draft."""
+        from .fsgen import compile_fsgen
+        if _target(target) != self.create_target or self.tab_id is None:
+            raise Unsupported("Variable population requires the authorized temporary tab")
+        stages = [stage_length_variable(f) for f in compile_fsgen(source, target).features
+                  if f.kind == "assignVariable"]
+        matches = [i for i, s in enumerate(stages) if s["logical_id"] == logical_id]
+        if len(matches) != 1 or len(previous_op_ids) != matches[0] or len(set(previous_op_ids)) != len(previous_op_ids):
+            raise Unsupported("Source variable order requires every preceding observed operation")
+        index = matches[0]
+        key = f"{target.did}/{target.wid}/{target.eid}"
+        with journal.target_lock(key):
+            if journal.has_unresolved():
+                raise UncertainWrite("Prior write unresolved; reconcile before variable population")
+            mapping = {}
+            prior_tree = None
+            for stage, op_id in zip(stages[:index], previous_op_ids):
+                row = journal.get(op_id)
+                if (not row or row["target"] != key or row["state"] != "observed"
+                        or row["action"] != "experimental_variable_populate" or row["logical_id"] != stage["logical_id"]):
+                    raise Unsupported("Preceding variable journal identity differs")
+                intent = json.loads(row["intent"])
+                observation = json.loads(row["observation"] or "{}")
+                if (intent.get("source_stages") != stages or intent.get("source_index") != len(mapping)
+                        or observation.get("definition_observed") is not True
+                        or observation.get("feature_id") != intent.get("before_state", {}).get("editingFeatureId")):
+                    raise Unsupported("Preceding variable source or saved evidence differs")
+                mapping[stage["logical_id"]] = observation["feature_id"]
+                prior_tree = intent["expected_tree"]
+            health = await self.bridge.health()
+            if (health.get("extension_connected") is not True
+                    or "h2_native_variable_populate_server_v1" not in health.get("capabilities", [])
+                    or "h2_native_variable_populate_page_v1" not in (health.get("extension") or {}).get("capabilities", [])
+                    or "h2_native_completion_receipt_page_v1" not in (health.get("extension") or {}).get("capabilities", [])):
+                raise Unsupported("Paired variable writer capability unavailable")
+            before = await self.raw_state(target)
+            expected = _variable_expected_tree(before, stages[index])
+            fid = before["editingFeatureId"]
+            if prior_tree is not None:
+                stripped = copy.deepcopy(before["tree"])
+                stripped["children"] = [n for n in stripped["children"] if n.get("featureId") != fid]
+                if (stripped["children"] != prior_tree["children"]
+                        or _native_model_metadata(stripped) != _native_model_metadata(prior_tree)):
+                    raise Unsupported("Previously saved variables or unrelated tree changed")
+            op_id = "variable-" + uuid4().hex
+            journal.prepare(op_id=op_id, target=key, expected_revision=before["element_microversion"],
+                            action="experimental_variable_populate", logical_id=logical_id,
+                            intent={"before_state": before, "expected_tree": expected,
+                                    "source_stages": stages, "source_index": index,
+                                    "previous_op_ids": previous_op_ids, "identity_map": mapping})
+            try:
+                response = await self.bridge.command({"kind": "partstudio_populate_variable",
+                    "op_id": op_id, "target": self.create_target, "tab_id": self.tab_id,
+                    "expected_element_microversion": before["element_microversion"],
+                    "variable_edit": {"feature_id": fid, "name": stages[index]["name"],
+                                      "expression": stages[index]["expression"]}})
+            except PreDispatchRejected as exc:
+                journal.transition(op_id, "rejected", error=str(exc))
+                raise
+            except Exception as exc:
+                journal.transition(op_id, "unknown", error=str(exc))
+                raise UncertainWrite(f"Variable outcome unknown; journal operation {op_id}") from exc
+            if response.get("op_id") != op_id:
+                journal.transition(op_id, "unknown", error="Variable receipt identity differs")
+                raise UncertainWrite(f"Variable outcome unknown; journal operation {op_id}")
+            journal.transition(op_id, "sent", receipt=response)
+            return await _confirm_pending_readback(self.bridge.reconcile_saved_source_variable,
+                                                   op_id, self.tab_id, "Variable")
 
     async def populate_test_extrude(self, target: Target, source: str | Path, *,
                                     sketch_op_id: str, journal: Journal) -> dict[str, Any]:

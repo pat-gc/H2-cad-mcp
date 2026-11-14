@@ -1,0 +1,766 @@
+{
+  "$type": "bsedit.GBTMFeature",
+  "featureId": "freshVariable_0",
+  "featureType": "assignVariable",
+  "hasUserCode": false,
+  "name": "###name = #value",
+  "nameParseNode": {
+    "$type": "tree.GBTNodeReference",
+    "nodeId": ""
+  },
+  "namespace": "",
+  "nodeId": "fixture-node-1",
+  "parameterLibraries": [],
+  "parameters": [
+    {
+      "$type": "bsedit.GBTMParameterQueryList",
+      "filter": {
+        "$type": "bsedit.GBTAndFilter",
+        "operand1": {
+          "$type": "bsedit.GBTOrFilter",
+          "operand1": {
+            "$type": "bsedit.GBTOrFilter",
+            "operand1": {
+              "$type": "bsedit.GBTOrFilter",
+              "operand1": {
+                "$type": "bsedit.GBTOrFilter",
+                "operand1": {
+                  "$type": "bsedit.GBTEntityTypeFilter",
+                  "entityType": 2
+                },
+                "operand2": {
+                  "$type": "bsedit.GBTEntityTypeFilter",
+                  "entityType": 1
+                }
+              },
+              "operand2": {
+                "$type": "bsedit.GBTEntityTypeFilter",
+                "entityType": 0
+              }
+            },
+            "operand2": {
+              "$type": "bsedit.GBTAndFilter",
+              "operand1": {
+                "$type": "bsedit.GBTEntityTypeFilter",
+                "entityType": 3
+              },
+              "operand2": {
+                "$type": "bsedit.GBTSketchObjectFilter",
+                "isSketchObject": false,
+                "objectType": 0
+              }
+            }
+          },
+          "operand2": {
+            "$type": "bsedit.GBTBodyTypeFilter",
+            "bodyType": 4
+          }
+        },
+        "operand2": {
+          "$type": "bsedit.GBTFlatSheetMetalFilter",
+          "allows": 2
+        }
+      },
+      "hasUserCode": false,
+      "libraryRelationType": 0,
+      "nodeId": "fixture-node-2",
+      "parameterId": "initEntities",
+      "parameterName": "",
+      "queries": [],
+      "sourceParseTreeNodes": {}
+    },
+    {
+      "$type": "bsedit.GBTMParameterEnum",
+      "enumName": "VariableMode",
+      "hasUserCode": false,
+      "libraryRelationType": 0,
+      "namespace": "",
+      "nodeId": "fixture-node-3",
+      "parameterId": "mode",
+      "parameterName": "",
+      "sourceParseTreeNodes": {},
+      "value": "ASSIGNED"
+    },
+    {
+      "$type": "bsedit.GBTMParameterEnum",
+      "enumName": "VariableType",
+      "hasUserCode": false,
+      "libraryRelationType": 0,
+      "namespace": "",
+      "nodeId": "fixture-node-4",
+      "parameterId": "variableType",
+      "parameterName": "",
+      "sourceParseTreeNodes": {},
+      "value": "LENGTH"
+    },
+    {
+      "$type": "bsedit.GBTMParameterEnum",
+      "enumName": "VariableMeasurementMode",
+      "hasUserCode": false,
+      "libraryRelationType": 0,
+      "namespace": "",
+      "nodeId": "fixture-node-5",
+      "parameterId": "measurementMode",
+      "parameterName": "",
+      "sourceParseTreeNodes": {},
+      "value": "DISTANCE"
+    },
+    {
+      "$type": "bsedit.GBTMParameterString",
+      "hasUserCode": false,
+      "libraryRelationType": 0,
+      "nodeId": "fixture-node-6",
+      "parameterId": "name",
+      "parameterName": "",
+      "sourceParseTreeNodes": {},
+      "value": ""
+    },
+    {
+      "$type": "bsedit.GBTMParameterQuantity",
+      "expression": "0 mm",
+      "hasUserCode": false,
+      "isInteger": false,
+      "libraryRelationType": 0,
+      "nodeId": "fixture-node-7",
+      "parameterId": "lengthValue",
+      "parameterName": "",
+      "sourceParseTreeNodes": {},
+      "units": "millimeter",
+      "value": 0
+    },
+    {
+      "$type": "bsedit.GBTMParameterQuantity",
+      "expression": "0 deg",
+      "hasUserCode": false,
+      "isInteger": false,
+      "libraryRelationType": 0,
+      "nodeId": "fixture-node-8",
+      "parameterId": "angleValue",
+      "parameterName": "",
+      "sourceParseTreeNodes": {},
+      "units": "degree",
+      "value": 0
+    },
+    {
+      "$type": "bsedit.GBTMParameterQuantity",
+      "expression": "0",
+      "hasUserCode": false,
+      "isInteger": false,
+      "libraryRelationType": 0,
+      "nodeId": "fixture-node-9",
+      "parameterId": "numberValue",
+      "parameterName": "",
+      "sourceParseTreeNodes": {},
+      "units": "",
+      "value": 0
+    },
+    {
+      "$type": "bsedit.GBTMParameterQuantity",
+      "expression": "0",
+      "hasUserCode": false,
+      "isInteger": false,
+      "libraryRelationType": 0,
+      "nodeId": "fixture-node-10",
+      "parameterId": "anyValue",
+      "parameterName": "",
+      "sourceParseTreeNodes": {},
+      "units": "",
+      "value": 0
+    },
+    {
+      "$type": "bsedit.GBTMParameterQuantity",
+      "expression": "0 mm",
+      "hasUserCode": false,
+      "isInteger": false,
+      "libraryRelationType": 0,
+      "nodeId": "fixture-node-11",
+      "parameterId": "value",
+      "parameterName": "",
+      "sourceParseTreeNodes": {},
+      "units": "millimeter",
+      "value": 0
+    },
+    {
+      "$type": "bsedit.GBTMParameterReferenceTable",
+      "elementLibraryData": {
+        "$type": "bsedit.GBTElementLibraryReferenceData",
+        "elementLibraryId": "",
+        "elementLibrarySelectionPath": [],
+        "elementLibraryVersion": ""
+      },
+      "hasUserCode": false,
+      "libraryRelationType": 0,
+      "namespace": "",
+      "nodeId": "fixture-node-12",
+      "parameterId": "csv",
+      "parameterName": "",
+      "revisionData": {
+        "$type": "bsedit.GBTRevisionCustomData",
+        "partNumber": "",
+        "revision": ""
+      },
+      "sourceParseTreeNodes": {}
+    },
+    {
+      "$type": "bsedit.GBTMParameterEnum",
+      "enumName": "AccessType",
+      "hasUserCode": false,
+      "libraryRelationType": 0,
+      "namespace": "",
+      "nodeId": "fixture-node-13",
+      "parameterId": "rowAccessType",
+      "parameterName": "",
+      "sourceParseTreeNodes": {},
+      "value": "INDEX"
+    },
+    {
+      "$type": "bsedit.GBTMParameterQuantity",
+      "expression": "0",
+      "hasUserCode": false,
+      "isInteger": true,
+      "libraryRelationType": 0,
+      "nodeId": "fixture-node-14",
+      "parameterId": "rowIndex",
+      "parameterName": "",
+      "sourceParseTreeNodes": {},
+      "units": "",
+      "value": 0
+    },
+    {
+      "$type": "bsedit.GBTMParameterString",
+      "hasUserCode": false,
+      "libraryRelationType": 0,
+      "nodeId": "fixture-node-15",
+      "parameterId": "rowValue",
+      "parameterName": "",
+      "sourceParseTreeNodes": {},
+      "value": ""
+    },
+    {
+      "$type": "bsedit.GBTMParameterBoolean",
+      "hasUserCode": false,
+      "libraryRelationType": 0,
+      "nodeId": "fixture-node-16",
+      "parameterId": "rowRegexp",
+      "parameterName": "",
+      "sourceParseTreeNodes": {},
+      "value": false
+    },
+    {
+      "$type": "bsedit.GBTMParameterQuantity",
+      "expression": "0",
+      "hasUserCode": false,
+      "isInteger": true,
+      "libraryRelationType": 0,
+      "nodeId": "fixture-node-17",
+      "parameterId": "rowMinIndex",
+      "parameterName": "",
+      "sourceParseTreeNodes": {},
+      "units": "",
+      "value": 0
+    },
+    {
+      "$type": "bsedit.GBTMParameterQuantity",
+      "expression": "0",
+      "hasUserCode": false,
+      "isInteger": true,
+      "libraryRelationType": 0,
+      "nodeId": "fixture-node-18",
+      "parameterId": "rowMaxIndex",
+      "parameterName": "",
+      "sourceParseTreeNodes": {},
+      "units": "",
+      "value": 0
+    },
+    {
+      "$type": "bsedit.GBTMParameterEnum",
+      "enumName": "ResultType",
+      "hasUserCode": false,
+      "libraryRelationType": 0,
+      "namespace": "",
+      "nodeId": "fixture-node-19",
+      "parameterId": "rowResult",
+      "parameterName": "",
+      "sourceParseTreeNodes": {},
+      "value": "SINGLE"
+    },
+    {
+      "$type": "bsedit.GBTMParameterQuantity",
+      "expression": "0",
+      "hasUserCode": false,
+      "isInteger": true,
+      "libraryRelationType": 0,
+      "nodeId": "fixture-node-20",
+      "parameterId": "rowLabelIndex",
+      "parameterName": "",
+      "sourceParseTreeNodes": {},
+      "units": "",
+      "value": 0
+    },
+    {
+      "$type": "bsedit.GBTMParameterEnum",
+      "enumName": "AccessType",
+      "hasUserCode": false,
+      "libraryRelationType": 0,
+      "namespace": "",
+      "nodeId": "fixture-node-21",
+      "parameterId": "columnAccessType",
+      "parameterName": "",
+      "sourceParseTreeNodes": {},
+      "value": "INDEX"
+    },
+    {
+      "$type": "bsedit.GBTMParameterQuantity",
+      "expression": "0",
+      "hasUserCode": false,
+      "isInteger": true,
+      "libraryRelationType": 0,
+      "nodeId": "fixture-node-22",
+      "parameterId": "columnIndex",
+      "parameterName": "",
+      "sourceParseTreeNodes": {},
+      "units": "",
+      "value": 0
+    },
+    {
+      "$type": "bsedit.GBTMParameterString",
+      "hasUserCode": false,
+      "libraryRelationType": 0,
+      "nodeId": "fixture-node-23",
+      "parameterId": "columnValue",
+      "parameterName": "",
+      "sourceParseTreeNodes": {},
+      "value": ""
+    },
+    {
+      "$type": "bsedit.GBTMParameterBoolean",
+      "hasUserCode": false,
+      "libraryRelationType": 0,
+      "nodeId": "fixture-node-24",
+      "parameterId": "columnRegexp",
+      "parameterName": "",
+      "sourceParseTreeNodes": {},
+      "value": false
+    },
+    {
+      "$type": "bsedit.GBTMParameterQuantity",
+      "expression": "0",
+      "hasUserCode": false,
+      "isInteger": true,
+      "libraryRelationType": 0,
+      "nodeId": "fixture-node-25",
+      "parameterId": "columnMinIndex",
+      "parameterName": "",
+      "sourceParseTreeNodes": {},
+      "units": "",
+      "value": 0
+    },
+    {
+      "$type": "bsedit.GBTMParameterQuantity",
+      "expression": "0",
+      "hasUserCode": false,
+      "isInteger": true,
+      "libraryRelationType": 0,
+      "nodeId": "fixture-node-26",
+      "parameterId": "columnMaxIndex",
+      "parameterName": "",
+      "sourceParseTreeNodes": {},
+      "units": "",
+      "value": 0
+    },
+    {
+      "$type": "bsedit.GBTMParameterEnum",
+      "enumName": "ResultType",
+      "hasUserCode": false,
+      "libraryRelationType": 0,
+      "namespace": "",
+      "nodeId": "fixture-node-27",
+      "parameterId": "columnResult",
+      "parameterName": "",
+      "sourceParseTreeNodes": {},
+      "value": "SINGLE"
+    },
+    {
+      "$type": "bsedit.GBTMParameterQuantity",
+      "expression": "0",
+      "hasUserCode": false,
+      "isInteger": true,
+      "libraryRelationType": 0,
+      "nodeId": "fixture-node-28",
+      "parameterId": "columnLabelIndex",
+      "parameterName": "",
+      "sourceParseTreeNodes": {},
+      "units": "",
+      "value": 0
+    },
+    {
+      "$type": "bsedit.GBTMParameterBoolean",
+      "hasUserCode": false,
+      "libraryRelationType": 0,
+      "nodeId": "fixture-node-29",
+      "parameterId": "useConversionFactor",
+      "parameterName": "",
+      "sourceParseTreeNodes": {},
+      "value": false
+    },
+    {
+      "$type": "bsedit.GBTMParameterQuantity",
+      "expression": "0",
+      "hasUserCode": false,
+      "isInteger": false,
+      "libraryRelationType": 0,
+      "nodeId": "fixture-node-30",
+      "parameterId": "conversionFactor",
+      "parameterName": "",
+      "sourceParseTreeNodes": {},
+      "units": "",
+      "value": 0
+    },
+    {
+      "$type": "bsedit.GBTMParameterQueryList",
+      "filter": {
+        "$type": "bsedit.GBTAndFilter",
+        "operand1": {
+          "$type": "bsedit.GBTOrFilter",
+          "operand1": {
+            "$type": "bsedit.GBTOrFilter",
+            "operand1": {
+              "$type": "bsedit.GBTOrFilter",
+              "operand1": {
+                "$type": "bsedit.GBTOrFilter",
+                "operand1": {
+                  "$type": "bsedit.GBTEntityTypeFilter",
+                  "entityType": 2
+                },
+                "operand2": {
+                  "$type": "bsedit.GBTEntityTypeFilter",
+                  "entityType": 1
+                }
+              },
+              "operand2": {
+                "$type": "bsedit.GBTEntityTypeFilter",
+                "entityType": 0
+              }
+            },
+            "operand2": {
+              "$type": "bsedit.GBTAndFilter",
+              "operand1": {
+                "$type": "bsedit.GBTEntityTypeFilter",
+                "entityType": 3
+              },
+              "operand2": {
+                "$type": "bsedit.GBTSketchObjectFilter",
+                "isSketchObject": false,
+                "objectType": 0
+              }
+            }
+          },
+          "operand2": {
+            "$type": "bsedit.GBTBodyTypeFilter",
+            "bodyType": 4
+          }
+        },
+        "operand2": {
+          "$type": "bsedit.GBTFlatSheetMetalFilter",
+          "allows": 2
+        }
+      },
+      "hasUserCode": false,
+      "libraryRelationType": 0,
+      "nodeId": "fixture-node-31",
+      "parameterId": "entityCouple",
+      "parameterName": "",
+      "queries": [],
+      "sourceParseTreeNodes": {}
+    },
+    {
+      "$type": "bsedit.GBTMParameterEnum",
+      "enumName": "VariableMinMaxSelection",
+      "hasUserCode": false,
+      "libraryRelationType": 0,
+      "namespace": "",
+      "nodeId": "fixture-node-32",
+      "parameterId": "minmax",
+      "parameterName": "",
+      "sourceParseTreeNodes": {},
+      "value": "MINIMUM"
+    },
+    {
+      "$type": "bsedit.GBTMParameterBoolean",
+      "hasUserCode": false,
+      "libraryRelationType": 0,
+      "nodeId": "fixture-node-33",
+      "parameterId": "extendEntities",
+      "parameterName": "",
+      "sourceParseTreeNodes": {},
+      "value": false
+    },
+    {
+      "$type": "bsedit.GBTMParameterBoolean",
+      "hasUserCode": false,
+      "libraryRelationType": 0,
+      "nodeId": "fixture-node-34",
+      "parameterId": "measureFromAxis",
+      "parameterName": "",
+      "sourceParseTreeNodes": {},
+      "value": false
+    },
+    {
+      "$type": "bsedit.GBTMParameterQuantity",
+      "expression": "0 mm",
+      "hasUserCode": false,
+      "isInteger": false,
+      "libraryRelationType": 0,
+      "nodeId": "fixture-node-35",
+      "parameterId": "distance",
+      "parameterName": "",
+      "sourceParseTreeNodes": {},
+      "units": "millimeter",
+      "value": 0
+    },
+    {
+      "$type": "bsedit.GBTMParameterQuantity",
+      "expression": "0 mm",
+      "hasUserCode": false,
+      "isInteger": false,
+      "libraryRelationType": 0,
+      "nodeId": "fixture-node-36",
+      "parameterId": "xOffset",
+      "parameterName": "",
+      "sourceParseTreeNodes": {},
+      "units": "millimeter",
+      "value": 0
+    },
+    {
+      "$type": "bsedit.GBTMParameterQuantity",
+      "expression": "0 mm",
+      "hasUserCode": false,
+      "isInteger": false,
+      "libraryRelationType": 0,
+      "nodeId": "fixture-node-37",
+      "parameterId": "yOffset",
+      "parameterName": "",
+      "sourceParseTreeNodes": {},
+      "units": "millimeter",
+      "value": 0
+    },
+    {
+      "$type": "bsedit.GBTMParameterQuantity",
+      "expression": "0 mm",
+      "hasUserCode": false,
+      "isInteger": false,
+      "libraryRelationType": 0,
+      "nodeId": "fixture-node-38",
+      "parameterId": "zOffset",
+      "parameterName": "",
+      "sourceParseTreeNodes": {},
+      "units": "millimeter",
+      "value": 0
+    },
+    {
+      "$type": "bsedit.GBTMParameterEnum",
+      "enumName": "AxisWithCustom",
+      "hasUserCode": false,
+      "libraryRelationType": 0,
+      "namespace": "",
+      "nodeId": "fixture-node-39",
+      "parameterId": "componentSelector",
+      "parameterName": "",
+      "sourceParseTreeNodes": {},
+      "value": "DISTANCE"
+    },
+    {
+      "$type": "bsedit.GBTMParameterQueryList",
+      "filter": {
+        "$type": "bsedit.GBTOrFilter",
+        "operand1": {
+          "$type": "bsedit.GBTOrFilter",
+          "operand1": {
+            "$type": "bsedit.GBTOrFilter",
+            "operand1": {
+              "$type": "bsedit.GBTGeometryFilter",
+              "geometryType": 0
+            },
+            "operand2": {
+              "$type": "bsedit.GBTOrFilter",
+              "operand1": {
+                "$type": "bsedit.GBTGeometryFilter",
+                "geometryType": 1
+              },
+              "operand2": {
+                "$type": "bsedit.GBTOrFilter",
+                "operand1": {
+                  "$type": "bsedit.GBTGeometryFilter",
+                  "geometryType": 2
+                },
+                "operand2": {
+                  "$type": "bsedit.GBTOrFilter",
+                  "operand1": {
+                    "$type": "bsedit.GBTGeometryFilter",
+                    "geometryType": 4
+                  },
+                  "operand2": {
+                    "$type": "bsedit.GBTOrFilter",
+                    "operand1": {
+                      "$type": "bsedit.GBTGeometryFilter",
+                      "geometryType": 5
+                    },
+                    "operand2": {
+                      "$type": "bsedit.GBTGeometryFilter",
+                      "geometryType": 12
+                    }
+                  }
+                }
+              }
+            }
+          },
+          "operand2": {
+            "$type": "bsedit.GBTMateConnectorFilter",
+            "allowImplicitMateConnector": false,
+            "excludeSuppressed": false,
+            "isMateConnectorInferenceEnabledByDefault": false,
+            "requiresOccurrence": false
+          }
+        },
+        "operand2": {
+          "$type": "bsedit.GBTGeometryFilter",
+          "geometryType": 3
+        }
+      },
+      "hasUserCode": false,
+      "libraryRelationType": 0,
+      "nodeId": "fixture-node-40",
+      "parameterId": "customDirection",
+      "parameterName": "",
+      "queries": [],
+      "sourceParseTreeNodes": {}
+    },
+    {
+      "$type": "bsedit.GBTMParameterQuantity",
+      "expression": "0 mm",
+      "hasUserCode": false,
+      "isInteger": false,
+      "libraryRelationType": 0,
+      "nodeId": "fixture-node-41",
+      "parameterId": "customOffset",
+      "parameterName": "",
+      "sourceParseTreeNodes": {},
+      "units": "millimeter",
+      "value": 0
+    },
+    {
+      "$type": "bsedit.GBTMParameterQueryList",
+      "filter": {
+        "$type": "bsedit.GBTAndFilter",
+        "operand1": {
+          "$type": "bsedit.GBTOrFilter",
+          "operand1": {
+            "$type": "bsedit.GBTEntityTypeFilter",
+            "entityType": 1
+          },
+          "operand2": {
+            "$type": "bsedit.GBTAndFilter",
+            "operand1": {
+              "$type": "bsedit.GBTAndFilter",
+              "operand1": {
+                "$type": "bsedit.GBTEntityTypeFilter",
+                "entityType": 3
+              },
+              "operand2": {
+                "$type": "bsedit.GBTBodyTypeFilter",
+                "bodyType": 2
+              }
+            },
+            "operand2": {
+              "$type": "bsedit.GBTSketchObjectFilter",
+              "isSketchObject": false,
+              "objectType": 0
+            }
+          }
+        },
+        "operand2": {
+          "$type": "bsedit.GBTFlatSheetMetalFilter",
+          "allows": 2
+        }
+      },
+      "hasUserCode": false,
+      "libraryRelationType": 0,
+      "nodeId": "fixture-node-42",
+      "parameterId": "lengthEntities",
+      "parameterName": "",
+      "queries": [],
+      "sourceParseTreeNodes": {}
+    },
+    {
+      "$type": "bsedit.GBTMParameterBoolean",
+      "hasUserCode": false,
+      "libraryRelationType": 0,
+      "nodeId": "fixture-node-43",
+      "parameterId": "radius",
+      "parameterName": "",
+      "sourceParseTreeNodes": {},
+      "value": false
+    },
+    {
+      "$type": "bsedit.GBTMParameterQueryList",
+      "filter": {
+        "$type": "bsedit.GBTAndFilter",
+        "operand1": {
+          "$type": "bsedit.GBTOrFilter",
+          "operand1": {
+            "$type": "bsedit.GBTOrFilter",
+            "operand1": {
+              "$type": "bsedit.GBTOrFilter",
+              "operand1": {
+                "$type": "bsedit.GBTGeometryFilter",
+                "geometryType": 1
+              },
+              "operand2": {
+                "$type": "bsedit.GBTGeometryFilter",
+                "geometryType": 2
+              }
+            },
+            "operand2": {
+              "$type": "bsedit.GBTGeometryFilter",
+              "geometryType": 4
+            }
+          },
+          "operand2": {
+            "$type": "bsedit.GBTGeometryFilter",
+            "geometryType": 6
+          }
+        },
+        "operand2": {
+          "$type": "bsedit.GBTFlatSheetMetalFilter",
+          "allows": 2
+        }
+      },
+      "hasUserCode": false,
+      "libraryRelationType": 0,
+      "nodeId": "fixture-node-44",
+      "parameterId": "diameterEntity",
+      "parameterName": "",
+      "queries": [],
+      "sourceParseTreeNodes": {}
+    },
+    {
+      "$type": "bsedit.GBTMParameterString",
+      "hasUserCode": false,
+      "libraryRelationType": 0,
+      "nodeId": "fixture-node-45",
+      "parameterId": "description",
+      "parameterName": "",
+      "sourceParseTreeNodes": {},
+      "value": ""
+    }
+  ],
+  "returnAfterSubfeatures": false,
+  "sourceParseTreeNodes": {},
+  "subFeatures": [],
+  "suppressed": false,
+  "suppressedParseNode": {
+    "$type": "tree.GBTNodeReference",
+    "nodeId": ""
+  },
+  "suppressionState": null
+}
