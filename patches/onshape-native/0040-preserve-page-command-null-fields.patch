@@ -1,0 +1,127 @@
+From f0f833829403afe8655f8ea11762148a64fd5069 Mon Sep 17 00:00:00 2001
+From: patcybermind <pato.gonzalezcabrera@gmail.com>
+Date: Sat, 14 Nov 2026 07:09:42 -0500
+Subject: [PATCH] fix: preserve explicit nulls across page script argument
+ transport
+
+---
+ extension/page-adapter.js | 10 ++++++++++
+ extension/worker.js       |  9 +++++----
+ tests/adapter.test.mjs    | 33 ++++++++++++++++++++++++++++++++-
+ 3 files changed, 47 insertions(+), 5 deletions(-)
+
+diff --git a/extension/page-adapter.js b/extension/page-adapter.js
+index f519bae..13fd85f 100644
+--- a/extension/page-adapter.js
++++ b/extension/page-adapter.js
+@@ -4,6 +4,10 @@ export async function pageCommand(job) {
+   "use strict";
+   let h2CadRpcSent = false;
+   try {
++  // The broker protocol is JSON. Carry that exact JSON as text across Chrome's
++  // script-argument conversion so explicit null object fields remain present.
++  if (typeof job === "string") job = JSON.parse(job);
++  if (!job || typeof job !== "object" || Array.isArray(job)) throw new Error("Expected a native job object.");
+   const MAX = 256 * 1024 * 1024;
+   // Large REST responses stay in this page until the worker drains small chunks.
+   const transferKey = Symbol.for('onshape-native.response');
+@@ -1290,3 +1294,9 @@ export async function pageCommand(job) {
+       outcome: "Inspect current state before retrying a mutation."};
+   }
+ }
++
++
++// Used by the worker for pageCommand only; display/viewer transports are separate.
++export function pageCommandArgs(job) {
++  return [JSON.stringify(job)];
++}
+diff --git a/extension/worker.js b/extension/worker.js
+index bc69f55..053c436 100644
+--- a/extension/worker.js
++++ b/extension/worker.js
+@@ -1,5 +1,5 @@
+ import {viewerMesh} from "./viewer-mesh.js";
+-import {pageCommand} from "./page-adapter.js";
++import {pageCommand, pageCommandArgs} from "./page-adapter.js";
+ import {restGet} from "./rest-get.js";
+ import {tabContext, loadedSessionTab} from "./tab-context.js";
+ import {displayCommand} from "./display-adapter.js";
+@@ -9,7 +9,7 @@ import {createConnection} from "./connection.js";
+ 
+ const editors = createEditorTabs(chrome, async (tabId, target) => {
+   const results = await chrome.scripting.executeScript({target: {tabId}, world: "MAIN",
+-    func: pageCommand, args: [{kind: "editor_health", target}]});
++    func: pageCommand, args: pageCommandArgs({kind: "editor_health", target})});
+   return results[0]?.result;
+ });
+ chrome.tabs.onRemoved.addListener(id => { editors.forget(id).catch(() => {}); });
+@@ -37,7 +37,8 @@ async function execute(job, reportPhase = () => {}) {
+   const tab = await resolveTab(job);
+   reportPhase('page_script');
+   const results = await chrome.scripting.executeScript({target: {tabId: tab.id}, world: "MAIN",
+-    func: job.kind === "viewer_mesh" ? viewerMesh : job.kind === "display" ? displayCommand : pageCommand, args: [{...job, chunk_response:true}]});
++    func: job.kind === "viewer_mesh" ? viewerMesh : job.kind === "display" ? displayCommand : pageCommand, args: ["viewer_mesh", "display"].includes(job.kind)
++      ? [{...job, chunk_response:true}] : pageCommandArgs({...job, chunk_response:true})});
+   reportPhase('page_reply');
+   if (results.length !== 1 || results[0].result === undefined) throw new Error("Page command failed or tab navigated; inspect state before retrying.");
+   let result = results[0].result;
+@@ -48,7 +49,7 @@ async function execute(job, reportPhase = () => {}) {
+     const chunks = []; let offset = 0;
+     while (offset < result.length) {
+       const reply = await chrome.scripting.executeScript({target:{tabId:tab.id}, world:'MAIN',
+-        func:pageCommand, args:[{kind:'response_chunk', transfer_id:result.response_transfer, offset}]});
++        func:pageCommand, args:pageCommandArgs({kind:'response_chunk', transfer_id:result.response_transfer, offset})});
+       const part = reply[0]?.result;
+       if (!part || typeof part.chunk !== 'string' || !part.chunk.length || part.chunk.length > 512 * 1024 || offset + part.chunk.length > result.length)
+         throw new Error('Response transfer interrupted; no request was replayed.');
+diff --git a/tests/adapter.test.mjs b/tests/adapter.test.mjs
+index dbf9ee3..fc811fb 100644
+--- a/tests/adapter.test.mjs
++++ b/tests/adapter.test.mjs
+@@ -3,7 +3,7 @@ import assert from 'node:assert/strict';
+ import {webcrypto} from 'node:crypto';
+ import {readFileSync} from 'node:fs';
+ import {displayCommand} from '../extension/display-adapter.js';
+-import {pageCommand} from '../extension/page-adapter.js';
++import {pageCommand, pageCommandArgs} from '../extension/page-adapter.js';
+ 
+ const target = {did:'f5a8353dc826a9ec52106138',wid:'a3baadfcc7e36a50134951d6',eid:'a2761fa52794bee99354ae96'};
+ const micro = 'd'.repeat(24);
+@@ -1128,3 +1128,34 @@ test('plane compares the captured full state root and diagnoses exact field diff
+     }
+   }
+ });
++
++
++test('worker JSON-text arguments preserve null versus absent through script conversion',async()=>{
++  const captured=JSON.parse(readFileSync(new URL('./fixtures/captured_plane37_draft.json',import.meta.url),'utf8'));
++  const temp={did:'4e078dec822b4e509616b1cb',wid:'af0627de07264acf086e646a',eid:'e'.repeat(24)};
++  setup(undefined,false,'a'.repeat(24),captured.tree,{},null,temp);
++  const input={kind:'state',target:temp,compare_tree:captured.tree,chunk_response:true};
++  // Reproduce the observed boundary: explicit null dictionary fields disappear
++  // from structured arguments. JSON strings remain scalar values unchanged.
++  function scriptConversion(value){
++    if(Array.isArray(value))return value.map(scriptConversion);
++    if(value && typeof value==='object')return Object.fromEntries(Object.entries(value)
++      .filter(([,v])=>v!==null).map(([k,v])=>[k,scriptConversion(v)]));
++    return value;
++  }
++  const lost=await pageCommand(...scriptConversion([input]));
++  assert.equal(lost.tree_comparison.equal,false);
++  assert.match(lost.tree_comparison.difference.path,/suppressionState/);
++  assert.equal(lost.tree_comparison.difference.live_type,'null');
++  assert.equal(lost.tree_comparison.difference.expected_type,'missing');
++  const args=pageCommandArgs(input);
++  assert.equal(typeof args[0],'string');
++  const actual=await pageCommand(...scriptConversion(args));
++  assert.deepEqual(actual.tree_comparison,{equal:true,root_source:'client_cache',difference:null});
++  assert.deepEqual(JSON.parse(JSON.stringify(actual.tree)),captured.tree);
++  assert.equal(sent.length,0);
++  const shapes={nested:{present:null},array:[null,{present:null}],missing:{}};
++  assert.deepEqual(JSON.parse(scriptConversion(pageCommandArgs(shapes))[0]),shapes);
++  const worker=readFileSync(new URL('../extension/worker.js',import.meta.url),'utf8');
++  assert.match(worker,/pageCommandArgs\(\{\.\.\.job, chunk_response:true\}\)/);
++});
+-- 
+2.54.0.windows.1
+
