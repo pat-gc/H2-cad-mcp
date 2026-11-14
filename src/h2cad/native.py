@@ -522,12 +522,17 @@ class NativeBridge:
         except (httpx.HTTPError, ValueError) as exc:
             raise UncertainWrite("Native bridge response unavailable; inspect before further mutation") from exc
         if isinstance(data, dict) and data.get("error"):
+            diagnostic = ""
+            if (data.get("read_phase") in {"extension_received", "tab_lookup", "page_script",
+                                           "page_reply", "response_transfer"}
+                    and type(data.get("elapsed_ms")) is int and 0 <= data["elapsed_ms"] <= 60000):
+                diagnostic = f" [read_phase={data['read_phase']}, elapsed_ms={data['elapsed_ms']}]"
             if (job.get("kind") in {"partstudio_begin_top_sketch", "partstudio_begin_source_extrude", "partstudio_populate_sketch", "partstudio_populate_extrude"}
                     and data.get("write_stage") == "pre_dispatch"):
                 raise PreDispatchRejected(str(data["error"]))
             if job.get("kind") in {"partstudio_depth_edit", "partstudio_begin_top_sketch", "partstudio_begin_source_extrude", "partstudio_populate_sketch", "partstudio_populate_extrude"}:
                 raise UncertainWrite(str(data["error"]))
-            raise BackendError(str(data["error"]))
+            raise BackendError(str(data["error"]) + diagnostic)
         if response.status_code != 200 or not isinstance(data, dict):
             raise BackendError(f"Native bridge rejected command (HTTP {response.status_code})")
         return data

@@ -100,6 +100,20 @@ async def test_read_only_bridge_rejection_preserves_diagnostic():
     await bridge.close()
 
 
+@pytest.mark.asyncio
+async def test_read_timeout_reports_bounded_extension_phase_without_retry():
+    seen = []
+    def handler(request):
+        seen.append(request.url.path)
+        return httpx.Response(200, json={"error": "Read-only editor command timed out.",
+                                         "read_phase": "page_script", "elapsed_ms": 10000})
+    bridge = NativeBridge("x" * 32, transport=httpx.MockTransport(handler))
+    with pytest.raises(BackendError, match=r"read_phase=page_script, elapsed_ms=10000"):
+        await NativeBackend(bridge).raw_state(T)
+    assert seen == ["/command"]
+    await bridge.close()
+
+
 def test_rectangle_compiles_only_with_runtime_schema_and_live_bindings():
     feature = Feature("s", "sketch", {}, structure={"sketch": {"rectangle":
                       {"x0": 0.0, "y0": 0.0, "x1": .04, "y1": .02}}})
