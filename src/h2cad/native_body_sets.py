@@ -92,10 +92,8 @@ def inspect_candidate_body_set(*, target: Target, creator_feature_id: str,
                 or row.get("hasErrorEntity") is not False or row.get("isTemporaryFakeDataForSelection") is not False
                 or detail.get("entityType")!=3 or detail.get("status")!=0
                 or detail.get("outsideExactDependencies") is not False
-                or not isinstance(fid,str) or not fid or not isinstance(operation,str) or not operation.startswith(fid+".")):
+                or not isinstance(fid,str) or not fid or not isinstance(operation,str) or not operation):
             raise Unsupported("Unambiguous solid association required for every listed body")
-        if fid==creator_feature_id and operation!=creator_feature_id+".opExtrude":
-            raise Unsupported("Target creator operation does not match the observed NEW lineage guard")
         associations[ident]={"feature_id":fid,"full_operation_id":operation}
     candidates=sorted(ident for ident,row in associations.items() if row["feature_id"]==creator_feature_id)
     if not candidates or not isinstance(selected_queries,list):
@@ -110,11 +108,12 @@ def inspect_candidate_body_set(*, target: Target, creator_feature_id: str,
     return {"target":td,"element_microversion":revision,"document_microversion":document_revision,"creator_feature_id":creator_feature_id,
         "listed_body_ids":sorted(bodies),"creator_candidate_body_ids":candidates,
         "selected_body_ids":sorted(selected),"observed_associations":associations,
+        "changed_operation_body_ids":sorted(ident for ident,row in associations.items()
+            if row["full_operation_id"]!=row["feature_id"]+".opExtrude"),
         "inventory_query_coverage_verified":True,"selected_scope_matches_candidates":True,
         "evidence_sha256":digest,"server_inventory":server_proof,"complete":False,"creator_lineage_complete":False,"write_ready":False,
-        "missing_evidence":["authoritative complete current solid-body enumeration",
-                            "complete creator-descendant semantics after modifying features",
-                            "binding to observed source journal and modification chain"]}
+        "missing_evidence":["binding to observed source journal and complete modification chain",
+                            "native write preflight and reconciliation integration"]}
 
 
 _OBSERVED_INSERTABLE_FILTER = {'$type': 'bsedit.GBTInsertablesFilter', 'includeParts': True, 'includeSurfaces': True, 'includeSketches': True, 'includeReferenceFeatures': False, 'includeAssemblies': False, 'includeFeatureStudios': False, 'includeBlobs': False, 'allowedBlobMimeTypes': [], 'excludeNewerFSVersions': False, 'maxFeatureScriptVersion': 0, 'includePartStudios': True, 'includeFeatures': False, 'includeMeshes': True, 'includeWires': False, 'includeFlattenedBodies': True, 'includeApplications': False, 'allowedApplicationMimeTypes': [], 'includeCompositeParts': True, 'includeFSTables': False, 'includeFSComputedPartPropertyFunctions': False, 'includeVariables': False, 'includeVariableStudios': False, 'allowedBlobExtensions': [], 'includeSketchesOnFlat': True, 'isObsoletion': False, 'onlyCustomStandardContent': False}
@@ -124,7 +123,7 @@ def inspect_server_body_inventory(*, target: Target, element_revision: str,
                                   request: dict, response: dict, document_revision: str) -> dict:
     """Validate the captured server enumeration shape; no CAD/query execution.
 
-    Hidden-body and split-body live coverage remains pending. No supplied
+    Captured hidden-body and split-body samples cover this parser shape. No supplied
     `complete` flag can upgrade this result to write authorization.
     """
     td=target.to_dict()
@@ -181,5 +180,5 @@ def inspect_server_body_inventory(*, target: Target, element_revision: str,
     return {"target":td,"element_microversion":element_revision,"document_microversion":document_revision,"body_ids":sorted(parts),
             "source":"observed_query_insertables_response","server_enumeration_verified":True,
             "complete":False,"write_ready":False,
-            "missing_evidence":["hidden-body and split-body live enumeration coverage",
-                                "creator-descendant semantics and source journal binding"]}
+            "missing_evidence":["same-snapshot integration and complete source modification-chain binding",
+                                "native write preflight and reconciliation integration"]}

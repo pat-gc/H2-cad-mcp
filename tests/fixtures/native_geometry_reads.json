@@ -1,0 +1,420 @@
+{
+  "records": [
+    {
+      "body_id": "JID",
+      "query_schema": {
+        "classId": 138,
+        "defaults": {
+          "$type": "bsedit.GBTMIndividualQuery",
+          "deterministicIds": [],
+          "hasUserCode": false,
+          "nodeId": "MQ5PpzJC5XfrjCbWZ",
+          "queryString": "",
+          "sourceParseTreeNodes": {}
+        },
+        "name": "bsedit.GBTMIndividualQuery",
+        "tab_id": 941741361
+      },
+      "query": {
+        "$type": "bsedit.GBTMIndividualQuery",
+        "deterministicIds": [
+          "JID"
+        ],
+        "hasUserCode": false,
+        "nodeId": "MQ5PpzJC5XfrjCbWZ",
+        "queryString": "",
+        "sourceParseTreeNodes": {}
+      },
+      "response": {
+        "microversion_after": "cdeef559657523f969bc8d47",
+        "microversion_before": "cdeef559657523f969bc8d47",
+        "next": "Read native_state and check regeneration; an acknowledgement alone does not prove correct geometry.",
+        "result": {
+          "$type": "ui.GBTUiGetQueryDataResponse",
+          "queryData": [
+            {
+              "$type": "display.GBTQueryData",
+              "deterministicIds": [
+                "JID"
+              ],
+              "evaluationDetails": {
+                "$type": "display.GBTQueryEvaluationDetails",
+                "candidates": [],
+                "entityType": 3,
+                "fidelity": 1,
+                "fullOperationId": "FqtQWSd9WsojK7J_0.opExtrude",
+                "outsideExactDependencies": false,
+                "status": 0
+              },
+              "featureId": "FqtQWSd9WsojK7J_0",
+              "hasErrorEntity": false,
+              "isTemporaryFakeDataForSelection": false,
+              "nodeId": "",
+              "queryVariableName": "",
+              "selectionName": "Part",
+              "specializedPurpose": 0
+            }
+          ]
+        },
+        "tab_id": 941741361
+      },
+      "mass_request": {
+        "computeCoplanarInputCSys": false,
+        "densities": [],
+        "elementId": "e37ca903af44622ca6919031",
+        "entityIds": [
+          "JID"
+        ],
+        "geometryData": [],
+        "messageId": "",
+        "useDensities": false,
+        "userCentersOfMass": [],
+        "userInertia": [],
+        "userMassProperties": []
+      },
+      "mass_response": {
+        "microversion_after": "cdeef559657523f969bc8d47",
+        "microversion_before": "cdeef559657523f969bc8d47",
+        "next": "Read native_state and check regeneration; an acknowledgement alone does not prove correct geometry.",
+        "result": {
+          "$type": "ui.GBTUiMassPropResponse",
+          "centroidCoordinateSystemCoplanarInputs": {
+            "$type": "math.GBTCoordinateSystem",
+            "origin": {
+              "$type": "math.GBTVector3d",
+              "x": 0,
+              "y": 0,
+              "z": 0
+            },
+            "xAxis": {
+              "$type": "math.GBTVector3d",
+              "x": 0,
+              "y": 0,
+              "z": 0
+            },
+            "yAxis": {
+              "$type": "math.GBTVector3d",
+              "x": 0,
+              "y": 0,
+              "z": 0
+            },
+            "zAxis": {
+              "$type": "math.GBTVector3d",
+              "x": 0,
+              "y": 0,
+              "z": 0
+            }
+          },
+          "entitiesMissingMass": [],
+          "entitiesWithOverrideMass": [],
+          "error": 0,
+          "massProp": {
+            "$type": "math.GBTMassProperties",
+            "centroid": [
+              1.0849976249611105e-18,
+              -1.777865547652999e-19,
+              0.006000000000000001,
+              -9.99999999998915e-07,
+              -1.0000000000001778e-06,
+              0.005999000000000001,
+              1.000000000001085e-06,
+              9.99999999999822e-07,
+              0.006001000000000001
+            ],
+            "hasMass": false,
+            "inertia": [
+              1.2357921421126814e-08,
+              0,
+              0,
+              0,
+              1.2457272906495822e-08,
+              0,
+              0,
+              0,
+              2.39880270248662e-08,
+              1.2323456116845295e-08,
+              -3.4465304281518134e-11,
+              -3.4465304281518134e-11,
+              -3.4465304281518134e-11,
+              1.2422807602214304e-08,
+              -3.4465304281518134e-11,
+              -3.4465304281518134e-11,
+              -3.4465304281518134e-11,
+              2.3953561720584682e-08,
+              1.2392386725408332e-08,
+              3.4465304281518134e-11,
+              3.4465304281518134e-11,
+              3.4465304281518134e-11,
+              1.249173821077734e-08,
+              3.4465304281518134e-11,
+              3.4465304281518134e-11,
+              3.4465304281518134e-11,
+              2.4022492329147715e-08
+            ],
+            "mass": [
+              0,
+              0,
+              0
+            ],
+            "massMissingCount": 0,
+            "perimeter": [
+              0,
+              0,
+              0
+            ],
+            "periphery": [
+              0.010757987110571212,
+              0.010757954567337458,
+              0.010758019653804966
+            ],
+            "surfaceArea": [
+              0.010757987110571212,
+              0.010757954567337458,
+              0.010758019653804966
+            ],
+            "volume": [
+              3.446530428151816e-05,
+              3.446424521945499e-05,
+              3.446636334358132e-05
+            ]
+          },
+          "principalAxes": [
+            {
+              "$type": "math.GBTVector3d",
+              "x": 1,
+              "y": 0,
+              "z": 0
+            },
+            {
+              "$type": "math.GBTVector3d",
+              "x": 0,
+              "y": 1,
+              "z": 0
+            },
+            {
+              "$type": "math.GBTVector3d",
+              "x": 0,
+              "y": 0,
+              "z": 1
+            }
+          ],
+          "principalInertia": [
+            1.2357921421126814e-08,
+            1.2457272906495821e-08,
+            2.39880270248662e-08
+          ],
+          "requestMessageId": ""
+        },
+        "tab_id": 941741361
+      }
+    },
+    {
+      "body_id": "JMD",
+      "query_schema": {
+        "classId": 138,
+        "defaults": {
+          "$type": "bsedit.GBTMIndividualQuery",
+          "deterministicIds": [],
+          "hasUserCode": false,
+          "nodeId": "MZQkCstdb8Sh2l5XK",
+          "queryString": "",
+          "sourceParseTreeNodes": {}
+        },
+        "name": "bsedit.GBTMIndividualQuery",
+        "tab_id": 941741361
+      },
+      "query": {
+        "$type": "bsedit.GBTMIndividualQuery",
+        "deterministicIds": [
+          "JMD"
+        ],
+        "hasUserCode": false,
+        "nodeId": "MZQkCstdb8Sh2l5XK",
+        "queryString": "",
+        "sourceParseTreeNodes": {}
+      },
+      "response": {
+        "microversion_after": "cdeef559657523f969bc8d47",
+        "microversion_before": "cdeef559657523f969bc8d47",
+        "next": "Read native_state and check regeneration; an acknowledgement alone does not prove correct geometry.",
+        "result": {
+          "$type": "ui.GBTUiGetQueryDataResponse",
+          "queryData": [
+            {
+              "$type": "display.GBTQueryData",
+              "deterministicIds": [
+                "JMD"
+              ],
+              "evaluationDetails": {
+                "$type": "display.GBTQueryEvaluationDetails",
+                "candidates": [],
+                "entityType": 3,
+                "fidelity": 1,
+                "fullOperationId": "FxfOtgVh0SoATVz_1.opExtrude",
+                "outsideExactDependencies": false,
+                "status": 0
+              },
+              "featureId": "FxfOtgVh0SoATVz_1",
+              "hasErrorEntity": false,
+              "isTemporaryFakeDataForSelection": false,
+              "nodeId": "",
+              "queryVariableName": "",
+              "selectionName": "Part",
+              "specializedPurpose": 0
+            }
+          ]
+        },
+        "tab_id": 941741361
+      },
+      "mass_request": {
+        "computeCoplanarInputCSys": false,
+        "densities": [],
+        "elementId": "e37ca903af44622ca6919031",
+        "entityIds": [
+          "JMD"
+        ],
+        "geometryData": [],
+        "messageId": "",
+        "useDensities": false,
+        "userCentersOfMass": [],
+        "userInertia": [],
+        "userMassProperties": []
+      },
+      "mass_response": {
+        "microversion_after": "cdeef559657523f969bc8d47",
+        "microversion_before": "cdeef559657523f969bc8d47",
+        "next": "Read native_state and check regeneration; an acknowledgement alone does not prove correct geometry.",
+        "result": {
+          "$type": "ui.GBTUiMassPropResponse",
+          "centroidCoordinateSystemCoplanarInputs": {
+            "$type": "math.GBTCoordinateSystem",
+            "origin": {
+              "$type": "math.GBTVector3d",
+              "x": 0,
+              "y": 0,
+              "z": 0
+            },
+            "xAxis": {
+              "$type": "math.GBTVector3d",
+              "x": 0,
+              "y": 0,
+              "z": 0
+            },
+            "yAxis": {
+              "$type": "math.GBTVector3d",
+              "x": 0,
+              "y": 0,
+              "z": 0
+            },
+            "zAxis": {
+              "$type": "math.GBTVector3d",
+              "x": 0,
+              "y": 0,
+              "z": 0
+            }
+          },
+          "entitiesMissingMass": [],
+          "entitiesWithOverrideMass": [],
+          "error": 0,
+          "massProp": {
+            "$type": "math.GBTMassProperties",
+            "centroid": [
+              9.411477191714448e-19,
+              0,
+              0.021500000000000002,
+              -9.99999999999059e-07,
+              -1e-06,
+              0.021499,
+              1.000000000000941e-06,
+              1e-06,
+              0.021501000000000003
+            ],
+            "hasMass": false,
+            "inertia": [
+              3.248099999999999e-09,
+              0,
+              0,
+              0,
+              3.2480999999999987e-09,
+              0,
+              0,
+              0,
+              6.4799999999999975e-09,
+              3.237299999999999e-09,
+              -1.0800000000000002e-11,
+              -1.0800000000000002e-11,
+              -1.0800000000000002e-11,
+              3.2372999999999987e-09,
+              -1.0800000000000002e-11,
+              -1.0800000000000002e-11,
+              -1.0800000000000002e-11,
+              6.4691999999999975e-09,
+              3.258899999999999e-09,
+              1.0800000000000002e-11,
+              1.0800000000000002e-11,
+              1.0800000000000002e-11,
+              3.2588999999999987e-09,
+              1.0800000000000002e-11,
+              1.0800000000000002e-11,
+              1.0800000000000002e-11,
+              6.4907999999999975e-09
+            ],
+            "mass": [
+              0,
+              0,
+              0
+            ],
+            "massMissingCount": 0,
+            "perimeter": [
+              0,
+              0,
+              0
+            ],
+            "periphery": [
+              0.00792,
+              0.007919977895811009,
+              0.007920022104188991
+            ],
+            "surfaceArea": [
+              0.00792,
+              0.007919977895811009,
+              0.007920022104188991
+            ],
+            "volume": [
+              1.0799999999999998e-05,
+              1.0799511404829011e-05,
+              1.0800488595170985e-05
+            ]
+          },
+          "principalAxes": [
+            {
+              "$type": "math.GBTVector3d",
+              "x": 0,
+              "y": 1,
+              "z": 0
+            },
+            {
+              "$type": "math.GBTVector3d",
+              "x": 1,
+              "y": 0,
+              "z": 0
+            },
+            {
+              "$type": "math.GBTVector3d",
+              "x": 0,
+              "y": 0,
+              "z": 1
+            }
+          ],
+          "principalInertia": [
+            3.2480999999999987e-09,
+            3.248099999999999e-09,
+            6.4799999999999975e-09
+          ],
+          "requestMessageId": ""
+        },
+        "tab_id": 941741361
+      }
+    }
+  ]
+}

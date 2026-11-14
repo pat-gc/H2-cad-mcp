@@ -12,8 +12,8 @@ from h2cad.native_body_sets import inspect_candidate_body_set, inspect_server_bo
 FIXTURE=Path(__file__).parent/"fixtures/native_body_inventory.json"
 
 
-def case():
-    f=json.loads(FIXTURE.read_text())
+def case(fixture=FIXTURE):
+    f=json.loads(fixture.read_text())
     target=Target(**f["target"])
     state={"target":f["target"],"connected":True,"editingFeatureId":None,
            "element_microversion":f["element_revision"],"tree":{"children":[]}}
@@ -59,7 +59,7 @@ def test_candidate_rejects_inconsistent_snapshot_coverage_and_scope(fault):
     if fault=="wrong_id":q["deterministicIds"]=["foreign"]
     if fault=="query_error":q["evaluationDetails"]["status"]=1
     if fault=="face":q["evaluationDetails"]["entityType"]=2
-    if fault=="creator_op":q["evaluationDetails"]["fullOperationId"]=a["creator_feature_id"]+".opBoolean"
+    if fault=="creator_op":q["evaluationDetails"]["fullOperationId"]=""
     if fault=="scope_witness":a["selected_queries"].append(a["query_readbacks"][1]["query"])
     if fault=="scope_empty":a["selected_queries"]=[]
     with pytest.raises(Unsupported):inspect_candidate_body_set(**a)
@@ -122,3 +122,16 @@ def test_document_and_element_revision_namespaces_are_not_interchangeable(fault)
     if fault=="server_doc":a["server_response"]["microversion_after"]="f"*24
     if fault=="confuse_doc_element":a["query_readbacks"][0]["response"]["microversion_before"]=a["before"]["element_microversion"]
     with pytest.raises(Unsupported):inspect_candidate_body_set(**a)
+
+
+def test_actual_split_creator_metadata_requires_both_current_descendants():
+    a=case(FIXTURE.parent/"split_body_inventory.json")
+    with pytest.raises(Unsupported,match="omits or adds"):
+        inspect_candidate_body_set(**a)
+    a["selected_queries"]=[copy.deepcopy(r["query"]) for r in a["query_readbacks"]
+        if r["response"]["result"]["queryData"][0]["featureId"]==a["creator_feature_id"]]
+    proof=inspect_candidate_body_set(**a)
+    assert proof["creator_candidate_body_ids"]==["JQD","JQH"]
+    assert proof["changed_operation_body_ids"]==["JQD","JQH"]
+    assert proof["listed_body_ids"]==["JMD","JQD","JQH"]
+    assert not proof["complete"] and not proof["write_ready"]
