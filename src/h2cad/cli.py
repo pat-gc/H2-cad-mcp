@@ -113,6 +113,21 @@ def build_parser() -> argparse.ArgumentParser:
     begin_cmd.add_argument("--bridge-config", type=Path, required=True)
     begin_cmd.add_argument("--tab-id", type=int, required=True)
     begin_cmd.add_argument("--journal", type=Path, required=True)
+    source_sketch_cmd = commands.add_parser("experimental-populate-source-sketch", help="populate a blank source-plane sketch with solver-verified source geometry")
+    source_sketch_cmd.add_argument("source", type=Path)
+    _add_target(source_sketch_cmd)
+    source_sketch_cmd.add_argument("--bridge-config", type=Path, required=True)
+    source_sketch_cmd.add_argument("--tab-id", type=int, required=True)
+    source_sketch_cmd.add_argument("--journal", type=Path, required=True)
+    source_sketch_cmd.add_argument("--logical-id", required=True)
+    source_sketch_cmd.add_argument("--baseline", type=Path, required=True)
+    source_sketch_cmd.add_argument("--plane-op-id", required=True)
+    source_sketch_cmd.add_argument("--variable-operations", type=Path, required=True)
+    source_sketch_reconcile = commands.add_parser("experimental-reconcile-saved-source-sketch")
+    source_sketch_reconcile.add_argument("op_id")
+    source_sketch_reconcile.add_argument("--bridge-config", type=Path, required=True)
+    source_sketch_reconcile.add_argument("--tab-id", type=int, required=True)
+    source_sketch_reconcile.add_argument("--journal", type=Path, required=True)
     plane_cmd = commands.add_parser("experimental-populate-plane", help="populate a UI-allocated reference-bound OFFSET plane")
     plane_cmd.add_argument("source", type=Path)
     _add_target(plane_cmd)
@@ -214,6 +229,7 @@ async def _bridge_action(args: argparse.Namespace) -> tuple[object, int]:
                         "experimental-extrude-populate", "experimental-begin-source-extrude",
                         "experimental-populate-variable", "experimental-reconcile-saved-source-variable",
                         "experimental-populate-plane", "experimental-reconcile-saved-source-plane",
+                        "experimental-populate-source-sketch", "experimental-reconcile-saved-source-sketch",
                         "experimental-create-plate",
                         "experimental-classify-known-invalid-sketch",
                         "experimental-finalize-known-invalid-sketch-cancel",
@@ -250,6 +266,8 @@ async def _bridge_action(args: argparse.Namespace) -> tuple[object, int]:
             return await bridge.reconcile_completed_source_sketch(args.op_id, args.tab_id), 0
         if args.command == "experimental-reconcile-saved-source-plane":
             return await bridge.reconcile_saved_source_plane(args.op_id, args.tab_id), 0
+        if args.command == "experimental-reconcile-saved-source-sketch":
+            return await bridge.reconcile_saved_source_sketch(args.op_id, args.tab_id), 0
         if args.command == "experimental-reconcile-saved-source-variable":
             return await bridge.reconcile_saved_source_variable(args.op_id, args.tab_id), 0
         if args.command == "experimental-reconcile-saved-source-extrude":
@@ -291,6 +309,15 @@ async def _bridge_action(args: argparse.Namespace) -> tuple[object, int]:
             journal = Journal(args.journal)
             try:
                 return await backend.classify_known_invalid_sketch(args.op_id, journal), 0
+            finally:
+                journal.close()
+        if args.command == "experimental-populate-source-sketch":
+            from .native_sketches import populate_source_sketch
+            journal = Journal(args.journal)
+            try:
+                return await populate_source_sketch(backend, _target(args), args.source, logical_id=args.logical_id,
+                    baseline=json.loads(args.baseline.read_text(encoding="utf-8")), plane_op_id=args.plane_op_id,
+                    variable_op_ids=json.loads(args.variable_operations.read_text(encoding="utf-8")), journal=journal), 0
             finally:
                 journal.close()
         if args.command == "experimental-populate-plane":

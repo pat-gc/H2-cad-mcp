@@ -1,0 +1,643 @@
+From 440ca89f20ac9c91a84c8116ab10c4e7ed9c0d0d Mon Sep 17 00:00:00 2001
+From: patcybermind <pato.gonzalezcabrera@gmail.com>
+Date: Sat, 14 Nov 2026 07:11:02 -0500
+Subject: [PATCH] feat: source sketch solver-gated population
+
+---
+ extension/connection.js                 |   2 +-
+ extension/page-adapter.js               |  90 ++++++++++++++++++-
+ onshape_native/bridge.py                | 110 ++++++++++++++++++++++--
+ onshape_native/source_sketch.py         | 105 ++++++++++++++++++++++
+ skills/onshape-native-modeling/SKILL.md |   6 ++
+ tests/adapter.test.mjs                  |  58 +++++++++++++
+ tests/fixtures/source_sketch_plans.json |   1 +
+ tests/test_source_sketch.py             |  98 +++++++++++++++++++++
+ 8 files changed, 459 insertions(+), 11 deletions(-)
+ create mode 100644 onshape_native/source_sketch.py
+ create mode 100644 tests/fixtures/source_sketch_plans.json
+ create mode 100644 tests/test_source_sketch.py
+
+diff --git a/extension/connection.js b/extension/connection.js
+index 21c43c4..c7ab150 100644
+--- a/extension/connection.js
++++ b/extension/connection.js
+@@ -79,7 +79,7 @@ export function createConnection({browser, token, execute, Socket = WebSocket,
+       if (socket !== current) return;
+       current.send(JSON.stringify({type: 'hello', token, version: browser.runtime.getManifest().version,
+         runtime_id: browser.runtime.id, instance_id: instanceId, build: 'h2-extension-reload-v1',
+-        capabilities: ['tab_context_v1', 'assembly_sidebar_map_v1', 'display_v1', 'native_modeling_v1', 'element_revision_v1', 'editor_tabs_v1', 'ui_exports_v1', 'chunked_upload_v1', 'chunked_response_v1', 'viewer_mesh_v1', 'h2_depth_edit_page_v1', 'h2_native_begin_top_sketch_page_v1', 'h2_native_begin_top_ready_page_v1', 'h2_native_typed_top_plane_page_v1', 'h2_native_begin_source_extrude_page_v1', 'h2_native_sketch_populate_page_v1', 'h2_native_fixed_origin_page_v1', 'h2_native_extrude_populate_page_v1', 'h2_native_variable_populate_page_v1', 'h2_native_plane_populate_page_v1', 'h2_native_source_region_page_v1', 'h2_native_extrude_recheck_page_v1', 'h2_native_completion_receipt_page_v1', 'h2_extension_reload_v1']}));
++        capabilities: ['tab_context_v1', 'assembly_sidebar_map_v1', 'display_v1', 'native_modeling_v1', 'element_revision_v1', 'editor_tabs_v1', 'ui_exports_v1', 'chunked_upload_v1', 'chunked_response_v1', 'viewer_mesh_v1', 'h2_depth_edit_page_v1', 'h2_native_begin_top_sketch_page_v1', 'h2_native_begin_top_ready_page_v1', 'h2_native_typed_top_plane_page_v1', 'h2_native_begin_source_extrude_page_v1', 'h2_native_sketch_populate_page_v1', 'h2_source_sketch_page_v1', 'h2_native_fixed_origin_page_v1', 'h2_native_extrude_populate_page_v1', 'h2_native_variable_populate_page_v1', 'h2_native_plane_populate_page_v1', 'h2_native_source_region_page_v1', 'h2_native_extrude_recheck_page_v1', 'h2_native_completion_receipt_page_v1', 'h2_extension_reload_v1']}));
+     };
+     let lastPong = now(), chunkedResponses = false;
+     current.onmessage = async event => {
+diff --git a/extension/page-adapter.js b/extension/page-adapter.js
+index 13fd85f..1af41a1 100644
+--- a/extension/page-adapter.js
++++ b/extension/page-adapter.js
+@@ -176,7 +176,7 @@ export async function pageCommand(job) {
+     const markerTarget = marker?.target;
+     const markerInfo = marker ? {
+       stage: typeof marker.stage === "string" && /^[a-z][a-z0-9-]{0,63}$/.test(marker.stage) ? marker.stage : null,
+-      op_id: typeof marker.op_id === "string" && /^(?:begin-sketch|begin-extrude|sketch|extrude|variable|plane)-[a-f0-9]{32}$/.test(marker.op_id) ? marker.op_id : null,
++      op_id: typeof marker.op_id === "string" && /^(?:begin-sketch|begin-extrude|sketch|source-sketch|extrude|variable|plane)-[a-f0-9]{32}$/.test(marker.op_id) ? marker.op_id : null,
+       target: markerTarget && ['did','wid','eid'].every(k=>typeof markerTarget[k] === "string" && /^[a-f0-9]{24}$/.test(markerTarget[k]))
+         ? {did:markerTarget.did,wid:markerTarget.wid,eid:markerTarget.eid} : null
+     } : null;
+@@ -659,6 +659,92 @@ export async function pageCommand(job) {
+     }
+     throw new Error("Extrude action may have created an incomplete draft; source region remains unconfirmed.");
+   }
++  if (job.kind === "partstudio_populate_source_sketch") {
++    const edit=job.source_sketch, plan=edit?.plan;
++    const stable=x=>Array.isArray(x)?x.map(stable):x&&typeof x==="object"?Object.fromEntries(Object.keys(x).sort().map(k=>[k,stable(x[k])])):x;
++    const equal=(a,b)=>JSON.stringify(stable(a))===JSON.stringify(stable(b));
++    const root=()=>controller.documentClientCache?.getModelTreeState(target.eid)?.diffableModelTree?.getRoot();
++    const exact=()=>controller.connection?.isClosed?.()===false && controller.getActiveElementTabId()===target.eid &&
++      location.pathname===`/documents/${target.did}/w/${target.wid}/e/${target.eid}` && elementModel?.get("idEditingFeature")===edit?.feature_id;
++    if (!/^source-sketch-[a-f0-9]{32}$/.test(job.op_id||"") || target.did!=="4e078dec822b4e509616b1cb" ||
++        target.wid!=="af0627de07264acf086e646a" || !/^[a-f0-9]{24}$/.test(target.eid) ||
++        ["45730d1931712e2c548fae00","39a2e2afc5bc43eea167e938"].includes(target.eid) ||
++        !exact() || controller.__onshapeNativeIncompleteFeatureEdit || getElementMicroversion()!==job.expected_element_microversion ||
++        !edit?.before_tree || !equal(plain(root()),edit.before_tree))
++      throw new Error("Exact fresh source sketch editor and tree required.");
++    const matches=root()?.children?.filter(n=>n?.featureId===edit.feature_id);
++    if (matches?.length!==1 || matches[0].featureType!=="newSketch" || !matches[0].nodeId ||
++        matches[0].entities?.length!==0 || matches[0].constraints?.length!==0 ||
++        !Array.isArray(plan?.entities) || !Array.isArray(plan?.constraints) ||
++        !plan.entities.length || !plan.constraints.length) throw new Error("Blank sketch and source geometry plan required.");
++    const sketch=matches[0];
++    const plane=sketch.parameters?.filter(p=>p.parameterId==="sketchPlane");
++    if(plane?.length!==1 || plane[0].queries?.length!==1 || !plane[0].queries[0].deterministicIds?.length)
++      throw new Error("Bound source sketch plane required.");
++    const make=(name,fields={})=>hydrate({$type:name,...plain(fields)});
++    const checkSpec=x=>{
++      if(!x||typeof x!=="object")return;
++      if(Object.hasOwn(x,"nodeId"))throw new Error("Source plans cannot supply native allocated node identities.");
++      for(const v of Object.values(x))checkSpec(v);
++    };
++    checkSpec(plan.entities);checkSpec(plan.constraints);
++    const entities=plan.entities.map(s=>hydrate({...s,index:1})), constraints=plan.constraints.map(s=>hydrate({...s,index:1}));
++    const changed=hydrate({...plain(sketch),entities:entities.map(n=>plain(n)),constraints:constraints.map(n=>plain(n))});
++    const specify=make("ui.GBTUiSpecifyFeature",{elementId:target.eid,featureNodeId:sketch.nodeId,
++      featureChange:make("diff.GBTTreeEditChange",{oldNode:make("tree.GBTNodeReference",{nodeId:sketch.nodeId}),newNode:changed}),
++      sequenceId:1,selectionMicroversion:null,inContextEntitiesToAdd:null,editDescription:"Populate H2 source sketch"});
++    const graphCall=make("ui.sketch.GBTUiSketchGetConstraintGraphCall",{elementId:target.eid,sketchFeatureId:edit.feature_id,supportsConsolidatedConstraints:false});
++    const commit=make("ui.GBTUiCommit",{elementId:target.eid,featureNodeId:sketch.nodeId,editDescription:"Insert feature : H2 source sketch"});
++    const queryCall=make("ui.GBTUiGetQueryDataCall",{elementId:target.eid,queries:[plane[0].queries[0]],qFunction:"",additionalArguments:[],queryNodeIdToInContextNodeId:{}});
++    if(typeof controller.elementConnection?.callAndPromise!=="function")throw new Error("Native editor connection unavailable.");
++    const resolved=plain(await controller.elementConnection.callAndPromise(queryCall));
++    const data=resolved?.queryData;
++    if(resolved?.$type!=="ui.GBTUiGetQueryDataResponse" || data?.length!==1 || data[0].featureId!==edit.plane_feature_id ||
++       !equal(data[0].deterministicIds,plane[0].queries[0].deterministicIds) || data[0].selectionName!=="Face" ||
++       data[0].evaluationDetails?.entityType!==2 || data[0].evaluationDetails?.status!==0 || data[0].hasErrorEntity!==false ||
++       !exact() || getElementMicroversion()!==job.expected_element_microversion || !equal(plain(root()),edit.before_tree))
++      throw new Error("Source plane or editor changed; no modeling command sent.");
++    controller.__onshapeNativeIncompleteFeatureEdit={node_id:sketch.nodeId,feature_id:edit.feature_id,target:{...target},
++      expected_revision:job.expected_element_microversion,op_id:job.op_id,stage:"prepared"};
++    let graph;
++    for(const [index,command] of [specify,graphCall,commit].entries()){
++      if(!exact())throw new Error("Source sketch editor changed; outcome unknown.");
++      controller.__onshapeNativeIncompleteFeatureEdit.stage=["specify","inspect-active-graph","commit"][index];
++      if(index!==1)h2CadRpcSent=true;
++      const response=await controller.elementConnection.callAndPromise(command);
++      if(response?.error||response?.errorCode||response?.errorEnum)throw new Error("Source sketch command rejected; inspect before any replay.");
++      if(index===1){
++        graph=plain(response);
++        if(graph.$type!=="ui.sketch.GBTUiSketchGetConstraintGraphResponse" || graph.worstSolveStatus!==1 || graph.sketchError?.statusEnum!==0 ||
++           !equal(Object.keys(graph.constraints||{}).sort(),Object.keys(plan.graph_constraints).sort()))
++          throw new Error("Source solver graph incomplete; Commit not sent.");
++        for(const [id,wanted]of Object.entries(plan.graph_constraints)){
++          const n=graph.constraints[id];
++          if(n?.type!==wanted.type||n.status!==4||n.displayStatus!==1||n.isExternal!==false||n.driven!==false||
++             !equal([...(n.referenceIds||[])].sort(),[...wanted.references].sort()))throw new Error("Source solver constraints differ; Commit not sent.");
++        }
++        for(const [id,point]of Object.entries(plan.graph_anchors)){
++          const n=graph.references?.[id];
++          if(n?.isSketchEntity!==true||n.worstSolveStatus!==1||["anchorX","anchorY","anchorZ"].some((k,i)=>!Number.isFinite(n[k])||Math.abs(n[k]-point[i])>1e-8))
++            throw new Error("Source solver coordinates differ; Commit not sent.");
++        }
++        for(const circle of plan.graph_circles){
++          const n=graph.references?.[circle.entity_id],c=graph.references?.[circle.center_id];
++          if(n?.isSketchEntity!==true||n.worstSolveStatus!==1||!c||["anchorX","anchorY","anchorZ"].some(k=>!Number.isFinite(n[k]))||
++             Math.abs(Math.hypot(n.anchorX-c.anchorX,n.anchorY-c.anchorY,n.anchorZ-c.anchorZ)-circle.radius)>1e-8)
++            throw new Error("Source solved radius differs; Commit not sent.");
++        }
++      }
++    }
++    let invoked=false;
++    if(exact()){
++      const saves=[...document.querySelectorAll('.feature-dialog .ns-dialog-button-ok')].filter(n=>n.getClientRects().length>0&&featureSaveEnabled(n));
++      if(saves.length===1){if(!exact())throw new Error("Source editor changed before Save.");saves[0].click();invoked=true;}
++    }
++    controller.__onshapeNativeIncompleteFeatureEdit.stage="await-saved-readback";
++    return {op_id:job.op_id,feature_id:edit.feature_id,definition_candidate:true,completion_pending:true,
++      active_constraint_graph:graph,...saveInvocation(invoked)};
++  }
+   if (job.kind === "partstudio_populate_sketch") {
+     const edit = job.sketch_edit;
+     if (!/^sketch-[a-f0-9]{32}$/.test(job.op_id || ""))
+@@ -1289,7 +1375,7 @@ export async function pageCommand(job) {
+     // Chrome discards a rejected executeScript promise's exception details.
+     // Return a bounded diagnostic, never a stack or the request object.
+     return {error: String(error?.message || error?.errorMessage || error?.getMessageName?.() || "Onshape page command rejected").slice(0,500),
+-      ...(["partstudio_begin_top_sketch", "partstudio_begin_source_extrude", "partstudio_populate_sketch", "partstudio_populate_extrude", "partstudio_populate_variable", "partstudio_populate_plane"].includes(job.kind)
++      ...(["partstudio_begin_top_sketch", "partstudio_begin_source_extrude", "partstudio_populate_sketch", "partstudio_populate_source_sketch", "partstudio_populate_extrude", "partstudio_populate_variable", "partstudio_populate_plane"].includes(job.kind)
+         ? {write_stage: h2CadRpcSent ? "submitted_or_uncertain" : "pre_dispatch"} : {}),
+       outcome: "Inspect current state before retrying a mutation."};
+   }
+diff --git a/onshape_native/bridge.py b/onshape_native/bridge.py
+index 9a7e069..af8c868 100644
+--- a/onshape_native/bridge.py
++++ b/onshape_native/bridge.py
+@@ -499,7 +499,7 @@ def validate_job(job):
+     if not isinstance(job, dict):
+         raise BridgeError("Expected a JSON object.")
+     kind = job.get("kind")
+-    if not isinstance(kind, str) or kind not in {"rest", "native", "state", "schema", "creation_probe", "tabs", "open", "editor_tab", "ui_inspect", "ui_action", "display", "viewer_mesh", "partstudio_depth_edit", "partstudio_begin_top_sketch", "partstudio_begin_source_extrude", "partstudio_populate_sketch", "partstudio_populate_extrude", "partstudio_populate_variable", "partstudio_populate_plane"}:
++    if not isinstance(kind, str) or kind not in {"rest", "native", "state", "schema", "creation_probe", "tabs", "open", "editor_tab", "ui_inspect", "ui_action", "display", "viewer_mesh", "partstudio_depth_edit", "partstudio_begin_top_sketch", "partstudio_begin_source_extrude", "partstudio_populate_sketch", "partstudio_populate_source_sketch", "partstudio_populate_extrude", "partstudio_populate_variable", "partstudio_populate_plane"}:
+         raise BridgeError("Unknown command kind.")
+     if kind == "rest":
+         path = job.get("path", "")
+@@ -544,7 +544,7 @@ def validate_job(job):
+         if args["action"] == "read" and any(not isinstance(args.get(k), str) for k in
+                 ("expected_microversion", "full_element_id", "occurrence_path", "body_id")):
+             raise BridgeError("Viewer mesh read requires exact part reference and revision.")
+-    if kind in {"native", "state", "schema", "creation_probe", "open", "editor_tab", "ui_inspect", "ui_action", "display", "viewer_mesh", "partstudio_depth_edit", "partstudio_begin_top_sketch", "partstudio_begin_source_extrude", "partstudio_populate_sketch", "partstudio_populate_extrude", "partstudio_populate_variable", "partstudio_populate_plane"}:
++    if kind in {"native", "state", "schema", "creation_probe", "open", "editor_tab", "ui_inspect", "ui_action", "display", "viewer_mesh", "partstudio_depth_edit", "partstudio_begin_top_sketch", "partstudio_begin_source_extrude", "partstudio_populate_sketch", "partstudio_populate_source_sketch", "partstudio_populate_extrude", "partstudio_populate_variable", "partstudio_populate_plane"}:
+         target = job.get("target", {})
+         if not isinstance(target, dict) or set(target) != {"did", "wid", "eid"} or any(not isinstance(x, str) or not re.fullmatch(r"[a-f0-9]{24}", x) for x in target.values()):
+             raise BridgeError("Native commands require exact did, wid, eid target IDs.")
+@@ -656,6 +656,15 @@ def validate_job(job):
+                 or not re.fullmatch(r"[+-]?(?:\d+(?:\.\d*)?|\.\d+)\s*mm", edit["expression"].strip())
+                 or not math.isfinite(float(edit["expression"].strip()[:-2]))):
+             raise BridgeError("Variable population requires exact journal, target, fresh draft and literal source.")
++    if kind == "partstudio_populate_source_sketch":
++        edit = job.get("source_sketch")
++        if (not is_create_project_target(target)
++                or not re.fullmatch(r"source-sketch-[a-f0-9]{32}", str(job.get("op_id", "")))
++                or not re.fullmatch(r"[a-f0-9]{24}", str(job.get("expected_element_microversion", "")))
++                or not isinstance(edit, dict) or set(edit) != {"feature_id", "plane_feature_id", "before_tree", "plan"}
++                or any(not re.fullmatch(r"[A-Za-z0-9_]{4,80}", str(edit.get(k,""))) for k in ("feature_id", "plane_feature_id"))
++                or not isinstance(edit.get("before_tree"), dict) or not isinstance(edit.get("plan"), dict)):
++            raise BridgeError("Exact journaled source sketch plan required.")
+     if kind == "partstudio_populate_extrude":
+         if not re.fullmatch(r"extrude-[a-f0-9]{32}", str(job.get("op_id", ""))):
+             raise BridgeError("Extrusion population requires its durable journal operation ID.")
+@@ -735,7 +744,7 @@ class Broker:
+ 
+     async def dispatch(self, job, timeout=50, redirects=0):
+         validate_job(job)
+-        if (job.get("kind") in {"partstudio_begin_top_sketch", "partstudio_begin_source_extrude", "partstudio_populate_sketch", "partstudio_populate_extrude", "partstudio_populate_variable", "partstudio_populate_plane"}
++        if (job.get("kind") in {"partstudio_begin_top_sketch", "partstudio_begin_source_extrude", "partstudio_populate_sketch", "partstudio_populate_source_sketch", "partstudio_populate_extrude", "partstudio_populate_variable", "partstudio_populate_plane"}
+                 and job.get("target") != configured_create_target(self.config)):
+             raise BridgeError("Native creation target differs from the configured test Part Studio")
+         if self.reload_record and (self.reload_record.get("status") == "pending" or
+@@ -762,6 +771,8 @@ class Broker:
+                 raise BridgeError("Loaded extension lacks h2_native_typed_top_plane_page_v1; reload and reconnect before editing.")
+             if job.get("kind") == "partstudio_begin_source_extrude" and "h2_native_begin_source_extrude_page_v1" not in capabilities:
+                 raise BridgeError("Loaded extension lacks h2_native_begin_source_extrude_page_v1; reload and reconnect before editing.")
++            if job.get("kind") == "partstudio_populate_source_sketch" and "h2_source_sketch_page_v1" not in capabilities:
++                raise BridgeError("Loaded extension lacks source sketch writer capability.")
+             if job.get("kind") == "partstudio_populate_sketch" and "h2_native_sketch_populate_page_v1" not in capabilities:
+                 raise BridgeError("Loaded extension lacks h2_native_sketch_populate_page_v1; reload and reconnect before editing.")
+             if job.get("kind") == "partstudio_populate_sketch" and "h2_native_fixed_origin_page_v1" not in capabilities:
+@@ -800,7 +811,7 @@ class Broker:
+                 raise BridgeError("Loaded extension lacks h2_native_source_region_page_v1; reload and reconnect before editing.")
+             if job.get("kind") == "partstudio_populate_extrude" and "h2_native_extrude_recheck_page_v1" not in capabilities:
+                 raise BridgeError("Loaded extension lacks h2_native_extrude_recheck_page_v1; reload and reconnect before editing.")
+-            if job.get("kind") in {"partstudio_populate_sketch", "partstudio_populate_extrude", "partstudio_populate_variable", "partstudio_populate_plane"} and "h2_native_completion_receipt_page_v1" not in capabilities:
++            if job.get("kind") in {"partstudio_populate_sketch", "partstudio_populate_source_sketch", "partstudio_populate_extrude", "partstudio_populate_variable", "partstudio_populate_plane"} and "h2_native_completion_receipt_page_v1" not in capabilities:
+                 raise BridgeError("Loaded extension lacks h2_native_completion_receipt_page_v1; reload and reconnect before editing.")
+             if job.get("kind") == "partstudio_depth_edit" and "h2_depth_edit_page_v1" not in capabilities:
+                 raise BridgeError("Loaded extension lacks h2_depth_edit_page_v1; reload and reconnect before editing.")
+@@ -838,7 +849,7 @@ class Broker:
+             finally:
+                 self.pending.pop(command_id, None)
+                 self.result_chunks.pop(command_id, None)
+-            if (job.get("kind") in {"partstudio_begin_top_sketch", "partstudio_begin_source_extrude", "partstudio_populate_sketch", "partstudio_populate_extrude", "partstudio_populate_variable", "partstudio_populate_plane"}
++            if (job.get("kind") in {"partstudio_begin_top_sketch", "partstudio_begin_source_extrude", "partstudio_populate_sketch", "partstudio_populate_source_sketch", "partstudio_populate_extrude", "partstudio_populate_variable", "partstudio_populate_plane"}
+                     and isinstance(result, dict) and result.get("error")
+                     and result.get("write_stage") == "pre_dispatch"):
+                 # The trusted page adapter reports that no CAD RPC was called.
+@@ -848,7 +859,7 @@ class Broker:
+                 if self.guard_path:
+                     self.save_guard()
+             elif not is_cad_read(job) and not (not isinstance(result, dict) or result.get("error") or
+-                    job.get("kind") in {"partstudio_populate_sketch", "partstudio_populate_extrude", "partstudio_populate_variable", "partstudio_populate_plane"} or
++                    job.get("kind") in {"partstudio_populate_sketch", "partstudio_populate_source_sketch", "partstudio_populate_extrude", "partstudio_populate_variable", "partstudio_populate_plane"} or
+                     job.get("kind") == "rest" and (type(result.get("status")) is not int or
+                                                     not 200 <= result["status"] < 300)):
+                 self.unknown_write = False
+@@ -1094,7 +1105,7 @@ def create_app(config=None):
+         return JSONResponse({"protocol": 1, "extension_connected": broker.extension is not None,
+                              "extension": broker.extension_info, "pending": len(broker.pending),
+                              "reload": broker.reload_record,
+-                             "capabilities": ["ui_exports_v1", "chunked_upload_v1", "chunked_response_v1", "artifact_download_v1", "viewer_mesh_v1", "h2_depth_edit_server_v1", "h2_native_begin_top_sketch_server_v1", "h2_native_typed_top_plane_server_v1", "h2_native_begin_source_extrude_server_v1", "h2_native_sketch_populate_server_v1", "h2_native_extrude_populate_server_v1", "h2_native_variable_populate_server_v1", "h2_native_plane_populate_server_v1", "h2_native_completion_receipt_server_v1", "h2_extension_reload_server_v1"]})
++                             "capabilities": ["ui_exports_v1", "chunked_upload_v1", "chunked_response_v1", "artifact_download_v1", "viewer_mesh_v1", "h2_depth_edit_server_v1", "h2_native_begin_top_sketch_server_v1", "h2_native_typed_top_plane_server_v1", "h2_native_begin_source_extrude_server_v1", "h2_native_sketch_populate_server_v1", "h2_source_sketch_server_v1", "h2_native_extrude_populate_server_v1", "h2_native_variable_populate_server_v1", "h2_native_plane_populate_server_v1", "h2_native_completion_receipt_server_v1", "h2_extension_reload_server_v1"]})
+ 
+     async def reconcile_completed_top_begin(request):
+         """Resolve a journaled Top begin from exact saved or active readback."""
+@@ -1272,6 +1283,89 @@ def create_app(config=None):
+             return JSONResponse({"status": "observed_delayed_source_sketch" if pending_receipt else "observed_manual_source_completion", "op_id": body["op_id"],
+                                  "evidence": evidence})
+ 
++    async def reconcile_saved_source_sketch(request):
++        from .source_sketch import verify_saved_sketch
++        denied = await auth(request)
++        if denied is not None:
++            return denied
++        try:
++            body = await read_body(request)
++            if (not isinstance(body, dict) or set(body) != {"op_id", "tab_id"}
++                    or not re.fullmatch(r"source-sketch-[a-f0-9]{32}", str(body["op_id"]))
++                    or type(body["tab_id"]) is not int or body["tab_id"] < 0):
++                raise ValueError("Exact source sketch operation/tab required")
++        except (ValueError, BridgeError) as error:
++            return JSONResponse({"status": "blocked", "reason": str(error)}, 400)
++        target = configured_create_target(config)
++        path = config.get("h2cad_journal")
++        def ready():
++            return (broker.unknown_write and not broker.guard_invalid and not broker.pending and broker.extension is not None
++                    and "h2_source_sketch_page_v1" in (broker.extension_info or {}).get("capabilities", []))
++        if not ready() or not isinstance(path, str) or not Path(path).is_absolute():
++            return JSONResponse({"status": "blocked", "reason": "Source sketch journal/guard unavailable"}, 409)
++        def proof(db, live):
++            db.row_factory = sqlite3.Row
++            row = db.execute("SELECT * FROM writes WHERE op_id=?", (body["op_id"],)).fetchone()
++            rows = db.execute("SELECT op_id FROM writes WHERE state IN ('prepared','sent','unknown')").fetchall()
++            if (row is None or row["state"] not in {"sent", "unknown", "observed"}
++                    or row["action"] != "experimental_source_sketch_populate"
++                    or row["target"] != "/".join(target[k] for k in ("did", "wid", "eid"))
++                    or (row["state"] == "observed" and rows)
++                    or (row["state"] != "observed" and (len(rows) != 1 or rows[0]["op_id"] != body["op_id"]))):
++                raise ValueError("One matching unresolved source sketch required")
++            intent = json.loads(row["intent"])
++            receipt = json.loads(row["receipt"] or "{}")
++            if (intent["before_state"].get("element_microversion") != row["expected_revision"]
++                    or intent["plan"]["logical_id"] != row["logical_id"] or intent["source_feature"].get("name") != row["logical_id"]
++                    or receipt.get("op_id") != body["op_id"]):
++                raise ValueError("Source sketch provenance or graph receipt unavailable")
++            bindings = [(intent["plane_op_id"], "experimental_plane_populate", intent["plan"]["plane_logical_id"])]
++            bindings += [(op, "experimental_variable_populate", name) for name,op in intent["variable_op_ids"].items()]
++            for op, action, logical in bindings:
++                prior = db.execute("SELECT * FROM writes WHERE op_id=?", (op,)).fetchone()
++                if (prior is None or prior["state"] != "observed" or prior["target"] != row["target"]
++                        or prior["action"] != action or prior["logical_id"] != logical):
++                    raise ValueError("Source sketch dependency is not observed")
++            evidence = verify_saved_sketch(intent["before_state"], live, target, intent["plan"], receipt)
++            evidence["op_id"] = body["op_id"]
++            return row, evidence
++        try:
++            first = await broker.dispatch({"kind": "state", "target": target, "tab_id": body["tab_id"]})
++            with sqlite3.connect(path, timeout=2) as db:
++                proof(db, first)
++            live = await broker.dispatch({"kind": "state", "target": target, "tab_id": body["tab_id"],
++                                          "retire_acknowledged_op_id": body["op_id"]})
++            retired = live.get("marker_retirement", {})
++            if (retired.get("op_id") != body["op_id"] or retired.get("status") not in {"retired", "absent"}
++                    or any(live.get(k) != first.get(k) for k in ("target", "connected", "editingFeatureId", "element_microversion", "tree"))):
++                raise ValueError("Source sketch marker or stable readback unconfirmed")
++        except (BridgeError, OSError, sqlite3.Error, ValueError, KeyError, TypeError, AttributeError, IndexError) as error:
++            return JSONResponse({"status": "blocked", "reason": str(error)}, 409)
++        async with broker.command_lock:
++            if not ready():
++                return JSONResponse({"status": "blocked", "reason": "Source sketch safety state changed"}, 409)
++            try:
++                with sqlite3.connect(path, timeout=2, isolation_level=None) as db:
++                    db.execute("PRAGMA synchronous=FULL")
++                    db.execute("BEGIN IMMEDIATE")
++                    row, evidence = proof(db, live)
++                    if row["state"] == "observed":
++                        if json.loads(row["observation"] or "{}") != evidence:
++                            raise ValueError("Previously observed source sketch differs")
++                    else:
++                        db.execute("UPDATE writes SET state='observed', observation=?, error=NULL, updated_at=CURRENT_TIMESTAMP WHERE op_id=?",
++                                   (json.dumps(evidence, sort_keys=True), body["op_id"]))
++                    db.execute("COMMIT")
++            except (OSError, sqlite3.Error, ValueError, KeyError, TypeError, AttributeError) as error:
++                return JSONResponse({"status": "blocked", "reason": str(error)}, 409)
++            broker.unknown_write = False
++            try:
++                broker.save_guard()
++            except BridgeError as error:
++                broker.unknown_write = True
++                return JSONResponse({"status": "blocked", "reason": str(error)}, 409)
++            return JSONResponse({"status": "observed_source_sketch", "op_id": body["op_id"], "evidence": evidence})
++
+     async def reconcile_saved_source_variable(request):
+         """Reconcile exact saved variable evidence; never issue a modeling command."""
+         denied = await auth(request)
+@@ -1936,7 +2030,7 @@ def create_app(config=None):
+         except (BridgeError, ValueError) as error:
+             return JSONResponse({"message": str(error)}, 502)
+ 
+-    app = Starlette(routes=[Route("/health", health), Route("/local/reconcile_saved_source_plane", reconcile_saved_source_plane, methods=["POST"]), Route("/local/reconcile_saved_source_variable", reconcile_saved_source_variable, methods=["POST"]), Route("/local/reconcile_saved_source_extrude", reconcile_saved_source_extrude, methods=["POST"]), Route("/local/reconcile_completed_source_sketch", reconcile_completed_source_sketch, methods=["POST"]), Route("/local/reconcile_completed_top_begin", reconcile_completed_top_begin, methods=["POST"]), Route("/local/reconcile_known_sketch_rejection", reconcile_known_sketch_rejection, methods=["POST"]), Route("/local/finalize_known_invalid_sketch_cancel", finalize_known_invalid_sketch_cancel, methods=["POST"]), Route("/artifacts/{handle}", artifact_download),
++    app = Starlette(routes=[Route("/health", health), Route("/local/reconcile_saved_source_sketch", reconcile_saved_source_sketch, methods=["POST"]), Route("/local/reconcile_saved_source_plane", reconcile_saved_source_plane, methods=["POST"]), Route("/local/reconcile_saved_source_variable", reconcile_saved_source_variable, methods=["POST"]), Route("/local/reconcile_saved_source_extrude", reconcile_saved_source_extrude, methods=["POST"]), Route("/local/reconcile_completed_source_sketch", reconcile_completed_source_sketch, methods=["POST"]), Route("/local/reconcile_completed_top_begin", reconcile_completed_top_begin, methods=["POST"]), Route("/local/reconcile_known_sketch_rejection", reconcile_known_sketch_rejection, methods=["POST"]), Route("/local/finalize_known_invalid_sketch_cancel", finalize_known_invalid_sketch_cancel, methods=["POST"]), Route("/artifacts/{handle}", artifact_download),
+                            Route("/local/extension_reload", extension_reload, methods=["POST"]),
+                            Route("/command", command, methods=["POST"]),
+                            Route("/local/{tool}", local_tool, methods=["POST"]),
+diff --git a/onshape_native/source_sketch.py b/onshape_native/source_sketch.py
+new file mode 100644
+index 0000000..4c4c37f
+--- /dev/null
++++ b/onshape_native/source_sketch.py
+@@ -0,0 +1,105 @@
++"""Independent proof for source-driven native sketches, never a write transport."""
++import copy
++import math
++import re
++
++
++def same_definition(actual, expected):
++    if isinstance(expected, dict):
++        return isinstance(actual, dict) and actual.keys() == expected.keys() and all(same_definition(actual[k], v) for k,v in expected.items())
++    if isinstance(expected, list):
++        return isinstance(actual, list) and len(actual) == len(expected) and all(same_definition(a,b) for a,b in zip(actual,expected))
++    if type(expected) in (int, float):
++        return type(actual) in (int, float) and math.isfinite(actual) and math.isclose(actual, expected, rel_tol=0, abs_tol=1e-10)
++    return type(actual) is type(expected) and actual == expected
++
++
++def _generated_definition(value, ids):
++    if isinstance(value, list):
++        return [_generated_definition(v, ids) for v in value]
++    if not isinstance(value, dict):
++        return value
++    node_id = value.get("nodeId")
++    if str(value.get("$type", "")).startswith("bsedit.GBTM") and not node_id:
++        raise ValueError("Generated native sketch node identity missing")
++    if "nodeId" in value:
++        if not isinstance(node_id, str) or not node_id or node_id in ids:
++            raise ValueError("Generated sketch node identities are absent or duplicated")
++        ids.add(node_id)
++    ignored = {"nodeId"}
++    if value.get("$type") in {"bsedit.GBTMSketchPoint", "bsedit.GBTMSketchCurve",
++                              "bsedit.GBTMSketchCurveSegment", "bsedit.GBTMSketchConstraint"}:
++        ignored.add("index")  # Observed solver-assigned display numbering.
++    return {k:_generated_definition(v,ids) for k,v in value.items() if k not in ignored}
++
++
++def verify_graph(graph, plan):
++    actual = graph.get("constraints", {})
++    if (graph.get("$type") != "ui.sketch.GBTUiSketchGetConstraintGraphResponse"
++            or graph.get("worstSolveStatus") != 1 or graph.get("sketchError", {}).get("statusEnum") != 0
++            or not isinstance(actual, dict) or set(actual) != set(plan["graph_constraints"])):
++        raise ValueError("Active sketch solver graph incomplete")
++    for ident, wanted in plan["graph_constraints"].items():
++        node = actual[ident]
++        if (node.get("type") != wanted["type"] or node.get("status") != 4 or node.get("displayStatus") != 1
++                or node.get("isExternal") is not False or node.get("driven") is not False
++                or sorted(node.get("referenceIds", [])) != sorted(wanted["references"])):
++            raise ValueError("Active sketch constraint status or references differ")
++    refs = graph.get("references", {})
++    for ident, expected in plan["graph_anchors"].items():
++        node = refs.get(ident, {})
++        if node.get("isSketchEntity") is not True or node.get("worstSolveStatus") != 1:
++            raise ValueError("Source sketch point is not fully solved")
++        for key, value in zip(("anchorX","anchorY","anchorZ"), expected):
++            if type(node.get(key)) not in (int,float) or not math.isclose(node[key], value, rel_tol=0, abs_tol=1e-8):
++                raise ValueError("Solved sketch point differs from source coordinates")
++    for circle in plan["graph_circles"]:
++        node, center = refs.get(circle["entity_id"], {}), refs[circle["center_id"]]
++        if (node.get("isSketchEntity") is not True or node.get("worstSolveStatus") != 1
++                or any(type(node.get(k)) not in (int,float) for k in ("anchorX","anchorY","anchorZ"))
++                or not math.isclose(math.dist([node[k] for k in ("anchorX","anchorY","anchorZ")],
++                                              [center[k] for k in ("anchorX","anchorY","anchorZ")]),
++                                    circle["radius"], rel_tol=0, abs_tol=1e-8)):
++            raise ValueError("Solved circle radius differs from source")
++
++
++def verify_saved_sketch(before, after, target, plan, receipt):
++    from .bridge import _tab_tolerance_node_normalized
++    fid = before.get("editingFeatureId")
++    if (before.get("target") != target or after.get("target") != target or not fid
++            or before.get("connected") is not True or after.get("connected") is not True
++            or after.get("editingFeatureId") is not None
++            or not re.fullmatch(r"[a-f0-9]{24}", str(after.get("element_microversion", "")))
++            or after.get("element_microversion") == before.get("element_microversion")):
++        raise ValueError("Exact saved idle source sketch required")
++    old = [n for n in before["tree"]["children"] if n.get("featureId") == fid]
++    new = [n for n in after["tree"]["children"] if n.get("featureId") == fid]
++    if (len(old) != 1 or len(new) != 1 or old[0].get("featureType") != "newSketch"
++            or old[0].get("entities") != [] or old[0].get("constraints") != []
++            or new[0].get("nodeId") != old[0].get("nodeId")):
++        raise ValueError("Source sketch allocation identity changed")
++    ids = set()
++    for field in ("entities", "constraints"):
++        if not same_definition(_generated_definition(new[0].get(field), ids), plan[field]):
++            raise ValueError("Saved source sketch definition differs")
++    def collect(value):
++        if isinstance(value, dict):
++            if value.get("nodeId"): yield value["nodeId"]
++            for v in value.values(): yield from collect(v)
++        elif isinstance(value, list):
++            for v in value: yield from collect(v)
++    if ids.intersection(collect(before["tree"])):
++        raise ValueError("Generated sketch reused an existing native node identity")
++    expected = copy.deepcopy(before["tree"])
++    expected["children"][before["tree"]["children"].index(old[0])] = {
++        **old[0], "entities": new[0]["entities"], "constraints": new[0]["constraints"]}
++    if _tab_tolerance_node_normalized(expected) != _tab_tolerance_node_normalized(after["tree"]):
++        raise ValueError("Source sketch metadata, plane or unrelated feature tree changed")
++    if receipt.get("feature_id") != fid or receipt.get("definition_candidate") is not True:
++        raise ValueError("Matching source sketch receipt required")
++    verify_graph(receipt.get("active_constraint_graph", {}), plan)
++    return {"feature_id": fid, "node_id": new[0]["nodeId"], "logical_id": plan["logical_id"],
++            "revision_before": before["element_microversion"], "revision_after": after["element_microversion"],
++            "definition_observed": True, "constraint_graph_verified": True, "origin_verified": True,
++            "solid_geometry_verified": False, "ui_editability_verified": False,
++            "generated_node_ids": sorted(ids), "saved_feature": copy.deepcopy(new[0])}
+diff --git a/skills/onshape-native-modeling/SKILL.md b/skills/onshape-native-modeling/SKILL.md
+index 593a766..08341a1 100644
+--- a/skills/onshape-native-modeling/SKILL.md
++++ b/skills/onshape-native-modeling/SKILL.md
+@@ -231,3 +231,9 @@ Run `h2cad experimental-populate-variable SOURCE --logical-id '#length'` with th
+ A candidate receipt or Save invocation is not completion. Require independent exact saved-idle readback and an observed journal operation before allocating the next variable. If pending, inspect the exact target with Browser and complete only through normal controls when available; then run `experimental-reconcile-saved-source-variable OP_ID` with the same pinned config/journal and exact current tab. If a fresh same-target tab is needed to observe saved state, do not replay the write or alter the original pending draft. Reconciliation is read-only and retains the barrier on mismatch.
+ 
+ Record normal UI error presentation separately. `regeneration_verified: false` is deliberate: definition readback does not prove dependent expression evaluation. Later dependent planes/sketches must establish it. This is Browser plus CLI skill orchestration, not autonomous standalone allocation. H2 has no REST write fallback.
++
++### H2 source rectangles and circles (solver-gated writer)
++
++Use `experimental-populate-source-sketch SOURCE --logical-id "Chassis sketch"` with exact target/config/tab/pinned journal, `--baseline SAVED_IDLE_STATE.json`, `--plane-op-id OBSERVED_SOURCE_PLANE_OP`, and `--variable-operations VARIABLE_OP_MAP.json`. The variable map contains exactly the source sketch's variable names and observed operation IDs. Capture the saved-idle baseline before normal Browser allocation of one blank sketch on the exact observed source plane. No canvas drawing is required. Native constructors allocate all new node IDs; the UI owns the sketch feature and plane selection.
++
++The writer uses a local numeric origin point with Fix, source expressions and native constraints. It verifies the actual active solver graph, every constrained point and circle radius before Commit. Negative-Y alignment is an inferred candidate checked against source coordinates; failure stops before Commit and retains uncertainty rather than retrying. After Commit, independent saved definition, new identities, unchanged plane/unrelated tree and recorded solver evidence are required. Save invocation alone is not completion. Pending completion uses `experimental-reconcile-saved-source-sketch OP_ID` with the same journal/config and exact tab; if graph evidence was lost, the operation remains unresolved and must not be replayed. Only advance after observed saved state and confirmed marker retirement. Solid/assembly geometry remains a separate gate.
+diff --git a/tests/adapter.test.mjs b/tests/adapter.test.mjs
+index fc811fb..3c6d3f7 100644
+--- a/tests/adapter.test.mjs
++++ b/tests/adapter.test.mjs
+@@ -1159,3 +1159,61 @@ test('worker JSON-text arguments preserve null versus absent through script conv
+   const worker=readFileSync(new URL('../extension/worker.js',import.meta.url),'utf8');
+   assert.match(worker,/pageCommandArgs\(\{\.\.\.job, chunk_response:true\}\)/);
+ });
++
++
++test('source sketch writer gates Commit on actual source solver coordinates and preserves fresh IDs',async()=>{
++  const plans=JSON.parse(readFileSync(new URL('./fixtures/source_sketch_plans.json',import.meta.url),'utf8'));
++  const temp={did:'4e078dec822b4e509616b1cb',wid:'af0627de07264acf086e646a',eid:'e'.repeat(24)};
++  for(const plan of Object.values(plans))for(const fault of [null,'wrong-coordinate','wrong-constraint','wrong-plane','stale','copied-id']){
++    const typedSpecs={};
++    function collect(x){if(!x||typeof x!=='object')return;if(x.$type)typedSpecs[x.$type]={...(typedSpecs[x.$type]||{}),...Object.fromEntries(Object.entries(x).filter(([k])=>k!=='$type'))};for(const v of Object.values(x))collect(v);}
++    const inputPlan=structuredClone(plan);
++    const before={$type:'bsedit.GBTMModel',children:[{featureType:'cPlane',featureId:'plane_0',nodeId:'plane-node'},
++      {$type:'bsedit.GBTMSketch',featureType:'newSketch',featureId:'sketch_0',nodeId:'sketch-node',entities:[],constraints:[],
++       parameters:[{$type:'bsedit.GBTMParameterQueryList',nodeId:'plane-param',parameterId:'sketchPlane',queries:[
++         {$type:'bsedit.GBTMIndividualQuery',nodeId:'plane-query',deterministicIds:['fresh-plane'],queryString:''}]}]},
++      {nodeId:'rollback'}]};
++    collect(plan.entities);collect(plan.constraints);collect(before);
++    Object.assign(typedSpecs,{'tree.GBTNodeReference':{nodeId:''},'diff.GBTTreeEditChange':{oldNode:null,newNode:null},
++      'ui.GBTUiSpecifyFeature':{elementId:'',featureNodeId:'',featureChange:null,sequenceId:0,selectionMicroversion:null,inContextEntitiesToAdd:null,editDescription:''},
++      'ui.GBTUiCommit':{elementId:'',featureNodeId:'',editDescription:''},
++      'ui.sketch.GBTUiSketchGetConstraintGraphCall':{elementId:'',sketchFeatureId:'',supportsConsolidatedConstraints:false},
++      'ui.GBTUiGetQueryDataCall':{elementId:'',queries:[],qFunction:'',additionalArguments:[],queryNodeIdToInContextNodeId:{}}});
++    const types={};
++    for(const [name,defaults]of Object.entries(typedSpecs))types[name]=class{
++      constructor(){Object.assign(this,structuredClone(defaults));if(name.startsWith('bsedit.GBTM')&&name!=='bsedit.GBTMModel')this.nodeId=crypto.randomUUID();if(name.startsWith('bsedit.GBTMSketch'))this.index=1;}
++      getMessageName(){return name;}getClassId(){return 1;}
++    };
++    function typed(x){if(!x||typeof x!=='object')return x;if(Array.isArray(x))return x.map(typed);const o=x.$type?new types[x.$type]():{};for(const[k,v]of Object.entries(x))if(k!=='$type')o[k]=typed(v);return o;}
++    const root=typed(before);let editing='sketch_0',revision='a'.repeat(24);
++    // Runtime constructor default index is already present in the actual model.
++    before.children[1].index=1;
++    const graph={$type:'ui.sketch.GBTUiSketchGetConstraintGraphResponse',worstSolveStatus:1,sketchError:{statusEnum:0},constraints:{},references:{}};
++    for(const[id,c]of Object.entries(plan.graph_constraints))graph.constraints[id]={type:c.type,status:4,displayStatus:1,isExternal:false,driven:false,referenceIds:c.references};
++    for(const[id,xyz]of Object.entries(plan.graph_anchors))graph.references[id]={isSketchEntity:true,worstSolveStatus:1,anchorX:xyz[0],anchorY:xyz[1],anchorZ:xyz[2]};
++    for(const c of plan.graph_circles){const center=graph.references[c.center_id];graph.references[c.entity_id]={...center,anchorX:center.anchorX-c.radius};}
++    if(fault==='wrong-coordinate')graph.references['h2.localOrigin'].anchorX=.01;
++    if(fault==='wrong-constraint')graph.constraints['h2.fixedOrigin'].status=1;
++    if(fault==='copied-id')inputPlan.entities[0].nodeId='copied';
++    const modules=setup(undefined,false,revision,root,types,m=>{
++      const name=m.getMessageName();
++      if(name==='ui.GBTUiGetQueryDataCall')return {$type:'ui.GBTUiGetQueryDataResponse',queryData:[{featureId:fault==='wrong-plane'?'other':'plane_0',deterministicIds:['fresh-plane'],selectionName:'Face',evaluationDetails:{status:0,entityType:2},hasErrorEntity:false}]};
++      if(name==='ui.GBTUiSpecifyFeature'){root.children[1]=m.featureChange.newNode;revision='b'.repeat(24);}
++      if(name==='ui.sketch.GBTUiSketchGetConstraintGraphCall')return graph;
++      if(name==='ui.GBTUiCommit'){revision='c'.repeat(24);editing='';}
++      return {errorEnum:0};
++    },temp);
++    modules.__controller.documentModel.get=k=>k==='microversionId'?{theId:micro}:{get:x=>x==='microversionId'?revision:x==='idEditingFeature'?editing:null};
++    globalThis.document={querySelectorAll:()=>[]};
++    const result=await pageCommand({kind:'partstudio_populate_source_sketch',target:temp,op_id:'source-sketch-'+'a'.repeat(32),
++      expected_element_microversion:(fault==='stale'?'d':'a').repeat(24),
++      source_sketch:{feature_id:'sketch_0',plane_feature_id:'plane_0',before_tree:before,plan:inputPlan}});
++    const commits=sent.filter(m=>m.getMessageName()==='ui.GBTUiCommit');
++    if(!fault){assert.equal(result.definition_candidate,true,JSON.stringify(result));assert.equal(commits.length,1);assert.equal(result.completion_pending,true);
++      assert.equal(root.children[0].nodeId,'plane-node');assert.equal(root.children[1].nodeId,'sketch-node');
++      assert.ok(root.children[1].entities.every(n=>n.nodeId&&n.nodeId!=='sketch-node'));
++    }else{assert.ok(result.error,JSON.stringify(result));assert.equal(commits.length,0);
++      if(['stale','wrong-plane','copied-id'].includes(fault))assert.equal(result.write_stage,'pre_dispatch');
++      else assert.notEqual(result.write_stage,'pre_dispatch');}
++  }
++});
+diff --git a/tests/fixtures/source_sketch_plans.json b/tests/fixtures/source_sketch_plans.json
+new file mode 100644
+index 0000000..fe95936
+--- /dev/null
++++ b/tests/fixtures/source_sketch_plans.json
+@@ -0,0 +1 @@
++{"Chassis sketch":{"logical_id":"Chassis sketch","plane_logical_id":"Chassis height","entities":[{"$type":"bsedit.GBTMSketchPoint","hasUserCode":false,"name":"","namespace":"","sourceParseTreeNodes":{},"isConstruction":false,"isFromEndpointSplineHandle":false,"isFromSplineControlPolygon":false,"isFromSplineHandle":false,"parameters":[],"entityId":"h2.localOrigin","isUserPoint":true,"x":0,"y":0},{"$type":"bsedit.GBTMSketchCurveSegment","hasUserCode":false,"name":"","namespace":"","sourceParseTreeNodes":{},"isConstruction":false,"isFromEndpointSplineHandle":false,"isFromSplineControlPolygon":false,"isFromSplineHandle":false,"parameters":[],"entityId":"outline.bottom","startPointId":"outline.bottom.start","endPointId":"outline.bottom.end","centerId":"","curvedTextIds":[],"internalIds":[],"offsetCurveExtensions":[],"startParam":-0.045,"endParam":0.045,"geometry":{"$type":"bsedit.GBTCurveGeometryLine","pntX":0.0,"pntY":-0.09,"dirX":1,"dirY":0}},{"$type":"bsedit.GBTMSketchCurveSegment","hasUserCode":false,"name":"","namespace":"","sourceParseTreeNodes":{},"isConstruction":false,"isFromEndpointSplineHandle":false,"isFromSplineControlPolygon":false,"isFromSplineHandle":false,"parameters":[],"entityId":"outline.right","startPointId":"outline.right.start","endPointId":"outline.right.end","centerId":"","curvedTextIds":[],"internalIds":[],"offsetCurveExtensions":[],"startParam":-0.09,"endParam":0.09,"geometry":{"$type":"bsedit.GBTCurveGeometryLine","pntX":0.045,"pntY":0.0,"dirX":0,"dirY":1}},{"$type":"bsedit.GBTMSketchCurveSegment","hasUserCode":false,"name":"","namespace":"","sourceParseTreeNodes":{},"isConstruction":false,"isFromEndpointSplineHandle":false,"isFromSplineControlPolygon":false,"isFromSplineHandle":false,"parameters":[],"entityId":"outline.top","startPointId":"outline.top.start","endPointId":"outline.top.end","centerId":"","curvedTextIds":[],"internalIds":[],"offsetCurveExtensions":[],"startParam":-0.045,"endParam":0.045,"geometry":{"$type":"bsedit.GBTCurveGeometryLine","pntX":0.0,"pntY":0.09,"dirX":1,"dirY":0}},{"$type":"bsedit.GBTMSketchCurveSegment","hasUserCode":false,"name":"","namespace":"","sourceParseTreeNodes":{},"isConstruction":false,"isFromEndpointSplineHandle":false,"isFromSplineControlPolygon":false,"isFromSplineHandle":false,"parameters":[],"entityId":"outline.left","startPointId":"outline.left.start","endPointId":"outline.left.end","centerId":"","curvedTextIds":[],"internalIds":[],"offsetCurveExtensions":[],"startParam":-0.09,"endParam":0.09,"geometry":{"$type":"bsedit.GBTCurveGeometryLine","pntX":-0.045,"pntY":0.0,"dirX":0,"dirY":1}}],"constraints":[{"$type":"bsedit.GBTMSketchConstraint","hasUserCode":false,"name":"","namespace":"","sourceParseTreeNodes":{},"constraintType":16,"entityId":"h2.fixedOrigin","hasOffsetData1":false,"hasOffsetData2":false,"hasPierceParameter":false,"helpParameters":[],"offsetDistance1":0,"offsetDistance2":0,"offsetOrientation1":false,"offsetOrientation2":false,"parameters":[{"$type":"bsedit.GBTMParameterString","hasUserCode":false,"libraryRelationType":0,"parameterId":"localFirst","parameterName":"","sourceParseTreeNodes":{},"value":"h2.localOrigin"}],"pierceParameter":0},{"$type":"bsedit.GBTMSketchConstraint","hasUserCode":false,"name":"","namespace":"","sourceParseTreeNodes":{},"constraintType":5,"entityId":"h2.perpendicular","hasOffsetData1":false,"hasOffsetData2":false,"hasPierceParameter":false,"helpParameters":[],"offsetDistance1":0,"offsetDistance2":0,"offsetOrientation1":false,"offsetOrientation2":false,"parameters":[{"$type":"bsedit.GBTMParameterString","hasUserCode":false,"libraryRelationType":0,"parameterId":"localFirst","parameterName":"","sourceParseTreeNodes":{},"value":"outline.top"},{"$type":"bsedit.GBTMParameterString","hasUserCode":false,"libraryRelationType":0,"parameterId":"localSecond","parameterName":"","sourceParseTreeNodes":{},"value":"outline.left"}],"pierceParameter":0},{"$type":"bsedit.GBTMSketchConstraint","hasUserCode":false,"name":"","namespace":"","sourceParseTreeNodes":{},"constraintType":2,"entityId":"h2.parallel1","hasOffsetData1":false,"hasOffsetData2":false,"hasPierceParameter":false,"helpParameters":[],"offsetDistance1":0,"offsetDistance2":0,"offsetOrientation1":false,"offsetOrientation2":false,"parameters":[{"$type":"bsedit.GBTMParameterString","hasUserCode":false,"libraryRelationType":0,"parameterId":"localFirst","parameterName":"","sourceParseTreeNodes":{},"value":"outline.bottom"},{"$type":"bsedit.GBTMParameterString","hasUserCode":false,"libraryRelationType":0,"parameterId":"localSecond","parameterName":"","sourceParseTreeNodes":{},"value":"outline.top"}],"pierceParameter":0},{"$type":"bsedit.GBTMSketchConstraint","hasUserCode":false,"name":"","namespace":"","sourceParseTreeNodes":{},"constraintType":2,"entityId":"h2.parallel2","hasOffsetData1":false,"hasOffsetData2":false,"hasPierceParameter":false,"helpParameters":[],"offsetDistance1":0,"offsetDistance2":0,"offsetOrientation1":false,"offsetOrientation2":false,"parameters":[{"$type":"bsedit.GBTMParameterString","hasUserCode":false,"libraryRelationType":0,"parameterId":"localFirst","parameterName":"","sourceParseTreeNodes":{},"value":"outline.left"},{"$type":"bsedit.GBTMParameterString","hasUserCode":false,"libraryRelationType":0,"parameterId":"localSecond","parameterName":"","sourceParseTreeNodes":{},"value":"outline.right"}],"pierceParameter":0},{"$type":"bsedit.GBTMSketchConstraint","hasUserCode":false,"name":"","namespace":"","sourceParseTreeNodes":{},"constraintType":4,"entityId":"h2.horizontal","hasOffsetData1":false,"hasOffsetData2":false,"hasPierceParameter":false,"helpParameters":[],"offsetDistance1":0,"offsetDistance2":0,"offsetOrientation1":false,"offsetOrientation2":false,"parameters":[{"$type":"bsedit.GBTMParameterString","hasUserCode":false,"libraryRelationType":0,"parameterId":"localFirst","parameterName":"","sourceParseTreeNodes":{},"value":"outline.top"}],"pierceParameter":0},{"$type":"bsedit.GBTMSketchConstraint","hasUserCode":false,"name":"","namespace":"","sourceParseTreeNodes":{},"constraintType":1,"entityId":"h2.corner0","hasOffsetData1":false,"hasOffsetData2":false,"hasPierceParameter":false,"helpParameters":[],"offsetDistance1":0,"offsetDistance2":0,"offsetOrientation1":false,"offsetOrientation2":false,"parameters":[{"$type":"bsedit.GBTMParameterString","hasUserCode":false,"libraryRelationType":0,"parameterId":"localFirst","parameterName":"","sourceParseTreeNodes":{},"value":"outline.bottom.start"},{"$type":"bsedit.GBTMParameterString","hasUserCode":false,"libraryRelationType":0,"parameterId":"localSecond","parameterName":"","sourceParseTreeNodes":{},"value":"outline.left.start"}],"pierceParameter":0},{"$type":"bsedit.GBTMSketchConstraint","hasUserCode":false,"name":"","namespace":"","sourceParseTreeNodes":{},"constraintType":1,"entityId":"h2.corner1","hasOffsetData1":false,"hasOffsetData2":false,"hasPierceParameter":false,"helpParameters":[],"offsetDistance1":0,"offsetDistance2":0,"offsetOrientation1":false,"offsetOrientation2":false,"parameters":[{"$type":"bsedit.GBTMParameterString","hasUserCode":false,"libraryRelationType":0,"parameterId":"localFirst","parameterName":"","sourceParseTreeNodes":{},"value":"outline.bottom.end"},{"$type":"bsedit.GBTMParameterString","hasUserCode":false,"libraryRelationType":0,"parameterId":"localSecond","parameterName":"","sourceParseTreeNodes":{},"value":"outline.right.start"}],"pierceParameter":0},{"$type":"bsedit.GBTMSketchConstraint","hasUserCode":false,"name":"","namespace":"","sourceParseTreeNodes":{},"constraintType":1,"entityId":"h2.corner2","hasOffsetData1":false,"hasOffsetData2":false,"hasPierceParameter":false,"helpParameters":[],"offsetDistance1":0,"offsetDistance2":0,"offsetOrientation1":false,"offsetOrientation2":false,"parameters":[{"$type":"bsedit.GBTMParameterString","hasUserCode":false,"libraryRelationType":0,"parameterId":"localFirst","parameterName":"","sourceParseTreeNodes":{},"value":"outline.top.start"},{"$type":"bsedit.GBTMParameterString","hasUserCode":false,"libraryRelationType":0,"parameterId":"localSecond","parameterName":"","sourceParseTreeNodes":{},"value":"outline.left.end"}],"pierceParameter":0},{"$type":"bsedit.GBTMSketchConstraint","hasUserCode":false,"name":"","namespace":"","sourceParseTreeNodes":{},"constraintType":1,"entityId":"h2.corner3","hasOffsetData1":false,"hasOffsetData2":false,"hasPierceParameter":false,"helpParameters":[],"offsetDistance1":0,"offsetDistance2":0,"offsetOrientation1":false,"offsetOrientation2":false,"parameters":[{"$type":"bsedit.GBTMParameterString","hasUserCode":false,"libraryRelationType":0,"parameterId":"localFirst","parameterName":"","sourceParseTreeNodes":{},"value":"outline.top.end"},{"$type":"bsedit.GBTMParameterString","hasUserCode":false,"libraryRelationType":0,"parameterId":"localSecond","parameterName":"","sourceParseTreeNodes":{},"value":"outline.right.end"}],"pierceParameter":0},{"$type":"bsedit.GBTMSketchConstraint","hasUserCode":false,"name":"","namespace":"","sourceParseTreeNodes":{},"constraintType":11,"entityId":"dim4","hasOffsetData1":false,"hasOffsetData2":false,"hasPierceParameter":false,"helpParameters":[],"offsetDistance1":0,"offsetDistance2":0,"offsetOrientation1":false,"offsetOrientation2":false,"parameters":[{"$type":"bsedit.GBTMParameterString","hasUserCode":false,"libraryRelationType":0,"parameterId":"localFirst","parameterName":"","sourceParseTreeNodes":{},"value":"outline.top"},{"$type":"bsedit.GBTMParameterEnum","hasUserCode":false,"libraryRelationType":0,"parameterId":"direction","parameterName":"","sourceParseTreeNodes":{},"enumName":"DimensionDirection","value":"MINIMUM","namespace":""},{"$type":"bsedit.GBTMParameterQuantity","hasUserCode":false,"libraryRelationType":0,"parameterId":"length","parameterName":"","sourceParseTreeNodes":{},"value":90.0,"units":"millimeter","expression":"#width / 2 - (-#width / 2)","isInteger":false},{"$type":"bsedit.GBTMParameterEnum","hasUserCode":false,"libraryRelationType":0,"parameterId":"alignment","parameterName":"","sourceParseTreeNodes":{},"enumName":"DimensionAlignment","value":"ALIGNED","namespace":""},{"$type":"bsedit.GBTMParameterQuantity","hasUserCode":false,"libraryRelationType":0,"parameterId":"labelRatio","parameterName":"","sourceParseTreeNodes":{},"value":0.5,"units":"","expression":"","isInteger":false},{"$type":"bsedit.GBTMParameterQuantity","hasUserCode":false,"libraryRelationType":0,"parameterId":"labelDistance","parameterName":"","sourceParseTreeNodes":{},"value":0.02,"units":"meter","expression":"","isInteger":false}],"pierceParameter":0},{"$type":"bsedit.GBTMSketchConstraint","hasUserCode":false,"name":"","namespace":"","sourceParseTreeNodes":{},"constraintType":11,"entityId":"dim5","hasOffsetData1":false,"hasOffsetData2":false,"hasPierceParameter":false,"helpParameters":[],"offsetDistance1":0,"offsetDistance2":0,"offsetOrientation1":false,"offsetOrientation2":false,"parameters":[{"$type":"bsedit.GBTMParameterString","hasUserCode":false,"libraryRelationType":0,"parameterId":"localFirst","parameterName":"","sourceParseTreeNodes":{},"value":"outline.right"},{"$type":"bsedit.GBTMParameterEnum","hasUserCode":false,"libraryRelationType":0,"parameterId":"direction","parameterName":"","sourceParseTreeNodes":{},"enumName":"DimensionDirection","value":"MINIMUM","namespace":""},{"$type":"bsedit.GBTMParameterQuantity","hasUserCode":false,"libraryRelationType":0,"parameterId":"length","parameterName":"","sourceParseTreeNodes":{},"value":180.0,"units":"millimeter","expression":"#length / 2 - (-#length / 2)","isInteger":false},{"$type":"bsedit.GBTMParameterEnum","hasUserCode":false,"libraryRelationType":0,"parameterId":"alignment","parameterName":"","sourceParseTreeNodes":{},"enumName":"DimensionAlignment","value":"ALIGNED","namespace":""},{"$type":"bsedit.GBTMParameterQuantity","hasUserCode":false,"libraryRelationType":0,"parameterId":"labelRatio","parameterName":"","sourceParseTreeNodes":{},"value":0.5,"units":"","expression":"","isInteger":false},{"$type":"bsedit.GBTMParameterQuantity","hasUserCode":false,"libraryRelationType":0,"parameterId":"labelDistance","parameterName":"","sourceParseTreeNodes":{},"value":0.02,"units":"meter","expression":"","isInteger":false}],"pierceParameter":0},{"$type":"bsedit.GBTMSketchConstraint","hasUserCode":false,"name":"","namespace":"","sourceParseTreeNodes":{},"constraintType":12,"entityId":"pos6x","hasOffsetData1":false,"hasOffsetData2":false,"hasPierceParameter":false,"helpParameters":[],"offsetDistance1":0,"offsetDistance2":0,"offsetOrientation1":false,"offsetOrientation2":false,"parameters":[{"$type":"bsedit.GBTMParameterString","hasUserCode":false,"libraryRelationType":0,"parameterId":"localFirst","parameterName":"","sourceParseTreeNodes":{},"value":"outline.bottom.start"},{"$type":"bsedit.GBTMParameterString","hasUserCode":false,"libraryRelationType":0,"parameterId":"localSecond","parameterName":"","sourceParseTreeNodes":{},"value":"h2.localOrigin"},{"$type":"bsedit.GBTMParameterEnum","hasUserCode":false,"libraryRelationType":0,"parameterId":"direction","parameterName":"","sourceParseTreeNodes":{},"enumName":"DimensionDirection","value":"HORIZONTAL","namespace":""},{"$type":"bsedit.GBTMParameterQuantity","hasUserCode":false,"libraryRelationType":0,"parameterId":"length","parameterName":"","sourceParseTreeNodes":{},"value":45.0,"units":"millimeter","expression":"-(-#width / 2)","isInteger":false},{"$type":"bsedit.GBTMParameterEnum","hasUserCode":false,"libraryRelationType":0,"parameterId":"alignment","parameterName":"","sourceParseTreeNodes":{},"enumName":"DimensionAlignment","value":"ALIGNED","namespace":""},{"$type":"bsedit.GBTMParameterQuantity","hasUserCode":false,"libraryRelationType":0,"parameterId":"labelRatio","parameterName":"","sourceParseTreeNodes":{},"value":0.5,"units":"","expression":"","isInteger":false},{"$type":"bsedit.GBTMParameterQuantity","hasUserCode":false,"libraryRelationType":0,"parameterId":"labelDistance","parameterName":"","sourceParseTreeNodes":{},"value":0.02,"units":"meter","expression":"","isInteger":false}],"pierceParameter":0},{"$type":"bsedit.GBTMSketchConstraint","hasUserCode":false,"name":"","namespace":"","sourceParseTreeNodes":{},"constraintType":12,"entityId":"pos6y","hasOffsetData1":false,"hasOffsetData2":false,"hasPierceParameter":false,"helpParameters":[],"offsetDistance1":0,"offsetDistance2":0,"offsetOrientation1":false,"offsetOrientation2":false,"parameters":[{"$type":"bsedit.GBTMParameterString","hasUserCode":false,"libraryRelationType":0,"parameterId":"localFirst","parameterName":"","sourceParseTreeNodes":{},"value":"outline.bottom.start"},{"$type":"bsedit.GBTMParameterString","hasUserCode":false,"libraryRelationType":0,"parameterId":"localSecond","parameterName":"","sourceParseTreeNodes":{},"value":"h2.localOrigin"},{"$type":"bsedit.GBTMParameterEnum","hasUserCode":false,"libraryRelationType":0,"parameterId":"direction","parameterName":"","sourceParseTreeNodes":{},"enumName":"DimensionDirection","value":"VERTICAL","namespace":""},{"$type":"bsedit.GBTMParameterQuantity","hasUserCode":false,"libraryRelationType":0,"parameterId":"length","parameterName":"","sourceParseTreeNodes":{},"value":90.0,"units":"millimeter","expression":"-(-#length / 2)","isInteger":false},{"$type":"bsedit.GBTMParameterEnum","hasUserCode":false,"libraryRelationType":0,"parameterId":"alignment","parameterName":"","sourceParseTreeNodes":{},"enumName":"DimensionAlignment","value":"ALIGNED","namespace":""},{"$type":"bsedit.GBTMParameterQuantity","hasUserCode":false,"libraryRelationType":0,"parameterId":"labelRatio","parameterName":"","sourceParseTreeNodes":{},"value":0.5,"units":"","expression":"","isInteger":false},{"$type":"bsedit.GBTMParameterQuantity","hasUserCode":false,"libraryRelationType":0,"parameterId":"labelDistance","parameterName":"","sourceParseTreeNodes":{},"value":0.02,"units":"meter","expression":"","isInteger":false}],"pierceParameter":0}],"graph_constraints":{"h2.fixedOrigin":{"type":16,"references":["h2.localOrigin"]},"h2.perpendicular":{"type":5,"references":["outline.top","outline.left"]},"h2.parallel1":{"type":2,"references":["outline.bottom","outline.top"]},"h2.parallel2":{"type":2,"references":["outline.left","outline.right"]},"h2.horizontal":{"type":4,"references":["outline.top"]},"h2.corner0":{"type":1,"references":["outline.bottom.start","outline.left.start"]},"h2.corner1":{"type":1,"references":["outline.bottom.end","outline.right.start"]},"h2.corner2":{"type":1,"references":["outline.top.start","outline.left.end"]},"h2.corner3":{"type":1,"references":["outline.top.end","outline.right.end"]},"dim4":{"type":11,"references":["outline.top"]},"dim5":{"type":11,"references":["outline.right"]},"pos6x":{"type":12,"references":["outline.bottom.start","h2.localOrigin"]},"pos6y":{"type":12,"references":["outline.bottom.start","h2.localOrigin"]}},"graph_anchors":{"h2.localOrigin":[0,0,0],"outline.bottom.start":[-0.045,-0.09,0],"outline.bottom.end":[0.045,-0.09,0],"outline.right.start":[0.045,-0.09,0],"outline.right.end":[0.045,0.09,0],"outline.top.start":[-0.045,0.09,0],"outline.top.end":[0.045,0.09,0],"outline.left.start":[-0.045,-0.09,0],"outline.left.end":[-0.045,0.09,0]},"graph_circles":[],"inferred_alignment_constraints":["pos6y"]},"Left wheel sketch":{"logical_id":"Left wheel sketch","plane_logical_id":"Wheel left plane","entities":[{"$type":"bsedit.GBTMSketchPoint","hasUserCode":false,"name":"","namespace":"","sourceParseTreeNodes":{},"isConstruction":false,"isFromEndpointSplineHandle":false,"isFromSplineControlPolygon":false,"isFromSplineHandle":false,"parameters":[],"entityId":"h2.localOrigin","isUserPoint":true,"x":0,"y":0},{"$type":"bsedit.GBTMSketchCurve","hasUserCode":false,"name":"","namespace":"","sourceParseTreeNodes":{},"isConstruction":false,"isFromEndpointSplineHandle":false,"isFromSplineControlPolygon":false,"isFromSplineHandle":false,"parameters":[],"entityId":"front","centerId":"front.center","curvedTextIds":[],"internalIds":[],"geometry":{"$type":"bsedit.GBTCurveGeometryCircle","radius":0.014,"xCenter":0.065,"yCenter":0.015,"xDir":1.0,"yDir":0.0,"clockwise":false}},{"$type":"bsedit.GBTMSketchCurve","hasUserCode":false,"name":"","namespace":"","sourceParseTreeNodes":{},"isConstruction":false,"isFromEndpointSplineHandle":false,"isFromSplineControlPolygon":false,"isFromSplineHandle":false,"parameters":[],"entityId":"rear","centerId":"rear.center","curvedTextIds":[],"internalIds":[],"geometry":{"$type":"bsedit.GBTCurveGeometryCircle","radius":0.014,"xCenter":-0.065,"yCenter":0.015,"xDir":1.0,"yDir":0.0,"clockwise":false}}],"constraints":[{"$type":"bsedit.GBTMSketchConstraint","hasUserCode":false,"name":"","namespace":"","sourceParseTreeNodes":{},"constraintType":16,"entityId":"h2.fixedOrigin","hasOffsetData1":false,"hasOffsetData2":false,"hasPierceParameter":false,"helpParameters":[],"offsetDistance1":0,"offsetDistance2":0,"offsetOrientation1":false,"offsetOrientation2":false,"parameters":[{"$type":"bsedit.GBTMParameterString","hasUserCode":false,"libraryRelationType":0,"parameterId":"localFirst","parameterName":"","sourceParseTreeNodes":{},"value":"h2.localOrigin"}],"pierceParameter":0},{"$type":"bsedit.GBTMSketchConstraint","hasUserCode":false,"name":"","namespace":"","sourceParseTreeNodes":{},"constraintType":25,"entityId":"dim0","hasOffsetData1":false,"hasOffsetData2":false,"hasPierceParameter":false,"helpParameters":[],"offsetDistance1":0,"offsetDistance2":0,"offsetOrientation1":false,"offsetOrientation2":false,"parameters":[{"$type":"bsedit.GBTMParameterString","hasUserCode":false,"libraryRelationType":0,"parameterId":"localFirst","parameterName":"","sourceParseTreeNodes":{},"value":"front"},{"$type":"bsedit.GBTMParameterQuantity","hasUserCode":false,"libraryRelationType":0,"parameterId":"length","parameterName":"","sourceParseTreeNodes":{},"value":28.0,"units":"millimeter","expression":"2 * #wheelRadius","isInteger":false},{"$type":"bsedit.GBTMParameterQuantity","hasUserCode":false,"libraryRelationType":0,"parameterId":"labelRatio","parameterName":"","sourceParseTreeNodes":{},"value":1.5,"units":"","expression":"","isInteger":false},{"$type":"bsedit.GBTMParameterQuantity","hasUserCode":false,"libraryRelationType":0,"parameterId":"labelAngle","parameterName":"","sourceParseTreeNodes":{},"value":0.7,"units":"radian","expression":"","isInteger":false}],"pierceParameter":0},{"$type":"bsedit.GBTMSketchConstraint","hasUserCode":false,"name":"","namespace":"","sourceParseTreeNodes":{},"constraintType":12,"entityId":"pos1x","hasOffsetData1":false,"hasOffsetData2":false,"hasPierceParameter":false,"helpParameters":[],"offsetDistance1":0,"offsetDistance2":0,"offsetOrientation1":false,"offsetOrientation2":false,"parameters":[{"$type":"bsedit.GBTMParameterString","hasUserCode":false,"libraryRelationType":0,"parameterId":"localFirst","parameterName":"","sourceParseTreeNodes":{},"value":"front.center"},{"$type":"bsedit.GBTMParameterString","hasUserCode":false,"libraryRelationType":0,"parameterId":"localSecond","parameterName":"","sourceParseTreeNodes":{},"value":"h2.localOrigin"},{"$type":"bsedit.GBTMParameterEnum","hasUserCode":false,"libraryRelationType":0,"parameterId":"direction","parameterName":"","sourceParseTreeNodes":{},"enumName":"DimensionDirection","value":"HORIZONTAL","namespace":""},{"$type":"bsedit.GBTMParameterQuantity","hasUserCode":false,"libraryRelationType":0,"parameterId":"length","parameterName":"","sourceParseTreeNodes":{},"value":65.0,"units":"millimeter","expression":"#wheelbase / 2","isInteger":false},{"$type":"bsedit.GBTMParameterEnum","hasUserCode":false,"libraryRelationType":0,"parameterId":"alignment","parameterName":"","sourceParseTreeNodes":{},"enumName":"DimensionAlignment","value":"ANTI_ALIGNED","namespace":""},{"$type":"bsedit.GBTMParameterQuantity","hasUserCode":false,"libraryRelationType":0,"parameterId":"labelRatio","parameterName":"","sourceParseTreeNodes":{},"value":0.5,"units":"","expression":"","isInteger":false},{"$type":"bsedit.GBTMParameterQuantity","hasUserCode":false,"libraryRelationType":0,"parameterId":"labelDistance","parameterName":"","sourceParseTreeNodes":{},"value":0.02,"units":"meter","expression":"","isInteger":false}],"pierceParameter":0},{"$type":"bsedit.GBTMSketchConstraint","hasUserCode":false,"name":"","namespace":"","sourceParseTreeNodes":{},"constraintType":12,"entityId":"pos1y","hasOffsetData1":false,"hasOffsetData2":false,"hasPierceParameter":false,"helpParameters":[],"offsetDistance1":0,"offsetDistance2":0,"offsetOrientation1":false,"offsetOrientation2":false,"parameters":[{"$type":"bsedit.GBTMParameterString","hasUserCode":false,"libraryRelationType":0,"parameterId":"localFirst","parameterName":"","sourceParseTreeNodes":{},"value":"front.center"},{"$type":"bsedit.GBTMParameterString","hasUserCode":false,"libraryRelationType":0,"parameterId":"localSecond","parameterName":"","sourceParseTreeNodes":{},"value":"h2.localOrigin"},{"$type":"bsedit.GBTMParameterEnum","hasUserCode":false,"libraryRelationType":0,"parameterId":"direction","parameterName":"","sourceParseTreeNodes":{},"enumName":"DimensionDirection","value":"VERTICAL","namespace":""},{"$type":"bsedit.GBTMParameterQuantity","hasUserCode":false,"libraryRelationType":0,"parameterId":"length","parameterName":"","sourceParseTreeNodes":{},"value":15.0,"units":"millimeter","expression":"15 mm","isInteger":false},{"$type":"bsedit.GBTMParameterEnum","hasUserCode":false,"libraryRelationType":0,"parameterId":"alignment","parameterName":"","sourceParseTreeNodes":{},"enumName":"DimensionAlignment","value":"ANTI_ALIGNED","namespace":""},{"$type":"bsedit.GBTMParameterQuantity","hasUserCode":false,"libraryRelationType":0,"parameterId":"labelRatio","parameterName":"","sourceParseTreeNodes":{},"value":0.5,"units":"","expression":"","isInteger":false},{"$type":"bsedit.GBTMParameterQuantity","hasUserCode":false,"libraryRelationType":0,"parameterId":"labelDistance","parameterName":"","sourceParseTreeNodes":{},"value":0.02,"units":"meter","expression":"","isInteger":false}],"pierceParameter":0},{"$type":"bsedit.GBTMSketchConstraint","hasUserCode":false,"name":"","namespace":"","sourceParseTreeNodes":{},"constraintType":25,"entityId":"dim2","hasOffsetData1":false,"hasOffsetData2":false,"hasPierceParameter":false,"helpParameters":[],"offsetDistance1":0,"offsetDistance2":0,"offsetOrientation1":false,"offsetOrientation2":false,"parameters":[{"$type":"bsedit.GBTMParameterString","hasUserCode":false,"libraryRelationType":0,"parameterId":"localFirst","parameterName":"","sourceParseTreeNodes":{},"value":"rear"},{"$type":"bsedit.GBTMParameterQuantity","hasUserCode":false,"libraryRelationType":0,"parameterId":"length","parameterName":"","sourceParseTreeNodes":{},"value":28.0,"units":"millimeter","expression":"2 * #wheelRadius","isInteger":false},{"$type":"bsedit.GBTMParameterQuantity","hasUserCode":false,"libraryRelationType":0,"parameterId":"labelRatio","parameterName":"","sourceParseTreeNodes":{},"value":1.5,"units":"","expression":"","isInteger":false},{"$type":"bsedit.GBTMParameterQuantity","hasUserCode":false,"libraryRelationType":0,"parameterId":"labelAngle","parameterName":"","sourceParseTreeNodes":{},"value":0.7,"units":"radian","expression":"","isInteger":false}],"pierceParameter":0},{"$type":"bsedit.GBTMSketchConstraint","hasUserCode":false,"name":"","namespace":"","sourceParseTreeNodes":{},"constraintType":12,"entityId":"pos3x","hasOffsetData1":false,"hasOffsetData2":false,"hasPierceParameter":false,"helpParameters":[],"offsetDistance1":0,"offsetDistance2":0,"offsetOrientation1":false,"offsetOrientation2":false,"parameters":[{"$type":"bsedit.GBTMParameterString","hasUserCode":false,"libraryRelationType":0,"parameterId":"localFirst","parameterName":"","sourceParseTreeNodes":{},"value":"rear.center"},{"$type":"bsedit.GBTMParameterString","hasUserCode":false,"libraryRelationType":0,"parameterId":"localSecond","parameterName":"","sourceParseTreeNodes":{},"value":"h2.localOrigin"},{"$type":"bsedit.GBTMParameterEnum","hasUserCode":false,"libraryRelationType":0,"parameterId":"direction","parameterName":"","sourceParseTreeNodes":{},"enumName":"DimensionDirection","value":"HORIZONTAL","namespace":""},{"$type":"bsedit.GBTMParameterQuantity","hasUserCode":false,"libraryRelationType":0,"parameterId":"length","parameterName":"","sourceParseTreeNodes":{},"value":65.0,"units":"millimeter","expression":"-(-#wheelbase / 2)","isInteger":false},{"$type":"bsedit.GBTMParameterEnum","hasUserCode":false,"libraryRelationType":0,"parameterId":"alignment","parameterName":"","sourceParseTreeNodes":{},"enumName":"DimensionAlignment","value":"ALIGNED","namespace":""},{"$type":"bsedit.GBTMParameterQuantity","hasUserCode":false,"libraryRelationType":0,"parameterId":"labelRatio","parameterName":"","sourceParseTreeNodes":{},"value":0.5,"units":"","expression":"","isInteger":false},{"$type":"bsedit.GBTMParameterQuantity","hasUserCode":false,"libraryRelationType":0,"parameterId":"labelDistance","parameterName":"","sourceParseTreeNodes":{},"value":0.02,"units":"meter","expression":"","isInteger":false}],"pierceParameter":0},{"$type":"bsedit.GBTMSketchConstraint","hasUserCode":false,"name":"","namespace":"","sourceParseTreeNodes":{},"constraintType":12,"entityId":"pos3y","hasOffsetData1":false,"hasOffsetData2":false,"hasPierceParameter":false,"helpParameters":[],"offsetDistance1":0,"offsetDistance2":0,"offsetOrientation1":false,"offsetOrientation2":false,"parameters":[{"$type":"bsedit.GBTMParameterString","hasUserCode":false,"libraryRelationType":0,"parameterId":"localFirst","parameterName":"","sourceParseTreeNodes":{},"value":"rear.center"},{"$type":"bsedit.GBTMParameterString","hasUserCode":false,"libraryRelationType":0,"parameterId":"localSecond","parameterName":"","sourceParseTreeNodes":{},"value":"h2.localOrigin"},{"$type":"bsedit.GBTMParameterEnum","hasUserCode":false,"libraryRelationType":0,"parameterId":"direction","parameterName":"","sourceParseTreeNodes":{},"enumName":"DimensionDirection","value":"VERTICAL","namespace":""},{"$type":"bsedit.GBTMParameterQuantity","hasUserCode":false,"libraryRelationType":0,"parameterId":"length","parameterName":"","sourceParseTreeNodes":{},"value":15.0,"units":"millimeter","expression":"15 mm","isInteger":false},{"$type":"bsedit.GBTMParameterEnum","hasUserCode":false,"libraryRelationType":0,"parameterId":"alignment","parameterName":"","sourceParseTreeNodes":{},"enumName":"DimensionAlignment","value":"ANTI_ALIGNED","namespace":""},{"$type":"bsedit.GBTMParameterQuantity","hasUserCode":false,"libraryRelationType":0,"parameterId":"labelRatio","parameterName":"","sourceParseTreeNodes":{},"value":0.5,"units":"","expression":"","isInteger":false},{"$type":"bsedit.GBTMParameterQuantity","hasUserCode":false,"libraryRelationType":0,"parameterId":"labelDistance","parameterName":"","sourceParseTreeNodes":{},"value":0.02,"units":"meter","expression":"","isInteger":false}],"pierceParameter":0}],"graph_constraints":{"h2.fixedOrigin":{"type":16,"references":["h2.localOrigin"]},"dim0":{"type":25,"references":["front"]},"pos1x":{"type":12,"references":["front.center","h2.localOrigin"]},"pos1y":{"type":12,"references":["front.center","h2.localOrigin"]},"dim2":{"type":25,"references":["rear"]},"pos3x":{"type":12,"references":["rear.center","h2.localOrigin"]},"pos3y":{"type":12,"references":["rear.center","h2.localOrigin"]}},"graph_anchors":{"h2.localOrigin":[0,0,0],"front.center":[0.065,0.015,0],"rear.center":[-0.065,0.015,0]},"graph_circles":[{"entity_id":"front","center_id":"front.center","radius":0.014},{"entity_id":"rear","center_id":"rear.center","radius":0.014}],"inferred_alignment_constraints":[]}}
+diff --git a/tests/test_source_sketch.py b/tests/test_source_sketch.py
+new file mode 100644
+index 0000000..393fb1d
+--- /dev/null
++++ b/tests/test_source_sketch.py
+@@ -0,0 +1,98 @@
++import copy
++import json
++import sqlite3
++from pathlib import Path
++
++import httpx
++import pytest
++from onshape_native.source_sketch import verify_saved_sketch
++from onshape_native.bridge import create_app
++
++TARGET={"did":"4e078dec822b4e509616b1cb","wid":"af0627de07264acf086e646a","eid":"e"*24}
++OP="source-sketch-"+"a"*32
++PLANS=json.loads((Path(__file__).parent/"fixtures/source_sketch_plans.json").read_text())
++
++
++def states(name="Chassis sketch"):
++    plan=copy.deepcopy(PLANS[name])
++    before={"target":TARGET,"connected":True,"editingFeatureId":"sketch_0","element_microversion":"a"*24,
++            "tree":{"$type":"bsedit.GBTMModel","children":[{"featureType":"cPlane","featureId":"plane_0","nodeId":"plane-node"},
++                {"featureType":"newSketch","featureId":"sketch_0","nodeId":"sketch-node","parameters":[{"parameterId":"sketchPlane","value":"bound-plane"}],"entities":[],"constraints":[]},
++                {"nodeId":"rollback"}]}}
++    after=copy.deepcopy(before);after.update(editingFeatureId=None,element_microversion="b"*24)
++    number=0
++    def allocate(x):
++        nonlocal number
++        if isinstance(x,list):return [allocate(v) for v in x]
++        if not isinstance(x,dict):return x
++        out={k:allocate(v) for k,v in x.items()}
++        if str(x.get("$type","")).startswith("bsedit.GBTM"):
++            number+=1;out["nodeId"]=f"fresh-{number}"
++        if str(x.get("$type","")).startswith("bsedit.GBTMSketch"):out["index"]=number
++        return out
++    after["tree"]["children"][1].update(entities=allocate(plan["entities"]),constraints=allocate(plan["constraints"]))
++    graph={"$type":"ui.sketch.GBTUiSketchGetConstraintGraphResponse","worstSolveStatus":1,"sketchError":{"statusEnum":0},"constraints":{},"references":{}}
++    for ident,c in plan["graph_constraints"].items():graph["constraints"][ident]={"type":c["type"],"status":4,"displayStatus":1,"isExternal":False,"driven":False,"referenceIds":c["references"]}
++    for ident,xyz in plan["graph_anchors"].items():graph["references"][ident]={"isSketchEntity":True,"worstSolveStatus":1,"anchorX":xyz[0],"anchorY":xyz[1],"anchorZ":xyz[2]}
++    for c in plan["graph_circles"]:
++        center=graph["references"][c["center_id"]]
++        graph["references"][c["entity_id"]]={**center,"anchorX":center["anchorX"]-c["radius"]}
++    receipt={"op_id":OP,"feature_id":"sketch_0","definition_candidate":True,"active_constraint_graph":graph}
++    return before,after,plan,receipt
++
++
++@pytest.mark.parametrize("name",list(PLANS))
++@pytest.mark.parametrize("fault",[None,"coordinates","expression","entity_type","reused_id","missing_id","duplicate_id","unrelated","plane","busy","stale","constraint","graph_refs"])
++def test_source_sketch_proof_requires_geometry_definition_identity_and_graph(name,fault):
++    before,after,plan,receipt=states(name)
++    node=after["tree"]["children"][1]
++    if fault=="coordinates":receipt["active_constraint_graph"]["references"]["h2.localOrigin"]["anchorX"]=1
++    if fault=="expression":next(p for c in node["constraints"] for p in c["parameters"] if p["parameterId"]=="length")["expression"]="999 mm"
++    if fault=="entity_type":node["entities"][0]["$type"]="bsedit.GBTMSketchCurve"
++    if fault=="reused_id":node["entities"][0]["nodeId"]="sketch-node"
++    if fault=="missing_id":del node["entities"][0]["nodeId"]
++    if fault=="duplicate_id":node["entities"][1]["nodeId"]=node["entities"][0]["nodeId"]
++    if fault=="unrelated":after["tree"]["children"][-1]["nodeId"]="changed"
++    if fault=="plane":node["parameters"][0]["value"]="another-plane"
++    if fault=="busy":after["editingFeatureId"]="sketch_0"
++    if fault=="stale":after["element_microversion"]=before["element_microversion"]
++    if fault=="constraint":node["constraints"][0]["constraintType"]=1
++    if fault=="graph_refs":receipt["active_constraint_graph"]["constraints"]["h2.fixedOrigin"]["referenceIds"]=["other"]
++    if fault:
++        with pytest.raises(ValueError):verify_saved_sketch(before,after,TARGET,plan,receipt)
++    else:
++        proof=verify_saved_sketch(before,after,TARGET,plan,receipt)
++        assert proof["constraint_graph_verified"] and proof["saved_feature"]==node
++        assert proof["generated_node_ids"]
++
++
++@pytest.mark.asyncio
++@pytest.mark.parametrize("fault",[None,"graph","unrelated","other_pending","retirement","unstable"])
++async def test_source_sketch_reconciliation_retains_barrier_until_exact_proof(tmp_path,fault):
++    before,after,plan,receipt=states()
++    if fault=="graph":receipt["active_constraint_graph"]["references"]["h2.localOrigin"]["anchorX"]=1
++    if fault=="unrelated":after["tree"]["children"][-1]["nodeId"]="changed"
++    journal=tmp_path/"intent.sqlite"
++    intent={"before_state":before,"plan":plan,"source_feature":{"name":plan["logical_id"]},"plane_op_id":"plane-op","variable_op_ids":{}}
++    with sqlite3.connect(journal) as db:
++        db.execute("CREATE TABLE writes(op_id TEXT,target TEXT,expected_revision TEXT,action TEXT,logical_id TEXT,intent TEXT,state TEXT,receipt TEXT,observation TEXT,error TEXT,updated_at TEXT)")
++        db.execute("INSERT INTO writes(op_id,target,action,logical_id,state)VALUES(?,?,?,?,?)",("plane-op","/".join(TARGET.values()),"experimental_plane_populate",plan["plane_logical_id"],"observed"))
++        db.execute("INSERT INTO writes(op_id,target,expected_revision,action,logical_id,intent,state,receipt)VALUES(?,?,?,?,?,?,?,?)",(OP,"/".join(TARGET.values()),before["element_microversion"],"experimental_source_sketch_populate",plan["logical_id"],json.dumps(intent),"sent",json.dumps(receipt)))
++        if fault=="other_pending":db.execute("INSERT INTO writes(op_id,state)VALUES('other','unknown')")
++    token="a"*32
++    app=create_app({"token":token,"port":8766,"h2cad_journal":str(journal),"h2cad_create_target":TARGET})
++    broker=app.state.broker;broker.unknown_write=True;broker.extension=object();broker.extension_info={"capabilities":["h2_source_sketch_page_v1"]}
++    calls=[]
++    async def dispatch(job):
++        assert job["kind"]=="state";calls.append(job);live=copy.deepcopy(after)
++        if job.get("retire_acknowledged_op_id"):
++            live["marker_retirement"]={"op_id":OP,"status":"blocked" if fault=="retirement" else "absent"}
++            if fault=="unstable":live["element_microversion"]="c"*24
++        return live
++    broker.dispatch=dispatch
++    async with httpx.AsyncClient(transport=httpx.ASGITransport(app),base_url="http://127.0.0.1:8766",headers={"Authorization":"Bearer "+token}) as client:
++        response=await client.post("/local/reconcile_saved_source_sketch",json={"op_id":OP,"tab_id":7})
++    assert response.status_code==(409 if fault else 200),response.text
++    assert broker.unknown_write is bool(fault)
++    if fault in {"graph","unrelated","other_pending"}:assert len(calls)==1
++    with sqlite3.connect(journal) as db:assert db.execute("SELECT state FROM writes WHERE op_id=?",(OP,)).fetchone()[0]==("sent" if fault else "observed")
+-- 
+2.54.0.windows.1
+
