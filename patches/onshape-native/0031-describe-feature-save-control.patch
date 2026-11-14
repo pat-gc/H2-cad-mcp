@@ -1,0 +1,77 @@
+From d0028242d972e3611db30b47b52adff7bf4d7ce2 Mon Sep 17 00:00:00 2001
+From: patcybermind <pato.gonzalezcabrera@gmail.com>
+Date: Sat, 14 Nov 2026 00:28:49 -0500
+Subject: [PATCH] Describe exact feature Save control in read-only UI
+ inspection
+
+---
+ extension/page-adapter.js | 19 +++++++++++++++++++
+ tests/adapter.test.mjs    | 19 +++++++++++++++++++
+ 2 files changed, 38 insertions(+)
+
+diff --git a/extension/page-adapter.js b/extension/page-adapter.js
+index a5ceebb..38157f7 100644
+--- a/extension/page-adapter.js
++++ b/extension/page-adapter.js
+@@ -300,9 +300,28 @@ export async function pageCommand(job) {
+   if (job.kind === "ui_inspect") {
+     const nodes = [...document.querySelectorAll('button,input,select,textarea,[role="button"],[role="tab"],[role="menuitem"],[contenteditable="true"]')]
+       .filter(el => el.getClientRects().length && getComputedStyle(el).visibility !== "hidden").slice(0, 500);
++    // The feature dialog's Save control is a div and is absent from the
++    // generic control list. Describe only this known control, without acting
++    // on it or walking the surrounding editor DOM.
++    const saveNodes = [...document.querySelectorAll('.feature-dialog .ns-dialog-button-ok')];
++    const featureSave = {count: saveNodes.length, controls: saveNodes.slice(0, 4).map(el => {
++      const rect = el.getBoundingClientRect();
++      const hit = rect.width > 0 && rect.height > 0 && typeof document.elementFromPoint === "function"
++        ? document.elementFromPoint(rect.left + rect.width / 2, rect.top + rect.height / 2) : null;
++      return {tag: el.tagName.toLowerCase(), className: String(el.className || "").slice(0, 180),
++        outerHTML: String(el.outerHTML || "").slice(0, 500),
++        parentTag: el.parentElement?.tagName?.toLowerCase() || null,
++        parentClassName: String(el.parentElement?.className || "").slice(0, 180),
++        visible: el.getClientRects().length > 0 && getComputedStyle(el).visibility !== "hidden",
++        enabled: !el.disabled && el.getAttribute("aria-disabled") !== "true",
++        centerHit: hit === el ? "self" : hit && el.contains(hit) ? "descendant" : hit ? "other" : "unavailable",
++        hitTag: hit?.tagName?.toLowerCase() || null,
++        hitClassName: String(hit?.className || "").slice(0, 180)};
++    })};
+     const snapshot = crypto.randomUUID();
+     globalThis.__onshapeNativeUI = {snapshot, nodes, pathname: location.pathname, created: Date.now()};
+     return {snapshot, microversion: getMicroversion(), viewport: {width: innerWidth, height: innerHeight},
++      featureSave,
+       controls: nodes.map((el, id) => ({id, tag: el.tagName.toLowerCase(), role: el.getAttribute("role"),
+         label: (el.getAttribute("aria-label") || el.getAttribute("title") || el.getAttribute("placeholder") || el.textContent || "").trim().slice(0, 180),
+         disabled: !!el.disabled, type: el.getAttribute("type")}))};
+diff --git a/tests/adapter.test.mjs b/tests/adapter.test.mjs
+index f905dfd..b52241d 100644
+--- a/tests/adapter.test.mjs
++++ b/tests/adapter.test.mjs
+@@ -76,6 +76,25 @@ test('native state rejects a disconnected Onshape editor before model-tree acces
+   assert.match(result.error,/Onshape editor disconnected/);
+   assert.doesNotMatch(result.error,/model getter/);
+ });
++test('UI inspection describes the feature Save hit target without dispatching an action',async()=>{
++  setup();
++  const child={tagName:'SPAN',className:'check-icon'};
++  const parent={tagName:'DIV',className:'feature-dialog'};
++  const save={tagName:'DIV',className:'ns-dialog-button-ok',outerHTML:'<div class="ns-dialog-button-ok"><span class="check-icon"></span></div>',
++    parentElement:parent,disabled:false,getAttribute:()=>null,getClientRects:()=>[{}],
++    getBoundingClientRect:()=>({left:10,top:20,width:20,height:20}),contains:node=>node===child};
++  globalThis.document={querySelectorAll:selector=>selector==='.feature-dialog .ns-dialog-button-ok'?[save]:[],
++    elementFromPoint:()=>child};
++  globalThis.getComputedStyle=()=>({visibility:'visible'});
++  globalThis.innerWidth=800;globalThis.innerHeight=600;
++  const result=await pageCommand({kind:'ui_inspect',target});
++  assert.equal(result.featureSave.count,1);
++  assert.equal(result.featureSave.controls[0].centerHit,'descendant');
++  assert.equal(result.featureSave.controls[0].hitTag,'span');
++  assert.equal(result.featureSave.controls[0].enabled,true);
++  assert.equal(result.controls.length,0);
++  assert.equal(sent.length,0);
++});
+ test('creation probe checks constructor ID behavior without editor traversal or RPC',async()=>{
+   const Node=class {constructor(){this.nodeId=crypto.randomUUID();this.featureId='';}getMessageName(){return 'bsedit.GBTMSketch';}};
+   setup(undefined,false,'e'.repeat(24),{children:[]},{Node});
+-- 
+2.54.0.windows.1
+

@@ -1,4 +1,5 @@
 import json
+import os
 from pathlib import Path
 
 from h2cad.cli import main
@@ -25,7 +26,7 @@ def test_bootstrap_applies_native_patch_to_pinned_local_clone(tmp_path):
     spec = importlib.util.spec_from_file_location("h2_bootstrap_clone", script)
     module = importlib.util.module_from_spec(spec)
     spec.loader.exec_module(module)
-    local_clone = Path(__file__).resolve().parents[3] / "upstream" / "onshape-native"
+    local_clone = Path(os.environ.get("H2CAD_NATIVE_TEST_CLONE", module.ROOT / "upstream" / "onshape-native"))
     if not local_clone.is_dir():
         import pytest
         pytest.skip("pinned upstream clone unavailable")
@@ -33,10 +34,11 @@ def test_bootstrap_applies_native_patch_to_pinned_local_clone(tmp_path):
     result = module.bootstrap(tmp_path, with_fsgen=False, dry_run=False, python="python", sources_only=True)
     assert result["status"] == "sources_ready"
     checkout = tmp_path / "upstream" / "onshape-native"
-    ancestor = subprocess.check_output(["git", "rev-parse", "HEAD~30"], cwd=checkout, text=True).strip()
+    ancestor = subprocess.check_output(["git", "rev-parse", "HEAD~31"], cwd=checkout, text=True).strip()
     assert ancestor == module.NATIVE_SHA
     assert "h2Readback" in (checkout / "extension" / "page-adapter.js").read_text(encoding="utf-8")
-    assert module.native_checkout_reviewed(checkout, module.git_state(checkout)) == 30
+    assert module.native_checkout_reviewed(checkout, module.git_state(checkout)) == 31
+    assert "featureSave" in (checkout / "extension" / "page-adapter.js").read_text(encoding="utf-8")
     # Re-running setup leaves the reviewed checkout intact.
     assert module.bootstrap(tmp_path, with_fsgen=False, dry_run=False, python="python", sources_only=True)["status"] == "sources_ready"
 
