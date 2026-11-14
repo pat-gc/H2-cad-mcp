@@ -16,4 +16,4 @@ These rules address this repository's delayed saved extrusion, saved blank Top s
 
 ## Usage reserve
 
-User instruction: stop development when **95% remains** (5% used), not at 95% used. Check the account usage meter before and after small work batches. Keep work sequential under this reserve; do not launch an unbounded parallel batch. Stop new work conservatively as the cutoff approaches, since in-flight requests can overshoot. If a worker reports a usage-limit error, stop that worker and inspect account state rather than repeatedly retrying. Never purchase credits or redeem a reset without explicit authorization.
+Latest user clarification: continue development until the meter shows **less than 95% remaining**, not 95% used. Check the account usage meter before and after small work batches, then stop immediately on crossing that threshold. Keep work sequential under this reserve; do not launch an unbounded parallel batch. If a worker reports a usage-limit error, stop that worker and inspect account state rather than repeatedly retrying. Never purchase credits or redeem a reset without explicit authorization.

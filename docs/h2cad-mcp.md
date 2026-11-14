@@ -78,6 +78,36 @@ Feature definitions, evaluated geometry, and human editability are separate
 checks. Validate the final part count/bounds and an ordinary parameter edit that
 regenerates dependent geometry. Assemblies remain outside this source writer.
 
+## Experimental source-run checkpoints
+
+`experimental-source-run` coordinates the existing guarded writers in source
+order. It pins the source hash, target, journal and locally validated plan in a
+run file. It does not allocate Browser drafts or create assemblies. The CLI is
+offline-tested, including all 22 car features; live coordinator acceptance is
+still pending. Only NEW extrusions are admitted; REMOVE remains disabled here.
+
+Pass the same arguments to each action:
+
+```powershell
+$runArgs = @('fixtures/car/basic_car.fs', '--run-state', 'out/car-run.json',
+  '--bridge-config', '<private bridge.json>', '--journal', '<pinned journal.sqlite>',
+  '--tab-id', '<current tab id>', '--did', '<document id>',
+  '--wid', '<workspace id>', '--eid', '<approved Part Studio id>')
+& .\.venv\Scripts\python.exe -m h2cad experimental-source-run init @runArgs
+& .\.venv\Scripts\python.exe -m h2cad experimental-source-run next @runArgs
+# Allocate exactly the returned blank feature/reference through Browser.
+& .\.venv\Scripts\python.exe -m h2cad experimental-source-run apply @runArgs
+# Repeat next -> Browser allocation -> apply for each source feature.
+```
+
+Resume the existing run file after interruption. Never initialize another run
+to bypass an observed or unresolved operation. The coordinator adopts matching
+independently observed journal entries without replay. Changed source, target,
+staged tab, native definitions or saved baseline stop dispatch. Reconcile an
+uncertain operation using the existing writer-specific commands before resuming.
+Final `verify_geometry` explicitly reports `geometry_verified: false`: verify
+solid count, geometry and a native parameter edit separately.
+
 ## Existing plate MCP entry point
 
 The reviewed Native fork adds `experimental_h2_create_plate` to its existing

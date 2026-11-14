@@ -97,6 +97,18 @@ def test_crash_after_observed_write_adopts_without_replay(setup):
     assert '#length' in json.loads(path.read_text())['bindings']
 
 
+def test_new_run_cannot_duplicate_an_existing_observed_source(setup):
+    path, journal, backend = setup
+    sync(run.next_action(path, backend, SOURCE, TARGET, journal))
+    backend.allocate()
+    sync(run.apply_staged(path, backend, SOURCE, TARGET, journal))
+    other = path.with_name('duplicate.json')
+    with pytest.raises(Unsupported, match='already exist'):
+        run.initialize_run(other, SOURCE, TARGET, journal)
+    assert not other.exists()
+    assert backend.calls == 1
+
+
 @pytest.mark.parametrize('change', ['deleted', 'modified'])
 def test_old_observation_never_hides_human_change(setup, change):
     path,journal,backend=setup
@@ -193,3 +205,80 @@ def test_remove_is_rejected_before_validation_or_run_creation(tmp_path, monkeypa
         assert not (tmp_path / 'run.json').exists()
     finally:
         journal.close()
+
+
+def test_all_car_features_dispatch_in_order_with_observed_dependencies(setup, monkeypatch):
+    path, journal, backend = setup
+    plan = run._plan(SOURCE.read_text(), TARGET)
+    observed = {}
+    calls = []
+
+    async def complete(kind, target, source, **kw):
+        feature = plan[len(calls)]
+        assert target == TARGET and kw['journal'] is journal
+        assert feature['kind'] == kind and kw['logical_id'] == feature['logical_id']
+        stage = feature['stage']
+        previous = [observed[f['logical_id']] for f in plan[:len(calls)] if f['kind'] == kind]
+        if kind in ('assignVariable', 'cPlane'):
+            assert kw['previous_op_ids'] == previous
+        if kind != 'assignVariable':
+            assert kw['baseline']['editingFeatureId'] is None
+            assert len(kw['baseline']['tree']['children']) == len(calls)
+        if kind == 'cPlane':
+            assert kw['variable_op_ids'] == {name: observed[name] for name in stage['dependencies']}
+            assert kw['reference_binding']['query_data']['featureId'] == stage['reference_plane']
+        elif kind == 'newSketch':
+            assert kw['plane_op_id'] == observed[stage['plane_logical_id']]
+            assert kw['variable_op_ids'] == {
+                name: observed[name] for name in stage['source_stage']['source_variable_definitions']}
+        elif kind == 'extrude':
+            assert kw['sketch_op_id'] == observed[stage['sketch_logical_id']]
+            assert kw['variable_op_id'] == (observed[stage['depth_expression']] if stage['variable'] else None)
+        before = copy.deepcopy(backend.state)
+        node = backend.state['tree']['children'][-1]
+        node['name'] = feature['logical_id']
+        backend.state.update(editingFeatureId=None, element_microversion=f'{2*len(calls)+3:024x}')
+        op_id = f'op-{len(calls)}'
+        intent = {'before_state': before, 'expected_tree': copy.deepcopy(backend.state['tree']),
+                  'source_feature': feature['source_feature']}
+        if kind in ('assignVariable', 'cPlane'):
+            intent['source_stages'] = [f['stage'] for f in plan if f['kind'] == kind]
+            intent['source_index'] = len(previous)
+        journal.prepare(op_id=op_id, target='/'.join(TARGET.to_dict().values()),
+            expected_revision=before['element_microversion'], action=run._ACTIONS[kind],
+            logical_id=feature['logical_id'], intent=intent)
+        journal.transition(op_id, 'sent')
+        journal.transition(op_id, 'observed', observation={
+            'definition_observed': True, 'feature_id': node['featureId'], 'node_id': node['nodeId'],
+            'saved_feature': copy.deepcopy(node), 'constraint_graph_verified': True, 'origin_verified': True})
+        observed[feature['logical_id']] = op_id
+        calls.append(feature['logical_id'])
+
+    async def variable(target, source, **kw): await complete('assignVariable', target, source, **kw)
+    async def plane(owner, target, source, **kw): await complete('cPlane', target, source, **kw)
+    async def sketch(owner, target, source, **kw): await complete('newSketch', target, source, **kw)
+    async def extrude(owner, target, source, **kw): await complete('extrude', target, source, **kw)
+    backend.populate_test_variable = variable
+    monkeypatch.setattr(run, 'populate_test_plane', plane)
+    monkeypatch.setattr(run, 'populate_source_sketch', sketch)
+    monkeypatch.setattr(run, 'populate_source_extrusion', extrude)
+    class Bridge:
+        async def command(self, job):
+            assert job['kind'] == 'native' and job['command'] == 'ui.GBTUiGetQueryDataCall'
+            return {'result': {'$type': 'ui.GBTUiGetQueryDataResponse',
+                    'queryData': [{'featureId': plan[len(calls)]['stage']['reference_plane']}]}}
+    backend.bridge = Bridge()
+    for index, feature in enumerate(plan):
+        action = sync(run.next_action(path, backend, SOURCE, TARGET, journal))
+        assert action['action'] == 'browser_allocate' and action['logical_id'] == feature['logical_id']
+        node = {'featureType': feature['kind'], 'featureId': f'feature-{index}', 'nodeId': f'node-{index}'}
+        if feature['kind'] == 'cPlane':
+            node['parameters'] = [{'parameterId': 'entities', 'queries': [{'deterministicIds': [f'query-{index}']}]}]
+        backend.state['tree']['children'].append(node)
+        backend.state.update(editingFeatureId=node['featureId'], element_microversion=f'{2*index+2:024x}')
+        assert sync(run.apply_staged(path, backend, SOURCE, TARGET, journal))['op_id'] == f'op-{index}'
+    assert calls == [f['logical_id'] for f in plan]
+    assert sync(run.next_action(path, backend, SOURCE, TARGET, journal)) == {
+        'action': 'verify_geometry', 'source_features_observed': 22, 'geometry_verified': False}
+    sync(run.apply_staged(path, backend, SOURCE, TARGET, journal))
+    assert len(calls) == 22

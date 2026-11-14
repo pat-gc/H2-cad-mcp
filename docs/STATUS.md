@@ -1,6 +1,6 @@
-> **Current reserve:** user requires stopping at 95% remaining (5% used). All workers stopped after usage-limit errors. The host meter currently reports 0% used; check again before another bounded batch. No reset or credits were consumed.
+> **Current reserve:** user clarified to continue until the meter shows less than 95% remaining. Last observed meter: 1% used (99% remaining). Root works sequentially and checks between batches; workers remain paused. No reset or credits were consumed.
 >
-> **Latest work:** native car replacement completed; evidence is in `artifacts/native-car-replacement-REPORT.md`. New Astra `cadder` delivered the initial robot plan/calculations and local carrier fixture in commit `3f28224`, then stopped pending primitives. The experimental source-run coordinator has 17 passing offline tests; CLI wiring, full dispatch integration and live validation remain outstanding. Centered-circle/REMOVE changes remain uncommitted work in progress and are not activated. No new robot Onshape writes occurred.
+> **Latest work:** native car replacement completed; evidence is in `artifacts/native-car-replacement-REPORT.md`. New Astra `cadder` delivered the initial robot plan/calculations and local carrier fixture in commit `3f28224`, then stopped pending primitives. The experimental source-run coordinator and CLI have 28 passing offline tests, including all 22 car features, duplicate prevention, recovery and target/journal pinning. Live coordinator validation remains outstanding. Centered-circle/REMOVE changes remain uncommitted work in progress and are not activated. No new robot Onshape writes occurred.
 
 # H2 CAD development status
 
@@ -23,14 +23,14 @@ Deliver an MCP/plugin/skill workflow that validates FSGen CAD locally, then crea
 | Final saved state | Revision `7e829c1327e7a06b7c1a55fd`, connected idle, zero unresolved writes, guard false |
 | Workflow | Local validation plus Browser blank-feature allocation/reference selection and deterministic source CLI population; no manual car drawing. A single autonomous create-car MCP call remains unproved |
 
-**Current task:** tester is creating a new native test assembly from these eight verified parts, retaining their Part Studio positions. Verify eight occurrence/source identities before replacing the old custom car/assembly. General source-backed assembly creation and mates remain an implementation gap; this simple assembly trial must not imply broader support.
+**Current task:** root is completing the source-run coordinator and robot primitives. The eight-occurrence native car assembly and authorized old-car replacement passed; see [assembly proof](../artifacts/native-car-source-assembly-REPORT.md) and [replacement proof](../artifacts/native-car-replacement-REPORT.md). General source-backed assembly creation and mates remain an implementation gap.
 
 ## Exact targets and preservation
 
 H2 CAD Test Project document `4e078dec822b4e509616b1cb`, workspace `af0627de07264acf086e646a`.
 
 - Verified native car Part Studio: `9b8155a2839e649138dae95f`, last known Browser tab941741361. Rediscover tab/URL before use. Full feature/operation map is in the report.
-- Original custom car Part Studio `45730d1931712e2c548fae00` and Assembly `cb5c127f6a4b4eb2ab5838c9` remain untouched. User authorized replacement, but root has not approved deletion before the replacement assembly verifies. Preserve original Feature Studio `39a2e2afc5bc43eea167e938`.
+- Original custom car Part Studio `45730d1931712e2c548fae00` and empty Assembly `cb5c127f6a4b4eb2ab5838c9` were deleted after replacement verification. The new native assembly is `4b621d8d622b4d57863db2cb`. Preserve original Feature Studio `39a2e2afc5bc43eea167e938` and unrelated tabs.
 - Preserve verified plate Test02 `3a4e8933dde1c594115a657f`, Test03 `db4cd489011c3f8dace7baca`, and sample schema studio `eb0d7b23baa21737e89c0464`.
 - Preserve older plate `9a062f0eef8bb961f8c84f8e` and ownership-unknown Sketch `F6sL2WhVQXX64oZ_0` in `1926791d173990d5d45f70ef`.
 - Test03 stale original tab941740810 was preserved; never resume that old edit controller. Its fresh verification tab was941741358.
@@ -52,9 +52,9 @@ Earlier plate proof remains in [Test03](../artifacts/native-mvp-checkpoint/test0
 
 ## Next stages and queued cadder
 
-1. Verify replacement native car assembly, then perform the user's authorized old-car/assembly replacement while preserving unrelated content.
-2. Root launches a **new Astra subagent named cadder** after that gate, with the exact arm brief: base rotation, vertical rail lift replacing shoulder pitch, elbow rotation, wrist rotation; NEMA17 motors, GT2 belts/pulleys,2020 extrusions, suitable rails/bearings;400mm reach and400mm side coverage;200g payload plus self-weight. Plan geometry and calculate loads/drives before modeling.
-3. Cadder must work against the honest capability matrix. Centered profiles, REMOVE cuts/target-body binding, genuine hollow/T-slot profiles and source-bound assembly insertion/mates need development; coordinate those requirements with root rather than approximate away buildability. The robot design/demo is not complete and cadder has not yet launched.
+1. Complete and validate centered profiles and explicit-scope REMOVE on the carrier/witness fixture before attempting the arm.
+2. New Astra `cadder` completed the first plan in [robot design](robot/DESIGN.md): base rotation, vertical rail lift, elbow rotation and wrist rotation; NEMA17 motors, GT2 belts/pulleys,2020 extrusions, rails/bearings;400mm reach and400mm side coverage;200g payload plus self-weight. Calculations and local carrier validation passed; component ratings, clearances and physical checks remain open.
+3. Continue against the capability matrix: genuine hollow/T-slot profiles and source-bound assembly insertion/mates need development. The robot design/demo is not complete. Cadder is idle pending primitives.
 
 The older printed robot source is a separate deferred regression, not this design: `C:/Users/patog/Documents/Codex/2026-10-29/i-want-you-to-fully-install/outputs/robot-printed/robot_printed.fs`, SHA256 `5E08D7D4E97C5E5260FA48BECCBA14AC5A8B18E874C9FB20BC023CFAC4308C35`; reported473features/73part types are not independently verified here.
 

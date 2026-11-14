@@ -108,13 +108,18 @@ def initialize_run(path, source, target, journal):
             raise Unsupported("Exact native document/workspace/element required")
         text = _text(source)
         plan = _plan(text, target)
+        key = "/".join(target.to_dict()[k] for k in ("did", "wid", "eid"))
+        history = _rows(journal, key)
+        logical_ids = {feature["logical_id"] for feature in plan}
+        if any(row["state"] == "observed" and row["action"] in _ACTIONS.values()
+               and row["logical_id"] in logical_ids for row in history):
+            raise Unsupported("Observed source features already exist; resume their existing run")
         validation = validate_fsgen(text)
         if validation.status != "passed":
             raise Unsupported("Complete local geometry validation must pass")
-        key = "/".join(target.to_dict()[k] for k in ("did", "wid", "eid"))
         run = {"version": 1, "source_sha256": hashlib.sha256(text.encode()).hexdigest(),
                "target": target.to_dict(), "journal": str(journal.path.resolve()), "plan": plan,
-               "excluded_ops": [r["op_id"] for r in _rows(journal, key)], "bindings": {}, "staged": None,
+               "excluded_ops": [r["op_id"] for r in history], "bindings": {}, "staged": None,
                "local_validation": validation.to_dict()}
         _save(path, run)
         return {"action": "stage", "logical_id": plan[0]["logical_id"], "feature_count": len(plan)}

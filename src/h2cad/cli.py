@@ -69,6 +69,14 @@ def build_parser() -> argparse.ArgumentParser:
     blueprint_cmd.add_argument("--output", type=Path)
     validate_cmd = commands.add_parser("validate", help="run FSGen local geometry validation")
     validate_cmd.add_argument("source")
+    source_run_cmd = commands.add_parser("experimental-source-run", help="checkpoint source-order execution; Browser still allocates drafts")
+    source_run_cmd.add_argument("action", choices=("init", "next", "apply"))
+    source_run_cmd.add_argument("source", type=Path)
+    source_run_cmd.add_argument("--run-state", type=Path, required=True)
+    _add_target(source_run_cmd)
+    source_run_cmd.add_argument("--bridge-config", type=Path, required=True)
+    source_run_cmd.add_argument("--tab-id", type=int, required=True)
+    source_run_cmd.add_argument("--journal", type=Path, required=True)
     plan_cmd = commands.add_parser("plan", help="three-way dry-run plan from JSON snapshots")
     for name in ("base", "observed", "desired"):
         plan_cmd.add_argument(f"--{name}", required=True)
@@ -234,7 +242,7 @@ def build_parser() -> argparse.ArgumentParser:
 
 
 async def _bridge_action(args: argparse.Namespace) -> tuple[object, int]:
-    if args.command in {"extension-reload", "experimental-depth-edit", "experimental-begin-top-sketch",
+    if args.command in {"extension-reload", "experimental-source-run", "experimental-depth-edit", "experimental-begin-top-sketch",
                         "experimental-sketch-populate",
                         "experimental-extrude-populate", "experimental-begin-source-extrude",
                         "experimental-populate-variable", "experimental-reconcile-saved-source-variable",
@@ -290,6 +298,19 @@ async def _bridge_action(args: argparse.Namespace) -> tuple[object, int]:
             return {"bridge_protocol": health.get("protocol"), "extension_connected": health.get("extension_connected"),
                     "extension": health.get("extension")}, 0
         backend = NativeBackend(bridge, tab_id=args.tab_id)
+        if args.command == "experimental-source-run":
+            from .source_run import initialize_run, next_action, apply_staged
+            target = _target(args)
+            if backend.create_target != target.to_dict():
+                raise ValueError("Source run must use the bridge's configured creation target")
+            journal = Journal(args.journal)
+            try:
+                if args.action == "init":
+                    return initialize_run(args.run_state, args.source, target, journal), 0
+                action = next_action if args.action == "next" else apply_staged
+                return await action(args.run_state, backend, args.source, target, journal), 0
+            finally:
+                journal.close()
         if args.command == "inspect":
             return await backend.raw_state(_target(args)), 0
         if args.command == "native-probe":
