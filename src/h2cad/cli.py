@@ -30,6 +30,31 @@ def _add_target(parser: argparse.ArgumentParser) -> None:
         parser.add_argument(f"--{name}", required=True)
 
 
+def _resume_plate_sketch(journal: Journal, op_id: str, target: Target, blueprint,
+                         entity_prefix: str) -> dict:
+    """Select a proven source sketch; never reconcile or replay an uncertain write."""
+    if journal.has_unresolved():
+        raise ValueError("Unresolved CAD write remains; reconcile before resuming the plate")
+    row = journal.get(op_id)
+    key = f"{target.did}/{target.wid}/{target.eid}"
+    if (not row or row["target"] != key or row["state"] != "observed"
+            or row["action"] != "experimental_sketch_populate"
+            or row["logical_id"] != blueprint.sketch_logical_id):
+        raise ValueError("Plate resume requires an observed source sketch operation for this target")
+    intent = json.loads(row["intent"])
+    evidence = json.loads(row["observation"] or "{}")
+    if (intent.get("blueprint") != blueprint.to_dict()
+            or intent.get("entity_prefix") != entity_prefix):
+        raise ValueError("Resume source differs from the journaled plate blueprint")
+    feature_id = intent.get("feature_id")
+    if (not isinstance(feature_id, str) or not feature_id
+            or evidence.get("feature_id") != feature_id
+            or evidence.get("origin_verified") is not True
+            or evidence.get("constraint_graph_verified") is not True):
+        raise ValueError("Resume sketch identity, origin and solver proof must match the journal")
+    return {"op_id": op_id, "resumed": True, "evidence": evidence}
+
+
 def build_parser() -> argparse.ArgumentParser:
     parser = argparse.ArgumentParser(prog="h2cad", description="Guarded browser-native CAD planning")
     commands = parser.add_subparsers(dest="command", required=True)
@@ -110,6 +135,8 @@ def build_parser() -> argparse.ArgumentParser:
     plate_cmd.add_argument("--bridge-config", type=Path, required=True)
     plate_cmd.add_argument("--tab-id", type=int, required=True)
     plate_cmd.add_argument("--journal", type=Path, required=True)
+    plate_cmd.add_argument("--resume-sketch-op-id",
+                           help="continue after this reconciled source sketch; requires no extrusion yet")
     recover_cmd = commands.add_parser("experimental-reconcile-known-sketch-rejection",
                                       help="resolve the one proven pre-dispatch sketch constructor rejection")
     recover_cmd.add_argument("op_id")
@@ -254,13 +281,20 @@ async def _bridge_action(args: argparse.Namespace) -> tuple[object, int]:
             local = validate_fsgen(source_text)
             if local.status != "passed":
                 raise ValueError(f"Local FSGen validation must pass before native creation: {local.error or local.status}")
-            blueprint = stage_minimal_pair(compile_fsgen(source_text, target))
+            snapshot = compile_fsgen(source_text, target)
+            blueprint = stage_minimal_pair(snapshot)
             if blueprint.depth_mm == 25:
                 raise ValueError("Source depth equals the observed editor default; commit-only extrusion is not yet supported")
             journal = Journal(args.journal)
             try:
-                begin = await backend.begin_test_top_sketch(target, journal)
-                sketch = await backend.populate_test_sketch(target, source_text, journal)
+                if args.resume_sketch_op_id:
+                    entities = snapshot.features[0].structure["fsgen_native"]["entities"]
+                    prefix = entities[0]["entityId"].rsplit(".", 1)[0]
+                    sketch = _resume_plate_sketch(journal, args.resume_sketch_op_id, target, blueprint, prefix)
+                    begin = None
+                else:
+                    begin = await backend.begin_test_top_sketch(target, journal)
+                    sketch = await backend.populate_test_sketch(target, source_text, journal)
                 extrusion = await backend.begin_test_source_extrude(
                     target, source_text, sketch_op_id=sketch["op_id"], journal=journal)
                 saved = await backend.populate_test_extrude(
