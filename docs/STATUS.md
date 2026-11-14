@@ -1,6 +1,6 @@
-> **Active budget:** user authorized continuation until90%remaining (10%used). Root is sole live owner; check account meter between batches and stop at10%used. Last observed6%used. Workers remain idle.
+> **Active budget:** user authorized continuation until90%remaining (10%used). Root is sole live owner; check account meter between batches and stop at10%used. Last observed9%used. Workers are idle after bounded handoffs.
 >
-> **Live work:** paired source46 is active. Native scoped cut passed carrier/witness volumes and12→14→12 ordinary variable edit; exact9feature tree restored. Separate origin/axis-circle sketch passed active solver and saved proof. Current EID423a1c4eec848f03a9800ba5/tab941741361 is idle at revision0a87fae1ef50f8cd55f559d4 with10sourcefeatures. See `artifacts/robot/carrier-remove-REPORT.md`. One worker is integrating REMOVE into coordinator/CLI; root owns live verification. Next: full seven-hole carrier through coordinator. Meterlast7used/93remaining.
+> **Live work:** paired source46 is active. The complete nine-feature seven-hole carrier passed through the coordinator, including a scoped cut preserving the witness and12→14→12 ordinary variable edit with exact tree restoration. Current EIDe37ca903af44622ca6919031/tab941741361 is idle at revisionc130f5d8bed1a97d87b830a4. See `artifacts/robot/full-carrier-REPORT.md`. Earlier carrier/origin-circle studios are preserved. Measurement comparison is now retained separately from automatic verification. Hollow square tube primitive is locally validated only; actual2020T-slot and assemblies remain open.
 
 # H2 CAD development status
 
@@ -46,13 +46,14 @@ Source43 (`bfaf034`) updates existing plugin modeling instructions and adds `ref
 - Main regression suite:277passed after sketch/extrusion integration. Two stale bootstrap assumptions were repaired in `c127ad4`.
 - Patch42 focused validation:37H2/bootstrap,155Native Python,54adapter tests passed.
 - Patch43 documentation: YAML/manifest/reference/CLI checks and two bootstrap tests passed.
-- Latest Graphify refresh:716nodes,2607edges,20communities,46/54files cached; no external model. Refresh once after each substantive integrated src/scripts/tests batch, not for documentation-only edits.
+- Latest full suite:348passed after coordinator REMOVE integration. Latest focused source-run/CLI/setup tests:45passed, including measurement provenance, stale revision and changed/missing evidence rejection. Hollow-tube local validation:5passed.
+- Latest Graphify refresh:745nodes,2702edges,22communities,46/56files cached; no external model. Refresh once after each substantive integrated src/scripts/tests batch, not for documentation-only edits.
 
 Earlier plate proof remains in [Test03](../artifacts/native-mvp-checkpoint/test03-clean-source-plate-2026-11-14.md). It passed with supported fresh-tab saved-state recovery. Detailed variable/plane/sketch/extrusion samples and transport repairs are in [development evidence](../artifacts/native-car-origin-circle-and-plane37-REPORT.md).
 
 ## Next stages and queued cadder
 
-1. Complete and validate centered profiles and explicit-scope REMOVE on the carrier/witness fixture before attempting the arm.
+1. Centered profiles and explicit-scope REMOVE passed on the full seven-hole carrier/witness fixture. Next geometry gap is actual2020T-slot profiles; the locally validated hollow square tube is a distinct primitive, not a substitute.
 2. New Astra `cadder` completed the first plan in [robot design](robot/DESIGN.md): base rotation, vertical rail lift, elbow rotation and wrist rotation; NEMA17 motors, GT2 belts/pulleys,2020 extrusions, rails/bearings;400mm reach and400mm side coverage;200g payload plus self-weight. Calculations and local carrier validation passed; component ratings, clearances and physical checks remain open.
 3. Continue against the capability matrix: genuine hollow/T-slot profiles and source-bound assembly insertion/mates need development. The robot design/demo is not complete. Cadder is idle pending primitives.
 

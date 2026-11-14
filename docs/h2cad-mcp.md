@@ -83,8 +83,8 @@ regenerates dependent geometry. Assemblies remain outside this source writer.
 `experimental-source-run` coordinates the existing guarded writers in source
 order. It pins the source hash, target, journal and locally validated plan in a
 run file. It does not allocate Browser drafts or create assemblies. The CLI is
-offline-tested, including all 22 car features, and has created an eight-feature
-carrier setup live with independently measured two-part geometry. The coordinator
+offline-tested, including all 22 car features, and has created the complete nine-feature
+seven-hole carrier live with independently measured two-part geometry. The coordinator
 also supports explicit-scope REMOVE after a preceding single-body NEW extrusion.
 The target must originate from one rectangle or one circle, and its current
 sketch and extrusion definitions must remain identical to the observed journal
@@ -100,8 +100,9 @@ Onshape may flip direction when REMOVE is selected: check it explicitly. `apply`
 derives the target operation from the immutable source plan and observed journal;
 it never guesses a body ID. The writer independently resolves the selected body
 before changing depth. The run still ends at independent geometry verification.
-The scoped writer has passed a live carrier cut preserving a second witness body;
-the expanded coordinator lifecycle is tested offline.
+The complete coordinator run has passed a live seven-hole carrier cut preserving a
+second witness body, plus a 12→14→12 thickness edit with exact tree restoration.
+See [live evidence](../artifacts/robot/full-carrier-REPORT.md).
 
 The companion must run patch44 or later so authenticated health reports its
 startup creation target. `doctor --bridge-config ...` displays this as
@@ -131,6 +132,24 @@ staged tab, native definitions or saved baseline stop dispatch. Reconcile an
 uncertain operation using the existing writer-specific commands before resuming.
 Final `verify_geometry` explicitly reports `geometry_verified: false`: verify
 solid count, geometry and a native parameter edit separately.
+
+After independently measuring all solids through Browser, `record-measurements`
+can retain a comparison in the same checkpoint:
+
+```powershell
+& .\.venv\Scripts\python.exe -m h2cad experimental-source-run record-measurements @runArgs --measurements out/measurements.json
+```
+
+The JSON must contain the exact `target`, `source_sha256`, current saved `revision`,
+`method: "browser_mass_properties"`, total `parts`, `volume_mm3`, `area_mm2`, and a
+nonempty `screenshots` list of PNG or JPEG paths relative to the JSON. Counts must match
+exactly; volume and area use fixed tolerance 0.002 absolute or 1e-7 relative.
+The recorder requires all source features observed and unchanged, saved idle state,
+and a clear journal. It hashes retained images and rechecks native state before saving.
+Subsequent `next` calls report a matching comparison, stale revision, changed image,
+or unavailable evidence. It does not read pixels or obtain mass properties itself:
+`geometry_verified` stays false and `independently_acquired` stays false. Human
+editability and geometric shape checks remain separate evidence.
 
 ## Existing plate MCP entry point
 

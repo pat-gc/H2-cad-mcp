@@ -7,7 +7,7 @@ import pytest
 from h2cad import cli, source_run
 
 
-@pytest.mark.parametrize("action", ["init", "next", "apply"])
+@pytest.mark.parametrize("action", ["init", "next", "apply", "record-measurements"])
 @pytest.mark.parametrize("mismatch", [None, "journal", "target", "running_target"])
 def test_source_run_cli_pins_routes_and_closes(tmp_path, monkeypatch, capsys, action, mismatch):
     target = {"did": "a" * 24, "wid": "b" * 24, "eid": "c" * 24}
@@ -48,14 +48,23 @@ def test_source_run_cli_pins_routes_and_closes(tmp_path, monkeypatch, capsys, ac
         events[-1] = "apply"
         return {"action": "stage"}
 
+    async def record(path, backend, source, given_target, given_journal, evidence):
+        assert evidence == tmp_path / "measurements.json"
+        await next_step(path, backend, source, given_target, given_journal)
+        events[-1] = "record-measurements"
+        return {"action": "measurements_recorded"}
+
     monkeypatch.setattr(cli, "NativeBridge", Bridge)
     monkeypatch.setattr(cli, "NativeBackend", backend)
     monkeypatch.setattr(source_run, "initialize_run", initialize)
     monkeypatch.setattr(source_run, "next_action", next_step)
     monkeypatch.setattr(source_run, "apply_staged", apply)
+    monkeypatch.setattr(source_run, "record_measurements", record)
     argv = ["experimental-source-run", action, str(tmp_path / "source.fs"),
             "--run-state", str(tmp_path / "run.json"), "--journal", str(journal),
             "--bridge-config", str(config), "--tab-id", "123"]
+    if action == "record-measurements":
+        argv.extend(["--measurements",str(tmp_path / "measurements.json")])
     for key, value in target.items():
         argv.extend(["--" + key, value])
     assert cli.main(argv) == (1 if mismatch else 0)
@@ -66,7 +75,7 @@ def test_source_run_cli_pins_routes_and_closes(tmp_path, monkeypatch, capsys, ac
         assert not journal.exists()
     else:
         assert events == ["open", action, "close"]
-        assert json.loads(output.out)["action"] in {"stage", "browser_allocate"}
+        assert json.loads(output.out)["action"] in {"stage", "browser_allocate", "measurements_recorded"}
 
 
 @pytest.mark.parametrize("body_op",[None,"extrude-"+"d"*32])

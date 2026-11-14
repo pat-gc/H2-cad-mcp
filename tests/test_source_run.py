@@ -320,6 +320,40 @@ def test_all_features_dispatch_in_order_with_observed_dependencies(setup, monkey
         'action': 'verify_geometry', 'source_features_observed': len(plan), 'geometry_verified': False}
     sync(run.apply_staged(path, backend, source, TARGET, journal))
     assert len(calls) == len(plan)
+    if source_name == 'carrier':
+        data = json.loads(path.read_text())
+        image = path.with_name('measurement.png')
+        # Recorder hashes evidence bytes; it deliberately does not interpret pixels.
+        image.write_bytes(b'\x89PNG\r\n\x1a\nfixture')
+        evidence = dict(target=TARGET.to_dict(), source_sha256=data['source_sha256'],
+                        revision=backend.state['element_microversion'], method='browser_mass_properties',
+                        parts=2, volume_mm3=45265.304, area_mm2=18677.987, screenshots=[image.name])
+        evidence_path = path.with_name('measurements.json')
+        for key, value in [('revision','0'*24), ('source_sha256','wrong'), ('target',{}),
+                           ('method','invented'), ('parts',True), ('parts',3),
+                           ('volume_mm3',float('nan')), ('area_mm2',float('inf')),
+                           ('volume_mm3',45200), ('screenshots',[])]:
+            evidence_path.write_text(json.dumps({**evidence,key:value}))
+            with pytest.raises(Unsupported):
+                sync(run.record_measurements(path,backend,source,TARGET,journal,evidence_path))
+            assert 'geometry_measurements' not in json.loads(path.read_text())
+        evidence_path.write_text(json.dumps(evidence))
+        backend.state['editingFeatureId']='draft'
+        with pytest.raises(Unsupported,match='saved idle'):
+            sync(run.record_measurements(path,backend,source,TARGET,journal,evidence_path))
+        backend.state['editingFeatureId']=None
+        result=sync(run.record_measurements(path,backend,source,TARGET,journal,evidence_path))
+        assert result['geometry_comparison']['status']=='match'
+        assert result['geometry_verified'] is False
+        assert result['geometry_comparison']['independently_acquired'] is False
+        assert sync(run.next_action(path,backend,source,TARGET,journal))['geometry_comparison']['status']=='match'
+        backend.state['element_microversion']='e'*24
+        assert sync(run.next_action(path,backend,source,TARGET,journal))['geometry_comparison']['status']=='stale'
+        image.write_bytes(b'changed')
+        assert sync(run.next_action(path,backend,source,TARGET,journal))['geometry_comparison']['status']=='evidence_changed'
+        image.unlink()
+        assert sync(run.next_action(path,backend,source,TARGET,journal))['geometry_comparison']['status']=='evidence_unavailable'
+        assert len(calls)==len(plan)
 
 
 @pytest.mark.parametrize("fault",["add","missing_body","multi_body"])

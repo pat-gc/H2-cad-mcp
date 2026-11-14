@@ -7,6 +7,7 @@ from __future__ import annotations
 
 import hashlib
 import json
+import math
 import os
 from pathlib import Path
 import re
@@ -236,6 +237,70 @@ def _allocation(run, feature):
     return action
 
 
+def _measurement_comparison(run, state):
+    evidence = run.get("geometry_measurements")
+    if not evidence:
+        return None
+    status = "match" if evidence["revision"] == state["element_microversion"] else "stale"
+    try:
+        if any(hashlib.sha256(Path(item["path"]).read_bytes()).hexdigest() != item["sha256"]
+               for item in evidence["screenshots"]):
+            status = "evidence_changed"
+    except OSError:
+        status = "evidence_unavailable"
+    return {"status": status,
+            "method": evidence["method"], "revision": evidence["revision"],
+            "independently_acquired": False,
+            "note": "Caller-supplied Browser measurements; the coordinator compares values, not screenshot contents."}
+
+
+async def record_measurements(path, backend, source, target, journal, evidence_path):
+    """Compare externally observed mass properties without claiming automatic verification."""
+    with _lock(path):
+        run, _ = _load(path, source, target, journal)
+        _adopt(run, journal)
+        state = await backend.raw_state(target)
+        _state(run, state, target, backend)
+        if (len(run["bindings"]) != len(run["plan"]) or run["staged"]
+                or state.get("editingFeatureId", "missing") is not None
+                or state.get("h2Readback", {}).get("incompleteFeatureEdit")):
+            raise Unsupported("Complete source run and saved idle state required before recording measurements")
+        evidence_path = Path(evidence_path)
+        evidence = json.loads(evidence_path.read_text(encoding="utf-8"))
+        if (evidence.get("target") != run["target"] or evidence.get("source_sha256") != run["source_sha256"]
+                or evidence.get("revision") != state["element_microversion"]
+                or evidence.get("method") != "browser_mass_properties"):
+            raise Unsupported("Measurements must identify this exact source, target and current saved revision")
+        local = run["local_validation"]["geometry"]
+        parts = evidence.get("parts")
+        if type(parts) is not int or parts <= 0 or parts != local.get("parts"):
+            raise Unsupported("Measured solid count differs from locally validated geometry")
+        for key in ("volume_mm3", "area_mm2"):
+            value, expected = evidence.get(key), local.get(key)
+            if (type(value) not in (float, int) or not math.isfinite(value) or value <= 0
+                    or type(expected) not in (float, int) or not math.isfinite(expected) or expected <= 0
+                    or not math.isclose(value, expected, rel_tol=1e-7, abs_tol=0.002)):
+                raise Unsupported(f"Measured {key} differs from locally validated geometry")
+        files = evidence.get("screenshots")
+        if not isinstance(files, list) or not files or any(not isinstance(p, str) for p in files):
+            raise Unsupported("At least one retained Browser measurement screenshot required")
+        retained = []
+        for name in files:
+            file = (evidence_path.parent / name).resolve()
+            data = file.read_bytes()
+            if not (data.startswith(b"\x89PNG\r\n\x1a\n") or data.startswith(b"\xff\xd8\xff")):
+                raise Unsupported("Measurement screenshots must be PNG or JPEG files")
+            retained.append({"path": str(file), "sha256": hashlib.sha256(data).hexdigest()})
+        if not _same_snapshot(state, await backend.raw_state(target)):
+            raise Unsupported("Native state changed while recording measurements")
+        run["geometry_measurements"] = {k: evidence[k] for k in (
+            "target", "source_sha256", "revision", "method", "parts", "volume_mm3", "area_mm2")}
+        run["geometry_measurements"]["screenshots"] = retained
+        _save(path, run)
+        return {"action": "measurements_recorded", "geometry_verified": False,
+                "geometry_comparison": _measurement_comparison(run, state)}
+
+
 async def _require_remove_capabilities(backend, feature):
     if feature["kind"]=="extrude" and feature["stage"]["operation_type"]=="REMOVE":
         health=await backend.bridge.health()
@@ -255,7 +320,10 @@ async def next_action(path, backend, source, target, journal):
             raise Unsupported("Stage only from saved idle; apply an already allocated draft separately")
         if len(run["bindings"]) == len(run["plan"]):
             _save(path, run)
-            return {"action": "verify_geometry", "source_features_observed": len(run["bindings"]), "geometry_verified": False}
+            result = {"action": "verify_geometry", "source_features_observed": len(run["bindings"]), "geometry_verified": False}
+            if run.get("geometry_measurements"):
+                result["geometry_comparison"] = _measurement_comparison(run, state)
+            return result
         feature = run["plan"][len(run["bindings"])]
         await _require_remove_capabilities(backend, feature)
         if run["staged"]:

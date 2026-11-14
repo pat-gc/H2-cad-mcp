@@ -70,7 +70,8 @@ def build_parser() -> argparse.ArgumentParser:
     validate_cmd = commands.add_parser("validate", help="run FSGen local geometry validation")
     validate_cmd.add_argument("source")
     source_run_cmd = commands.add_parser("experimental-source-run", help="checkpoint source-order execution; Browser still allocates drafts")
-    source_run_cmd.add_argument("action", choices=("init", "next", "apply"))
+    source_run_cmd.add_argument("action", choices=("init", "next", "apply", "record-measurements"))
+    source_run_cmd.add_argument("--measurements", type=Path, help="Browser mass-property evidence JSON for record-measurements")
     source_run_cmd.add_argument("source", type=Path)
     source_run_cmd.add_argument("--run-state", type=Path, required=True)
     _add_target(source_run_cmd)
@@ -301,7 +302,7 @@ async def _bridge_action(args: argparse.Namespace) -> tuple[object, int]:
                     "running_creation_target": health.get("h2cad_create_target")}, 0
         backend = NativeBackend(bridge, tab_id=args.tab_id)
         if args.command == "experimental-source-run":
-            from .source_run import initialize_run, next_action, apply_staged
+            from .source_run import initialize_run, next_action, apply_staged, record_measurements
             target = _target(args)
             if backend.create_target != target.to_dict():
                 raise ValueError("Source run must use the bridge's configured creation target")
@@ -312,6 +313,10 @@ async def _bridge_action(args: argparse.Namespace) -> tuple[object, int]:
             try:
                 if args.action == "init":
                     return initialize_run(args.run_state, args.source, target, journal), 0
+                if args.action == "record-measurements":
+                    if args.measurements is None:
+                        raise ValueError("record-measurements requires --measurements")
+                    return await record_measurements(args.run_state, backend, args.source, target, journal, args.measurements), 0
                 action = next_action if args.action == "next" else apply_staged
                 return await action(args.run_state, backend, args.source, target, journal), 0
             finally:

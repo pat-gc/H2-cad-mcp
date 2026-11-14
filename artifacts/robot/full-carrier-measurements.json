@@ -1,0 +1,16 @@
+{
+  "target": {
+    "did": "4e078dec822b4e509616b1cb",
+    "eid": "e37ca903af44622ca6919031",
+    "wid": "af0627de07264acf086e646a"
+  },
+  "source_sha256": "836a0ecd7ba7ca34d4b4c68d21bd60a83df396fd6056ad24cfae2f63d2e0ce7c",
+  "revision": "c130f5d8bed1a97d87b830a4",
+  "method": "browser_mass_properties",
+  "parts": 2,
+  "volume_mm3": 45265.304,
+  "area_mm2": 18677.987,
+  "screenshots": [
+    "full-carrier-total-restored.jpg"
+  ]
+}

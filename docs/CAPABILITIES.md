@@ -30,8 +30,8 @@ Live evidence includes the source plate with edit/restore; all seven car variabl
 
 ## Remaining primitives for the robotic arm
 
-1. Combine the now-live-proven zero-coordinate circles and scoped REMOVE into the complete seven-hole bearing carrier fixture. See [live primitive proof](../artifacts/robot/carrier-remove-REPORT.md).
-2. Mixed/nested profiles or validated component insertion for actual hollow/T-slot 2020 profiles; a solid rectangular bar is not equivalent.
+1. The complete seven-hole bearing carrier passed all nine coordinator features, local/native mass properties, preserved witness body and exact 12→14→12 edit restoration. See [full carrier proof](../artifacts/robot/full-carrier-REPORT.md).
+2. Actual T-slot 2020 profiles still need general profiles or validated component insertion. A separate [hollow square tube fixture](robot/HOLLOW-TUBE-PRIMITIVE.md) passes local geometry validation using existing rectangle/REMOVE operations; it is not a T-slot substitute and has not been tested live.
 3. Source-bound assembly creation and insertion, then fixed connections, three revolute joints, one slider joint, limits and independent motion verification.
 4. Repeatable source updates and regeneration checks. Additional plane orientations depend on the chosen mechanical layout.
 
