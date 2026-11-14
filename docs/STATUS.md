@@ -1,4 +1,4 @@
-> **Current reserve:** continue until less than 95% remaining. Latest meter: 4% used (96% remaining). Root checks between bounded batches; one REMOVE implementation worker is active. No credits/reset consumed.
+> **Current reserve:** continue until less than 95% remaining. Latest meter: 5% used (95% remaining). Root checks between bounded batches; one REMOVE review-fix worker is active. No credits/reset consumed. Do not start live cut activation near this cutoff.
 >
 > **Latest work:** source-run coordinator created and verified the eight-feature carrier prefix live, including two solids. Independent native volumes 43,200 + 10,800 = 54,000 mm³ match local geometry. See `artifacts/robot/carrier-prefix-REPORT.md`. REMOVE schema captured; owned sample draft canceled back to exact saved baseline. No cut committed yet. Patch44 companion is active; extension remains42. Current root live target is Robot - Carrier Scope Test, EID `423a1c4eec848f03a9800ba5`, tab941741361, revision `076e2127daeaffcc472f0fe4`. Root is sole live owner. Plane-mapping worker owns offline REMOVE development; all other workers stopped. Cadder plan remains conditional. Robot workspace check passes802 positions; collisions and complete assembly remain unverified.
 
@@ -39,14 +39,14 @@ On timeout, preserve the operation and journal. No replay, guard clearing by ass
 
 ## Implementation and validation
 
-Active runtime42 tree: `5fc52e3437e5643cf46a907d4eb118a3bac98feb`. Patch40 fixed explicit-null loss across browser injection by passing JSON text; exact comparisons remain strict. Patch41 creates source rectangles/circles with independent active solver and saved-tree proof. Patch42 populates source-bound literal/variable-depth extrusions amid preserved siblings.
+Active extension42 tree: `5fc52e3437e5643cf46a907d4eb118a3bac98feb`; running companion44 tree `609c529546d734c94d112a0880d59abbdca97118`. Patch44 exposes its loaded target and distinguishes broker target rejection before dispatch. Patch45 tree `538641515240891642b79de01641146347b441df` is registered and applied to source only, not activated. It adds explicit-scope REMOVE with paired capabilities and single-profile target restriction. Final review requires verifying that the live target sketch still matches the observed target NEW operation; worker is closing that gap before activation.
 
 Source43 (`bfaf034`) updates existing plugin modeling instructions and adds `references/h2-source-workflow.md`; it is documentation only and does not require interrupting the live runtime. See [MCP/skill workflow](h2cad-mcp.md) and [actual capability boundaries](CAPABILITIES.md). Existing plugin/server identity remains unchanged.
 
 - Main regression suite:277passed after sketch/extrusion integration. Two stale bootstrap assumptions were repaired in `c127ad4`.
 - Patch42 focused validation:37H2/bootstrap,155Native Python,54adapter tests passed.
 - Patch43 documentation: YAML/manifest/reference/CLI checks and two bootstrap tests passed.
-- Latest Graphify refresh before this batch:697nodes,2546edges,22communities,47/51files cached; no external model. Refresh once after each substantive integrated src/scripts/tests batch, not for documentation-only edits.
+- Latest Graphify refresh:716nodes,2607edges,20communities,46/54files cached; no external model. Refresh once after each substantive integrated src/scripts/tests batch, not for documentation-only edits.
 
 Earlier plate proof remains in [Test03](../artifacts/native-mvp-checkpoint/test03-clean-source-plate-2026-11-14.md). It passed with supported fresh-tab saved-state recovery. Detailed variable/plane/sketch/extrusion samples and transport repairs are in [development evidence](../artifacts/native-car-origin-circle-and-plane37-REPORT.md).
 

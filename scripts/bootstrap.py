@@ -54,6 +54,7 @@ NATIVE_PATCH34_TREE = "9fe6db72d168185e7dacadd010e0ada4f24a970b"
 NATIVE_PATCH35_TREE = "c1adbfd1e16178813c63a99181756d308f2791b8"
 NATIVE_PATCH40_TREE = "4e6b31d8351aadee9edd90cda80ecd37fc3e939e"
 NATIVE_PATCH42_TREE = "5fc52e3437e5643cf46a907d4eb118a3bac98feb"
+NATIVE_PATCH45_TREE = "538641515240891642b79de01641146347b441df"
 NATIVE_PATCH44_TREE = "609c529546d734c94d112a0880d59abbdca97118"
 NATIVE_PATCH43_TREE = "f8967f2ad9ae6cf86c87717954b6b644a11dfa2a"
 NATIVE_PATCH41_TREE = "43f1192ae9f9cf4d3390095f56b7247dc61095af"
@@ -98,6 +99,7 @@ PATCH34 = ROOT / "patches" / "onshape-native" / "0034-respect-disabled-save-cont
 PATCH35 = ROOT / "patches" / "onshape-native" / "0035-populate-native-literal-variables.patch"
 PATCH40 = ROOT / "patches" / "onshape-native" / "0040-preserve-page-command-null-fields.patch"
 PATCH42 = ROOT / "patches" / "onshape-native" / "0042-populate-journaled-source-extrusions.patch"
+PATCH45 = ROOT / "patches" / "onshape-native" / "0045-populate-scoped-source-remove.patch"
 PATCH44 = ROOT / "patches" / "onshape-native" / "0044-report-running-creation-target.patch"
 PATCH43 = ROOT / "patches" / "onshape-native" / "0043-document-source-feature-agent-workflow.patch"
 PATCH41 = ROOT / "patches" / "onshape-native" / "0041-populate-source-sketches-with-solver-proof.patch"
@@ -129,8 +131,8 @@ def check(root: Path, with_fsgen: bool) -> dict:
     return {"python": sys.version.split()[0], "python_machine": platform.machine(),
             "python_64_bit": struct.calcsize("P") == 8,
             "git": shutil.which("git"), "native": native, "native_base": NATIVE_SHA,
-            "native_patches": [str(PATCH), str(PATCH2), str(PATCH3), str(PATCH4), str(PATCH5), str(PATCH6), str(PATCH7), str(PATCH8), str(PATCH9), str(PATCH10), str(PATCH11), str(PATCH12), str(PATCH13), str(PATCH14), str(PATCH15), str(PATCH16), str(PATCH17), str(PATCH18), str(PATCH19), str(PATCH20), str(PATCH21), str(PATCH22), str(PATCH23), str(PATCH24), str(PATCH25), str(PATCH26), str(PATCH27), str(PATCH28), str(PATCH29), str(PATCH30), str(PATCH31), str(PATCH32), str(PATCH33), str(PATCH34), str(PATCH35), str(PATCH36), str(PATCH37), str(PATCH38), str(PATCH39), str(PATCH40), str(PATCH41), str(PATCH42), str(PATCH43), str(PATCH44)],
-            "native_patches_present": [PATCH.is_file(), PATCH2.is_file(), PATCH3.is_file(), PATCH4.is_file(), PATCH5.is_file(), PATCH6.is_file(), PATCH7.is_file(), PATCH8.is_file(), PATCH9.is_file(), PATCH10.is_file(), PATCH11.is_file(), PATCH12.is_file(), PATCH13.is_file(), PATCH14.is_file(), PATCH15.is_file(), PATCH16.is_file(), PATCH17.is_file(), PATCH18.is_file(), PATCH19.is_file(), PATCH20.is_file(), PATCH21.is_file(), PATCH22.is_file(), PATCH23.is_file(), PATCH24.is_file(), PATCH25.is_file(), PATCH26.is_file(), PATCH27.is_file(), PATCH28.is_file(), PATCH29.is_file(), PATCH30.is_file(), PATCH31.is_file(), PATCH32.is_file(), PATCH33.is_file(), PATCH34.is_file(), PATCH35.is_file(), PATCH36.is_file(), PATCH37.is_file(), PATCH38.is_file(), PATCH39.is_file(), PATCH40.is_file(), PATCH41.is_file(), PATCH42.is_file(), PATCH43.is_file(), PATCH44.is_file()],
+            "native_patches": [str(PATCH), str(PATCH2), str(PATCH3), str(PATCH4), str(PATCH5), str(PATCH6), str(PATCH7), str(PATCH8), str(PATCH9), str(PATCH10), str(PATCH11), str(PATCH12), str(PATCH13), str(PATCH14), str(PATCH15), str(PATCH16), str(PATCH17), str(PATCH18), str(PATCH19), str(PATCH20), str(PATCH21), str(PATCH22), str(PATCH23), str(PATCH24), str(PATCH25), str(PATCH26), str(PATCH27), str(PATCH28), str(PATCH29), str(PATCH30), str(PATCH31), str(PATCH32), str(PATCH33), str(PATCH34), str(PATCH35), str(PATCH36), str(PATCH37), str(PATCH38), str(PATCH39), str(PATCH40), str(PATCH41), str(PATCH42), str(PATCH43), str(PATCH44), str(PATCH45)],
+            "native_patches_present": [PATCH.is_file(), PATCH2.is_file(), PATCH3.is_file(), PATCH4.is_file(), PATCH5.is_file(), PATCH6.is_file(), PATCH7.is_file(), PATCH8.is_file(), PATCH9.is_file(), PATCH10.is_file(), PATCH11.is_file(), PATCH12.is_file(), PATCH13.is_file(), PATCH14.is_file(), PATCH15.is_file(), PATCH16.is_file(), PATCH17.is_file(), PATCH18.is_file(), PATCH19.is_file(), PATCH20.is_file(), PATCH21.is_file(), PATCH22.is_file(), PATCH23.is_file(), PATCH24.is_file(), PATCH25.is_file(), PATCH26.is_file(), PATCH27.is_file(), PATCH28.is_file(), PATCH29.is_file(), PATCH30.is_file(), PATCH31.is_file(), PATCH32.is_file(), PATCH33.is_file(), PATCH34.is_file(), PATCH35.is_file(), PATCH36.is_file(), PATCH37.is_file(), PATCH38.is_file(), PATCH39.is_file(), PATCH40.is_file(), PATCH41.is_file(), PATCH42.is_file(), PATCH43.is_file(), PATCH44.is_file(), PATCH45.is_file()],
             "fsgen": fsgen, "fsgen_base": FS_SHA if with_fsgen else None,
             "venv_present": (root / ".venv").is_dir()}
 
@@ -159,7 +161,7 @@ def native_checkout_reviewed(path: Path, state: dict) -> int:
     if state["head"] == NATIVE_SHA:
         return 0
     count = run("git", "rev-list", "--count", f"{NATIVE_SHA}..HEAD", cwd=path)
-    if count not in {"1", "2", "3", "4", "5", "6", "7", "8", "9", "10", "11", "12", "13", "14", "15", "16", "17", "18", "19", "20", "21", "22", "23", "24", "25", "26", "27", "28", "29", "30", "31", "32", "33", "34", "35", "36", "37", "38", "39", "40", "41", "42", "43", "44"}:
+    if count not in {"1", "2", "3", "4", "5", "6", "7", "8", "9", "10", "11", "12", "13", "14", "15", "16", "17", "18", "19", "20", "21", "22", "23", "24", "25", "26", "27", "28", "29", "30", "31", "32", "33", "34", "35", "36", "37", "38", "39", "40", "41", "42", "43", "44", "45"}:
         raise RuntimeError("Unrecognized Native descendant: expected reviewed patch stack only")
     if count == "1":
         if run("git", "rev-parse", "HEAD^", cwd=path) != NATIVE_SHA or run("git", "rev-parse", "HEAD^{tree}", cwd=path) != NATIVE_PATCH_TREE:
@@ -228,7 +230,7 @@ def native_checkout_reviewed(path: Path, state: dict) -> int:
         raise RuntimeError("Unrecognized Native content or ancestry at reviewed patch 8")
     if count == "8":
         return 8
-    if count in {"31", "32", "33", "34", "35", "36", "37", "38", "39", "40", "41", "42", "43", "44"}:
+    if count in {"31", "32", "33", "34", "35", "36", "37", "38", "39", "40", "41", "42", "43", "44", "45"}:
         trees = [NATIVE_PATCH_TREE, NATIVE_PATCH2_TREE, NATIVE_PATCH3_TREE,
                  NATIVE_PATCH4_TREE, NATIVE_PATCH5_TREE, NATIVE_PATCH6_TREE,
                  NATIVE_PATCH7_TREE, NATIVE_PATCH8_TREE, NATIVE_PATCH9_TREE,
@@ -266,6 +268,8 @@ def native_checkout_reviewed(path: Path, state: dict) -> int:
             trees.append(NATIVE_PATCH43_TREE)
         if int(count) >= 44:
             trees.append(NATIVE_PATCH44_TREE)
+        if int(count) >= 45:
+            trees.append(NATIVE_PATCH45_TREE)
         if run("git", "rev-parse", f"HEAD~{count}", cwd=path) != NATIVE_SHA or any(
                 run("git", "rev-parse", f"HEAD~{int(count)-1-index}^{{tree}}", cwd=path) != tree
                 for index, tree in enumerate(trees)):
@@ -560,7 +564,7 @@ def native_checkout_reviewed(path: Path, state: dict) -> int:
 def bootstrap(root: Path, *, with_fsgen: bool, dry_run: bool, python: str, sources_only: bool = False) -> dict:
     if not shutil.which("git"):
         raise RuntimeError("Git is required")
-    if not all(path.is_file() for path in (PATCH, PATCH2, PATCH3, PATCH4, PATCH5, PATCH6, PATCH7, PATCH8, PATCH9, PATCH10, PATCH11, PATCH12, PATCH13, PATCH14, PATCH15, PATCH16, PATCH17, PATCH18, PATCH19, PATCH20, PATCH21, PATCH22, PATCH23, PATCH24, PATCH25, PATCH26, PATCH27, PATCH28, PATCH29, PATCH30, PATCH31, PATCH32, PATCH33, PATCH34, PATCH35, PATCH36, PATCH37, PATCH38, PATCH39, PATCH40, PATCH41, PATCH42, PATCH43, PATCH44)):
+    if not all(path.is_file() for path in (PATCH, PATCH2, PATCH3, PATCH4, PATCH5, PATCH6, PATCH7, PATCH8, PATCH9, PATCH10, PATCH11, PATCH12, PATCH13, PATCH14, PATCH15, PATCH16, PATCH17, PATCH18, PATCH19, PATCH20, PATCH21, PATCH22, PATCH23, PATCH24, PATCH25, PATCH26, PATCH27, PATCH28, PATCH29, PATCH30, PATCH31, PATCH32, PATCH33, PATCH34, PATCH35, PATCH36, PATCH37, PATCH38, PATCH39, PATCH40, PATCH41, PATCH42, PATCH43, PATCH44, PATCH45)):
         raise RuntimeError("Native compatibility patch stack is incomplete")
     if with_fsgen and (struct.calcsize("P") != 8 or platform.machine().lower() not in {"amd64", "x86_64"}):
         raise RuntimeError("FSGen OpenCascade needs an x64 Python process; run this script with x64 Python")
@@ -746,6 +750,10 @@ def bootstrap(root: Path, *, with_fsgen: bool, dry_run: bool, python: str, sourc
         run("git", "am", str(PATCH44), cwd=native)
         if native_checkout_reviewed(native, git_state(native)) != 44:
             raise RuntimeError("Native patch 44 verification failed")
+    if reviewed < 45 and not dry_run:
+        run("git", "am", str(PATCH45), cwd=native)
+        if native_checkout_reviewed(native, git_state(native)) != 45:
+            raise RuntimeError("Native patch 45 verification failed")
     if with_fsgen:
         ensure_checkout(fsgen, FS_URL, FS_SHA, dry_run=dry_run)
     if not dry_run and not sources_only:
@@ -757,7 +765,7 @@ def bootstrap(root: Path, *, with_fsgen: bool, dry_run: bool, python: str, sourc
         if with_fsgen:
             run(str(interpreter), "-m", "pip", "install", "-e", str(fsgen))
     return {"status": "dry_run" if dry_run else "sources_ready" if sources_only else "installed", "native_base": NATIVE_SHA,
-            "native_patches": [PATCH.name, PATCH2.name, PATCH3.name, PATCH4.name, PATCH5.name, PATCH6.name, PATCH7.name, PATCH8.name, PATCH9.name, PATCH10.name, PATCH11.name, PATCH12.name, PATCH13.name, PATCH14.name, PATCH15.name, PATCH16.name, PATCH17.name, PATCH18.name, PATCH19.name, PATCH20.name, PATCH21.name, PATCH22.name, PATCH23.name, PATCH24.name, PATCH25.name, PATCH26.name, PATCH27.name, PATCH28.name, PATCH29.name, PATCH30.name, PATCH31.name, PATCH32.name, PATCH33.name, PATCH34.name, PATCH35.name, PATCH36.name, PATCH37.name, PATCH38.name, PATCH39.name, PATCH40.name, PATCH41.name, PATCH42.name, PATCH43.name, PATCH44.name], "fsgen_base": FS_SHA if with_fsgen else None,
+            "native_patches": [PATCH.name, PATCH2.name, PATCH3.name, PATCH4.name, PATCH5.name, PATCH6.name, PATCH7.name, PATCH8.name, PATCH9.name, PATCH10.name, PATCH11.name, PATCH12.name, PATCH13.name, PATCH14.name, PATCH15.name, PATCH16.name, PATCH17.name, PATCH18.name, PATCH19.name, PATCH20.name, PATCH21.name, PATCH22.name, PATCH23.name, PATCH24.name, PATCH25.name, PATCH26.name, PATCH27.name, PATCH28.name, PATCH29.name, PATCH30.name, PATCH31.name, PATCH32.name, PATCH33.name, PATCH34.name, PATCH35.name, PATCH36.name, PATCH37.name, PATCH38.name, PATCH39.name, PATCH40.name, PATCH41.name, PATCH42.name, PATCH43.name, PATCH44.name, PATCH45.name], "fsgen_base": FS_SHA if with_fsgen else None,
             "core_environment": str(root / ".venv")}
 
 
