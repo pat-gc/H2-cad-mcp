@@ -156,3 +156,84 @@ async def test_population_prepares_before_dispatch_and_never_replays(tmp_path, f
                 "rejected" if fault == "predispatch" else "unknown" if fault in {"timeout", "wrong_receipt"} else "observed")
     finally:
         journal.close()
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("outcome", ["receipt", "pre_dispatch", "post_dispatch", "transport"])
+async def test_real_native_bridge_transports_and_classifies_plane_commands(outcome):
+    import httpx
+    from h2cad.backend import UncertainWrite
+    from h2cad.native import NativeBridge, PreDispatchRejected
+    requests = []
+    op_id = "plane-" + "a" * 32
+    job = {"kind": "partstudio_populate_plane", "op_id": op_id, "target": TARGET.to_dict(),
+           "plane_edit": {"feature_id": "allocated_plane", "expression": "20 mm"}}
+    def handler(request):
+        requests.append(request)
+        assert request.method == "POST" and request.url.path == "/command"
+        assert json.loads(request.content) == job
+        if outcome == "transport":
+            raise httpx.ReadTimeout("unknown after send", request=request)
+        if outcome in {"pre_dispatch", "post_dispatch"}:
+            return httpx.Response(409, json={"error": "test failure", "write_stage": outcome})
+        return httpx.Response(200, json={"op_id": op_id, "completion_pending": True})
+    bridge = NativeBridge("test-token-" + "a" * 32, transport=httpx.MockTransport(handler))
+    try:
+        if outcome == "receipt":
+            assert await bridge.command(job) == {"op_id": op_id, "completion_pending": True}
+        else:
+            with pytest.raises(PreDispatchRejected if outcome == "pre_dispatch" else UncertainWrite):
+                await bridge.command(job)
+        assert len(requests) == 1
+    finally:
+        await bridge.close()
+
+
+@pytest.mark.asyncio
+async def test_unsupported_job_rejection_is_strictly_before_http():
+    import httpx
+    from h2cad.native import NativeBridge
+    requests = []
+    def handler(request):
+        requests.append(request)
+        raise AssertionError("Local unsupported jobs must not reach HTTP")
+    bridge = NativeBridge("test-token-" + "a" * 32, transport=httpx.MockTransport(handler))
+    try:
+        with pytest.raises(Unsupported, match="Browser-mode adapter permits only native editor jobs"):
+            await bridge.command({"kind": "unsupported"})
+        assert requests == []
+    finally:
+        await bridge.close()
+
+
+@pytest.mark.parametrize("fault", [None, "receipt", "error", "revision", "tree", "marker", "guard", "pending", "rpc"])
+def test_one_off_local_rejection_proof_fails_closed(fault):
+    import runpy
+    recovery = runpy.run_path(str(SOURCE.parents[2] / "artifacts/recover-plane37-local-rejection.py"))
+    op, target, revision, fid = (recovery[k] for k in ("OP", "TARGET", "REVISION", "FEATURE"))
+    before = {"target": target, "connected": True, "element_microversion": revision,
+              "editingFeatureId": fid, "tree": {"children": [{"featureId": "preserved_variable", "value": 180}]}}
+    row = {"op_id": op, "state": "unknown", "action": "experimental_plane_populate",
+           "target": "/".join(target.values()), "logical_id": "Chassis height", "expected_revision": revision,
+           "error": recovery["ERROR"], "receipt": None, "observation": None,
+           "intent": json.dumps({"before_state": before})}
+    sample = {"state": before, "health": {"extension_connected": True, "pending": 0},
+              "guard": {"schema": 1, "unknown_write": False, "reload": None},
+              "editor": {"ready": True, "element_microversion": revision, "incomplete_feature_marker": None,
+                         "busy_reasons": {"feature_edit": True, "pending_rpc": False, "motion": False,
+                                          "incomplete_feature_edit": False, "incomplete_transform": False, "drag": False}}}
+    samples = [copy.deepcopy(sample), copy.deepcopy(sample)]
+    if fault == "receipt": row["receipt"] = "{}"
+    if fault == "error": row["error"] = "transport timeout"
+    if fault == "revision": samples[1]["state"]["element_microversion"] = "f"*24
+    if fault == "tree": samples[1]["state"]["tree"]["children"][0]["value"] = 181
+    if fault == "marker": samples[1]["editor"]["incomplete_feature_marker"] = {"op_id": op}
+    if fault == "guard": samples[1]["guard"]["unknown_write"] = True
+    if fault == "pending": samples[1]["health"]["pending"] = 1
+    if fault == "rpc": samples[1]["editor"]["busy_reasons"]["pending_rpc"] = True
+    if fault:
+        with pytest.raises(ValueError): recovery["prove"](row, samples)
+    else:
+        proof = recovery["prove"](row, samples)
+        assert proof["classification"] == "rejected_before_http"
+        assert proof["modeling_dispatched"] is False and proof["definition_observed"] is False

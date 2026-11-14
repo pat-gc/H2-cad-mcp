@@ -548,7 +548,7 @@ class NativeBridge:
         return data
 
     async def command(self, job: dict[str, Any]) -> dict[str, Any]:
-        if job.get("kind") not in {"state", "schema", "creation_probe", "native", "partstudio_depth_edit", "partstudio_begin_top_sketch", "partstudio_begin_source_extrude", "partstudio_populate_sketch", "partstudio_populate_extrude", "partstudio_populate_variable"}:
+        if job.get("kind") not in {"state", "schema", "creation_probe", "native", "partstudio_depth_edit", "partstudio_begin_top_sketch", "partstudio_begin_source_extrude", "partstudio_populate_sketch", "partstudio_populate_extrude", "partstudio_populate_variable", "partstudio_populate_plane"}:
             raise Unsupported("Browser-mode adapter permits only native editor jobs")
         try:
             response = await self.http.post("/command", json=job)
@@ -561,10 +561,10 @@ class NativeBridge:
                                            "page_reply", "response_transfer"}
                     and type(data.get("elapsed_ms")) is int and 0 <= data["elapsed_ms"] <= 60000):
                 diagnostic = f" [read_phase={data['read_phase']}, elapsed_ms={data['elapsed_ms']}]"
-            if (job.get("kind") in {"partstudio_begin_top_sketch", "partstudio_begin_source_extrude", "partstudio_populate_sketch", "partstudio_populate_extrude", "partstudio_populate_variable"}
+            if (job.get("kind") in {"partstudio_begin_top_sketch", "partstudio_begin_source_extrude", "partstudio_populate_sketch", "partstudio_populate_extrude", "partstudio_populate_variable", "partstudio_populate_plane"}
                     and data.get("write_stage") == "pre_dispatch"):
                 raise PreDispatchRejected(str(data["error"]))
-            if job.get("kind") in {"partstudio_depth_edit", "partstudio_begin_top_sketch", "partstudio_begin_source_extrude", "partstudio_populate_sketch", "partstudio_populate_extrude", "partstudio_populate_variable"}:
+            if job.get("kind") in {"partstudio_depth_edit", "partstudio_begin_top_sketch", "partstudio_begin_source_extrude", "partstudio_populate_sketch", "partstudio_populate_extrude", "partstudio_populate_variable", "partstudio_populate_plane"}:
                 raise UncertainWrite(str(data["error"]))
             raise BackendError(str(data["error"]) + diagnostic)
         if response.status_code != 200 or not isinstance(data, dict):
