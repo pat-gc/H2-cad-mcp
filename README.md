@@ -27,6 +27,11 @@ prepares the local Native compatibility source. It does not install or approve
 the browser extension or open an Onshape document. On Windows, the equivalent
 wrapper is `./scripts/bootstrap.ps1 -WithFsgen`.
 
+Use `bootstrap.py --with-fsgen` for FSGen rather than installing FSGen from a
+Git wheel: the current upstream wheel omits `native/featurespecs.json`, which
+its compiler needs. Bootstrap checks out the pinned source and installs it
+editably, retaining that resource.
+
 ## Offline workflow
 
 ```powershell

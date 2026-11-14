@@ -13,7 +13,6 @@ dependencies = ["httpx>=0.28,<1"]
 h2cad = "h2cad.cli:main"
 
 [project.optional-dependencies]
-fsgen = ["fsgen @ git+https://github.com/Lucasfrit/onshape-fsgen.git@eabcc02ba104005da3de869e613cefe53042fd98"]
 test = ["pytest>=8", "pytest-asyncio>=0.25"]
 
 [tool.setuptools.packages.find]

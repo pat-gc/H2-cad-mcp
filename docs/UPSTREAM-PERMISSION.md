@@ -4,10 +4,13 @@ On 2026-11-10 the user reported that they contacted the Onshape Native owner and
 the owner said it was OK. The user expressly directed this project to proceed with
 a fork-based Native compatibility layer.
 
-This is user-reported owner permission. It has not been independently verified
-and is not a new public license or a claim of blanket redistribution permission.
-Preserve attribution to godbrigero/onshape-native and its pinned git history.
-No public fork push or publication has been authorized or performed.
+On 2026-11-13 the user further reported permission from the relevant owners to
+use and publicly redistribute this work, including the Native fork changes,
+without a credit requirement. The user explicitly authorized publishing the
+current H2 CAD Git repository with its existing history. This remains a
+user-reported permission record, not an independently verified public license
+issued by the upstream owner. Preserve attribution to
+godbrigero/onshape-native and its pinned git history as provenance.
 
 Implementation uses a local branch of the pinned upstream repository and commits
 reviewable compatibility patches in this repository. Setup reproduces the local
@@ -17,4 +20,4 @@ to stop the work the user authorized.
 
 The initial audit's license findings remain a historical account of the public
 repository, supplemented by this permission record. Technical compatibility and
-live verification gates are independent of permission to make the fork.
+live verification gates are independent of publication permission.

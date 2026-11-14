@@ -16,10 +16,11 @@ Reviewable patches: `patches/onshape-native/0001-feat-add-fail-closed-H2-native-
 `patches/onshape-native/0008-feat-inspect-native-creation-allocator-surfaces-read.patch`, and
 `patches/onshape-native/0009-fix-remove-broad-editor-traversal-from-creation-prob.patch`.
 
-The user reports that the upstream owner authorized integration. This note
-records the report, not an independently verified public license grant. Keep
-upstream attribution and commit ancestry; do not publish the fork without
-checking the precise permission terms.
+The user reports that the relevant owners authorized public redistribution as
+well as local integration, without a credit requirement. This records the
+user's report, not an independently verified public license grant. Keep
+upstream attribution and commit ancestry as provenance; see
+[the permission record](UPSTREAM-PERMISSION.md).
 
 The first fork change adds a read-only `h2Readback` probe to native editor
 `state`: candidate feature IDs, node IDs, types, names, and presence of status,
