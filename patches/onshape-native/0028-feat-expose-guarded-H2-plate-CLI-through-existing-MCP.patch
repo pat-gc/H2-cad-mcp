@@ -1,0 +1,224 @@
+From 354b970884ca2be95d43cb6c54d7e8551459f637 Mon Sep 17 00:00:00 2001
+From: patcybermind <pato.gonzalezcabrera@gmail.com>
+Date: Fri, 13 Nov 2026 22:20:43 -0500
+Subject: [PATCH] feat: expose guarded H2 plate CLI through existing MCP
+
+---
+ onshape_native/server.py                | 49 ++++++++++++++++
+ skills/onshape-native-modeling/SKILL.md | 19 ++++++
+ tests/test_h2_mcp.py                    | 77 +++++++++++++++++++++++++
+ tests/test_responses.py                 |  5 +-
+ 4 files changed, 148 insertions(+), 2 deletions(-)
+ create mode 100644 tests/test_h2_mcp.py
+
+diff --git a/onshape_native/server.py b/onshape_native/server.py
+index dd57822..a83fbec 100644
+--- a/onshape_native/server.py
++++ b/onshape_native/server.py
+@@ -2,8 +2,12 @@
+ from __future__ import annotations
+ 
+ import base64
++import asyncio
++import importlib.util
+ import io
+ import math
++import json
++import sys
+ from contextlib import asynccontextmanager
+ from typing import Literal, Any, Annotated
+ from pydantic import Field
+@@ -17,6 +21,7 @@ from mcp.types import ImageContent, TextContent, ToolAnnotations
+ from PIL import Image, ImageDraw
+ 
+ from .bridge import running_bridge
++from .config import load_config, runtime_dir
+ from .native_catalog import catalog as native_commands, READS
+ from .discovery import index as command_index
+ from .structure_service import Structures
+@@ -321,6 +326,50 @@ async def native_state(url: str, tab_id: int | None = None) -> str:
+     return compact(svc().store.response(data))
+ 
+ 
++@mcp.tool(structured_output=False, annotations=WRITE)
++async def experimental_h2_create_plate(url: str, source_path: str, tab_id: int) -> str:
++    """Experimental: run H2's local FSGen validation and guarded native Sketch/Extrude sequence once in an explicitly configured empty test Part Studio. Requires h2cad and FSGen in this MCP server's Python environment, a pinned H2 journal and create target in the paired bridge config. No REST fallback. A timeout or failed command requires journal/readback reconciliation before any new attempt; the result alone does not prove solid geometry or UI editability."""
++    target = native_target(url)
++    if type(tab_id) is not int or tab_id < 0:
++        raise OnshapeError("Supply the exact connected editor tab ID.")
++    try:
++        if not Path(source_path).is_absolute():
++            raise ValueError("source path is not absolute")
++        source = Path(source_path).resolve(strict=True)
++    except (OSError, ValueError) as exc:
++        raise OnshapeError("Source must be an existing local .fs file.") from exc
++    if not source.is_file() or source.suffix.lower() != ".fs" or source.stat().st_size > 1024 * 1024:
++        raise OnshapeError("Source must be a local .fs file no larger than 1 MiB.")
++    config = load_config()
++    journal_name = config.get("h2cad_journal")
++    if (not isinstance(journal_name, str) or not Path(journal_name).is_absolute()
++            or not Path(journal_name).is_file()):
++        raise OnshapeError("The paired bridge must pin an existing H2 journal before native creation.")
++    if importlib.util.find_spec("h2cad") is None:
++        raise OnshapeError("Install H2 CAD with pinned FSGen into this MCP server's Python environment.")
++    command = (sys.executable, "-m", "h2cad", "experimental-create-plate", str(source),
++               "--did", target["did"], "--wid", target["wid"], "--eid", target["eid"],
++               "--tab-id", str(tab_id), "--bridge-config", str(runtime_dir() / "bridge.json"),
++               "--journal", journal_name)
++    process = await asyncio.create_subprocess_exec(*command, stdout=asyncio.subprocess.PIPE,
++                                                   stderr=asyncio.subprocess.PIPE)
++    output, error = await process.communicate()
++    if process.returncode != 0:
++        return compact({"status": "needs_readback", "experimental": True,
++                        "exit_code": process.returncode,
++                        "error": error.decode("utf-8", "replace")[:2000],
++                        "no_automatic_retry": True})
++    try:
++        result = json.loads(output)
++    except (UnicodeDecodeError, json.JSONDecodeError):
++        return compact({"status": "needs_readback", "experimental": True,
++                        "reason": "H2 command completed without a valid JSON receipt",
++                        "no_automatic_retry": True})
++    return compact({"status": "h2_command_completed", "experimental": True,
++                    "result": result, "solid_geometry_verified": False,
++                    "ui_editability_verified": False})
++
++
+ @mcp.tool(structured_output=False, annotations=READ)
+ async def native_schema(url: str, name: str, tab_id: int | None = None) -> str:
+     """Read a typed native message's default fields from the running Onshape serializer. This is a shape, not evidence that a command was tested."""
+diff --git a/skills/onshape-native-modeling/SKILL.md b/skills/onshape-native-modeling/SKILL.md
+index a510b88..d806048 100644
+--- a/skills/onshape-native-modeling/SKILL.md
++++ b/skills/onshape-native-modeling/SKILL.md
+@@ -9,6 +9,25 @@ Use the `onshape_native` MCP server supplied by this plugin. The browser must be
+ running, signed into Onshape, and connected through the minimal extension. The
+ MCP launcher starts or reuses the local HTTP companion. Do not request API keys.
+ 
++## Experimental H2 source-driven plate
++
++When the user explicitly requests the H2 FSGen-to-native plate workflow, use
++`experimental_h2_create_plate` with an absolute local `.fs` path, the exact
++workspace Part Studio URL, and its connected editor tab ID. The same Python
++environment that launches this MCP server must have `h2cad` and its pinned FSGen
++dependency installed. The paired bridge config must pin the H2 SQLite journal
++and the explicitly approved empty test target. The tool delegates once to the
++existing H2 CLI, which validates geometry locally, journals each possible
++native write, and reads back the resulting definitions. It does not use REST
++for CAD writes or silently switch to a different target. This path currently
++supports one Top rectangle and one blind extrusion; unsupported source features
++fail before modeling. Do not use it on an existing collaborative Part Studio.
++
++The result `h2_command_completed` reports H2 definition checks only. Independently
++verify saved solid geometry and human editability. If the tool returns
++`needs_readback`, inspect the pinned journal and exact editor state; never invoke
++the tool again on that target until the uncertain operation is reconciled.
++
+ ## Resolve the task target
+ 
+ 1. With a supplied link, call `resolve_target(url="USER_URL")`. With “this model”,
+diff --git a/tests/test_h2_mcp.py b/tests/test_h2_mcp.py
+new file mode 100644
+index 0000000..204c49d
+--- /dev/null
++++ b/tests/test_h2_mcp.py
+@@ -0,0 +1,77 @@
++"""The experimental MCP entry point delegates to the installed H2 CLI once."""
++
++import json
++import pytest
++
++from onshape_native import server
++from onshape_native.client import OnshapeError
++
++
++URL = "https://cad.onshape.com/documents/4e078dec822b4e509616b1cb/w/af0627de07264acf086e646a/e/3a4e8933dde1c594115a657f"
++TARGET = {"did": "4e078dec822b4e509616b1cb", "wid": "af0627de07264acf086e646a",
++          "eid": "3a4e8933dde1c594115a657f"}
++
++
++@pytest.mark.asyncio
++@pytest.mark.parametrize("exit_code", [0, 1])
++async def test_h2_mcp_delegates_exact_target_to_one_existing_cli_command(tmp_path, monkeypatch, exit_code):
++    source = tmp_path / "plate.fs"
++    source.write_text("source is validated by H2")
++    journal = tmp_path / "intent.sqlite"
++    journal.touch()
++    monkeypatch.setattr(server, "native_target", lambda url: TARGET if url == URL else pytest.fail("wrong URL"))
++    monkeypatch.setattr(server, "load_config", lambda: {"h2cad_journal": str(journal)})
++    monkeypatch.setattr(server, "runtime_dir", lambda: tmp_path)
++    monkeypatch.setattr(server.importlib.util, "find_spec", lambda name: object() if name == "h2cad" else None)
++    calls = []
++
++    class Process:
++        returncode = exit_code
++
++        async def communicate(self):
++            return (json.dumps({"status": "native_definitions_observed"}).encode(),
++                    b"h2cad: operation outcome unknown; journal operation begin-sketch-test" if exit_code else b"")
++
++    async def launch(*args, **kwargs):
++        calls.append((args, kwargs))
++        return Process()
++
++    monkeypatch.setattr(server.asyncio, "create_subprocess_exec", launch)
++    result = json.loads(await server.experimental_h2_create_plate(URL, str(source), 17))
++    assert len(calls) == 1
++    args, kwargs = calls[0]
++    assert args == (server.sys.executable, "-m", "h2cad", "experimental-create-plate", str(source),
++                    "--did", TARGET["did"], "--wid", TARGET["wid"], "--eid", TARGET["eid"],
++                    "--tab-id", "17", "--bridge-config", str(tmp_path / "bridge.json"),
++                    "--journal", str(journal))
++    assert kwargs["stdout"] == kwargs["stderr"] == server.asyncio.subprocess.PIPE
++    if exit_code:
++        assert result["status"] == "needs_readback"
++        assert result["no_automatic_retry"] is True
++        assert "journal operation" in result["error"]
++    else:
++        assert result["status"] == "h2_command_completed"
++        assert result["result"]["status"] == "native_definitions_observed"
++        assert result["solid_geometry_verified"] is False
++        assert result["ui_editability_verified"] is False
++
++
++@pytest.mark.asyncio
++async def test_h2_mcp_rejects_missing_pinned_journal_before_launch(tmp_path, monkeypatch):
++    source = tmp_path / "plate.fs"
++    source.write_text("source")
++    monkeypatch.setattr(server, "native_target", lambda url: TARGET)
++    monkeypatch.setattr(server, "load_config", lambda: {})
++    async def forbidden(*args, **kwargs):
++        pytest.fail("no CLI or modeling send before journal preflight")
++    monkeypatch.setattr(server.asyncio, "create_subprocess_exec", forbidden)
++    with pytest.raises(OnshapeError, match="pin an existing H2 journal"):
++        await server.experimental_h2_create_plate(URL, str(source), 17)
++
++
++@pytest.mark.asyncio
++async def test_h2_mcp_refuses_relative_source_before_bridge_or_cli(monkeypatch):
++    monkeypatch.setattr(server, "native_target", lambda url: TARGET)
++    monkeypatch.setattr(server, "load_config", lambda: pytest.fail("no bridge configuration read"))
++    with pytest.raises(OnshapeError, match="existing local .fs file"):
++        await server.experimental_h2_create_plate(URL, "relative.fs", 17)
+diff --git a/tests/test_responses.py b/tests/test_responses.py
+index d4cc1b4..62eabc2 100644
+--- a/tests/test_responses.py
++++ b/tests/test_responses.py
+@@ -97,11 +97,12 @@ def test_camera_ack_retains_restoration_id_and_full_state(tmp_path):
+     assert 'camera' not in result
+ 
+ 
+-async def test_mcp_contract_has_42_tools_with_one_expander(tmp_path,monkeypatch):
++async def test_mcp_contract_has_43_tools_with_one_expander(tmp_path,monkeypatch):
+     from onshape_native import server
+     monkeypatch.setattr(server,'service',SimpleNamespace(store=Store(tmp_path)))
+     tools=await server.mcp.list_tools()
+-    assert len(tools)==42
++    assert len(tools)==43
++    assert sum(t.name=='experimental_h2_create_plate' for t in tools)==1
+     assert sum(t.name=='extension_reload' for t in tools)==1
+     assert sum(t.name=='artifact_page' for t in tools)==1
+     result=json.loads(server.search_commands('create an assembly'))
+-- 
+2.54.0.windows.1
+

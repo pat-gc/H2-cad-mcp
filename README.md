@@ -3,8 +3,9 @@
 H2 CAD compiles supported FSGen scripts into a semantic feature plan, validates
 geometry locally with OpenCascade, and records guarded execution intent. Its
 browser adapter inspects the native Onshape editor through a separately installed
-companion. **Native sketch and extrusion writes are not yet enabled:** the current
-editor readback is incomplete and its revision check is not atomic.
+companion. An experimental, explicitly targeted Sketch and Extrude path is under
+live validation. Its revision check is not atomic, so it is restricted to an
+isolated test Part Studio and does not yet establish a repeatable car workflow.
 
 ## Set up
 
@@ -56,3 +57,7 @@ python -m h2cad reconcile OP_ID --journal PATH_TO_JOURNAL_DB --bridge-config PAT
 jobs, with no browser-session REST fallback. See [architecture](docs/ARCHITECTURE.md),
 [Native audit](docs/audits/native.md), [fork patch](docs/native-fork.md), and
 [integration limits](docs/native-integration.md).
+
+The existing Onshape Native MCP server also exposes an experimental H2 plate
+tool. It calls this package's CLI for the same local validation, journaled native
+commands and readback. See [MCP setup and limits](docs/h2cad-mcp.md).
