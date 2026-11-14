@@ -17,7 +17,7 @@ The focused reliability and normal-editor sequence are documented in [CAD resear
 
 ## Current live checkpoint
 
-**Verified recovery, not yet a clean automatic run.** Test 02 contains a saved native source Sketch and Extrude, one solid, and independently verified human editability. See [exact evidence and screenshots](../artifacts/native-mvp-checkpoint/test02-sketch-reconciled-2026-11-14.md).
+**Initial agent skill workflow passed with documented completion recovery.** From fresh empty Test 03, local FSGen validation and source-driven native Sketch/Extrude produced one solid; independent Onshape measurements and same-ID depth edits 5→7→5 passed. No human modeling occurred. The workflow required supported Browser selection and fresh-tab saved-state reconciliation when the original sketch dialog stayed active. This is not an unattended single CLI/MCP call or proof of uninterrupted Save. See [Test 03 evidence and screenshots](../artifacts/native-mvp-checkpoint/test03-clean-source-plate-2026-11-14.md). Earlier [Test 02 recovery evidence](../artifacts/native-mvp-checkpoint/test02-sketch-reconciled-2026-11-14.md) remains valid.
 
 | Gate | Observed result | Next action |
 | --- | --- | --- |
@@ -26,14 +26,18 @@ The focused reliability and normal-editor sequence are documented in [CAD resear
 | Source extrusion | Native Extrude `F07liNXreM947mQ_0` saved from the source sketch, NEW/SOLID/BLIND, 5 mm. Begin and population operations observed. | Preserve the verified plate. |
 | Live geometry/editability | Onshape volume/area at 5 mm: 4000 mm³ / 2200 mm²; ordinary edit to 7 mm: 5600 / 2440; restored to 5 mm: 4000 / 2200. Same feature/node IDs; source sketch definition unchanged. | Fresh empty-studio end-to-end run. |
 | Journal and saved state | After restoration: connected idle, revision `1e50ba285a87dd45f0450eb2`, unresolved zero, unknown-write guard false. | Tester must recheck before staging or new writes. |
-| Selection fix | Synthetic row click did not select the sketch. Normal Browser input did. Patch 32 (`67f5af6`) requires and preserves the exact unique selected source row. 46 adapter tests and six Python/bootstrap tests passed. | Tester staging/activation is separate from integration; verify before claiming active. |
+| Selection fix | Synthetic row click did not select the sketch. Normal Browser input did. Patch 32 (`67f5af6`) requires and preserves the exact unique selected source row. 46 adapter tests and six Python/bootstrap tests passed. Tester staged tree `682f4b3a614ce2a1465f986aad01e2279a4b132a` and observed a new extension handshake after safe self-reload; active instance `67457386-64c8-4998-a798-8a150e1a6189`. | Fresh-studio live verification now uses patch 32. |
 | Resumption | `30b9c12` adds CLI `--resume-sketch-op-id`, validating observed source/target/feature evidence and skipping sketch creation. Twelve offline tests passed; assisted live continuation succeeded. | Resume only before extrusion allocation; uncertain writes require reconciliation. |
-| Clean plate | Still unproved. Successful Test 02 was recovery with a separately selected sketch. The standalone MCP command does not orchestrate intermediate trusted Browser selection. | Prove the documented agent skill workflow from an empty studio without user modeling: local validation, source sketch, normal Browser completion/selection when needed, native extrusion, readback and editability. |
+| Fresh-studio plate workflow | Test 03 passed source-driven creation, saved geometry and human editability with positive fresh-tab completion recovery. Final revision `52f9000fa3f27bf4df43ee70`, native Sketch `FSC3WtCaWbJkmV8_0`, Extrude `F9mi2L0Xu0y5OHD_0`, one Part, restored 5 mm/4000 mm³/2200 mm²; unchanged sketch definition and feature/node IDs; unresolved zero/guard false. | Proceed native car operations. Keep Browser orchestration/recovery limitation explicit; standalone command remains incomplete. |
 | Full native car | Not created. Existing car is a custom feature, not the required 22 native features. | After clean plate, sample and implement variables, planes, generalized sketches, expression-valued/multi-region extrusions. |
 
 ## Exact target and preservation
 
 H2 CAD Test Project: document `4e078dec822b4e509616b1cb`, workspace `af0627de07264acf086e646a`. Verified Test 02 Part Studio: `3a4e8933dde1c594115a657f`, last observed tab `941740810` (rediscover it before browser use).
+
+Verified Test 03 Part Studio `db4cd489011c3f8dace7baca` was created through ordinary Browser UI in the same project. Fresh verification tab `941741358` is a deliverable; original stale edit tab `941740810` was preserved, not canceled or closed. Do not resume geometry from that stale controller.
+
+Patches 33 (`5b17f9d`, distinct busy reasons, 64 Node/two bootstrap tests) and 34 (`4e17dd2`, disabled Save DIV handling, 47 adapter/two bootstrap tests) are integrated but **not active**. Patch 34 reports `normal_ui_save_invoked` separately from saved-state proof; it does not change commit ownership or weaken reconciliation. Active runtime remains patch 32 during the next variable sample.
 
 Preserve existing original car Part Studio `45730d1931712e2c548fae00`, Feature Studio `39a2e2afc5bc43eea167e938`, Assembly `cb5c127f6a4b4eb2ab5838c9`, older verified plate Part Studio `9a062f0eef8bb961f8c84f8e`, and ownership-unknown Sketch `F6sL2WhVQXX64oZ_0` in `1926791d173990d5d45f70ef`. New proving runs use a separate explicitly bound test Part Studio.
 
