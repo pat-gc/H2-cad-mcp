@@ -1,3 +1,7 @@
+> **Current reserve:** user requires stopping at 95% remaining (5% used). All workers stopped after usage-limit errors. The host meter currently reports 0% used; check again before another bounded batch. No reset or credits were consumed.
+>
+> **Latest work:** native car replacement completed; evidence is in `artifacts/native-car-replacement-REPORT.md`. New Astra `cadder` delivered the initial robot plan/calculations and local carrier fixture in commit `3f28224`, then stopped pending primitives. The experimental source-run coordinator has 17 passing offline tests; CLI wiring, full dispatch integration and live validation remain outstanding. Centered-circle/REMOVE changes remain uncommitted work in progress and are not activated. No new robot Onshape writes occurred.
+
 # H2 CAD development status
 
 Updated 2026-11-14. This is the project lead's live state authority. Root owns handoffs and acceptance; tester alone owns browser/bridge/journal mutations. The watchdog remains stopped. Read [coordination rules](AGENT-COORDINATION.md) before work; use `followup_task` to restart a completed agent, because `send_message` alone does not restart it.

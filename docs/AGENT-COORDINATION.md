@@ -13,3 +13,7 @@
 - Send updates on changed evidence, completed output or a specific blocker. Avoid repeated unchanged polling, duplicate reviews and multiple supervisors asking the same owner for status. Batch independent reads and scoped offline tests; run Graphify once after substantive integration as STATUS requires.
 
 These rules address this repository's delayed saved extrusion, saved blank Top sketch, disconnect/reattachment, staged-versus-active extension mismatch, and shared browser/journal state. The live sequence in STATUS takes precedence if newer evidence changes it.
+
+## Usage reserve
+
+User instruction: stop development when **95% remains** (5% used), not at 95% used. Check the account usage meter before and after small work batches. Keep work sequential under this reserve; do not launch an unbounded parallel batch. Stop new work conservatively as the cutoff approaches, since in-flight requests can overshoot. If a worker reports a usage-limit error, stop that worker and inspect account state rather than repeatedly retrying. Never purchase credits or redeem a reset without explicit authorization.
