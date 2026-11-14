@@ -6,16 +6,23 @@ point into `python -m h2cad experimental-create-plate`; it does not implement a
 second CAD compiler, server, or REST fallback. It remains experimental until a
 clean empty-studio run and independent saved geometry/editability checks pass.
 
-The MCP server and H2 CLI must use the same Python environment. After preparing
-the pinned Native and FSGen checkouts, install this package and pinned FSGen into
-the Native MCP launcher's environment. For the local Windows checkout:
+The MCP server and H2 CLI must use the same compatible Python environment. On
+this Windows machine the existing Native `.venv` is ARM64 and cannot import the
+installed x64 OpenCascade kernel; the existing H2 root `.venv` is AMD64 and can
+import both FSGen and OpenCascade. Use that H2 environment as the **one MCP
+launcher interpreter**. After preparing the pinned Native checkout, install its
+package into the already working H2 environment:
 
 ```powershell
-uv pip install --python .\upstream\onshape-native\.venv\Scripts\python.exe -e . -e .\upstream\onshape-fsgen
-& .\upstream\onshape-native\.venv\Scripts\python.exe -c "import h2cad, fsgen"
+uv pip install --python .\.venv\Scripts\python.exe -e .\upstream\onshape-native
+& .\.venv\Scripts\python.exe -c "import h2cad, fsgen, OCP, mcp, onshape_native"
+$nativeRuntime = (Get-Content .\upstream\onshape-native\.mcp.json | ConvertFrom-Json).mcpServers.onshape_native.env.ONSHAPE_NATIVE_RUNTIME
+& .\.venv\Scripts\python.exe .\upstream\onshape-native\scripts\configure.py --runtime-dir $nativeRuntime --mcp-python (Resolve-Path .\.venv\Scripts\python.exe).Path
 ```
 
-The existing `.mcp.json` launcher must point to that Native Python environment.
+The generated Native `.mcp.json` launcher then points to that x64 H2 Python;
+keep its existing private pairing runtime. `--mcp-python` checks the required
+imports before changing the launcher. This is local setup, not a second server.
 Its private `ONSHAPE_NATIVE_RUNTIME/bridge.json` must pin the same existing H2
 SQLite journal and the exact approved empty test Part Studio as
 `h2cad_create_target`. Pairing and journal paths stay private. The tool takes an

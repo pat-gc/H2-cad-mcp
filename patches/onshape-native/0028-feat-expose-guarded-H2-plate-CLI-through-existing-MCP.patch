@@ -1,18 +1,20 @@
-From 354b970884ca2be95d43cb6c54d7e8551459f637 Mon Sep 17 00:00:00 2001
+From 14b7581e573071b88503ec0b5c080ddd5718c7c7 Mon Sep 17 00:00:00 2001
 From: patcybermind <pato.gonzalezcabrera@gmail.com>
 Date: Fri, 13 Nov 2026 22:20:43 -0500
 Subject: [PATCH] feat: expose guarded H2 plate CLI through existing MCP
 
 ---
- onshape_native/server.py                | 49 ++++++++++++++++
- skills/onshape-native-modeling/SKILL.md | 19 ++++++
- tests/test_h2_mcp.py                    | 77 +++++++++++++++++++++++++
- tests/test_responses.py                 |  5 +-
- 4 files changed, 148 insertions(+), 2 deletions(-)
+ onshape_native/server.py                |  58 +++++++++++++
+ scripts/configure.py                    |  33 +++++--
+ skills/onshape-native-modeling/SKILL.md |  19 ++++
+ tests/test_client_setup.py              |  27 ++++++
+ tests/test_h2_mcp.py                    | 110 ++++++++++++++++++++++++
+ tests/test_responses.py                 |   5 +-
+ 6 files changed, 245 insertions(+), 7 deletions(-)
  create mode 100644 tests/test_h2_mcp.py
 
 diff --git a/onshape_native/server.py b/onshape_native/server.py
-index dd57822..a83fbec 100644
+index dd57822..2202ebe 100644
 --- a/onshape_native/server.py
 +++ b/onshape_native/server.py
 @@ -2,8 +2,12 @@
@@ -36,7 +38,7 @@ index dd57822..a83fbec 100644
  from .native_catalog import catalog as native_commands, READS
  from .discovery import index as command_index
  from .structure_service import Structures
-@@ -321,6 +326,50 @@ async def native_state(url: str, tab_id: int | None = None) -> str:
+@@ -321,6 +326,59 @@ async def native_state(url: str, tab_id: int | None = None) -> str:
      return compact(svc().store.response(data))
  
  
@@ -79,6 +81,15 @@ index dd57822..a83fbec 100644
 +        return compact({"status": "needs_readback", "experimental": True,
 +                        "reason": "H2 command completed without a valid JSON receipt",
 +                        "no_automatic_retry": True})
++    if (not isinstance(result, dict) or result.get("status") != "native_definitions_observed"
++            or result.get("target") != target
++            or not isinstance(result.get("local_validation"), dict)
++            or result["local_validation"].get("status") != "passed"
++            or any(not isinstance(result.get(key), dict)
++                   for key in ("begin_sketch", "sketch", "begin_extrude", "extrude"))):
++        return compact({"status": "needs_readback", "experimental": True,
++                        "reason": "H2 command returned an unexpected completion receipt",
++                        "no_automatic_retry": True})
 +    return compact({"status": "h2_command_completed", "experimental": True,
 +                    "result": result, "solid_geometry_verified": False,
 +                    "ui_editability_verified": False})
@@ -87,6 +98,67 @@ index dd57822..a83fbec 100644
  @mcp.tool(structured_output=False, annotations=READ)
  async def native_schema(url: str, name: str, tab_id: int | None = None) -> str:
      """Read a typed native message's default fields from the running Onshape serializer. This is a shape, not evidence that a command was tested."""
+diff --git a/scripts/configure.py b/scripts/configure.py
+index 37cdcfd..318aa3e 100644
+--- a/scripts/configure.py
++++ b/scripts/configure.py
+@@ -4,6 +4,7 @@ import json
+ import argparse
+ import os
+ from pathlib import Path
++import subprocess
+ import sys
+ 
+ ROOT = Path(__file__).resolve().parents[1]
+@@ -13,11 +14,31 @@ from onshape_native.bridge import shared_journal_clear
+ from onshape_native.installation import venv_python, write_json
+ 
+ 
+-def configure(root=ROOT, runtime=None, h2cad_journal=None):
++def compatible_mcp_python(path):
++    """Check the selected launcher can import both packages and the local CAD kernel."""
++    if not path.is_absolute() or not path.is_file():
++        raise ValueError("Select an absolute existing MCP Python interpreter.")
++    try:
++        probe = subprocess.run([str(path), "-c",
++            "import h2cad, fsgen, mcp, PIL, uvicorn, websockets; "
++            "from OCP.BRepPrimAPI import BRepPrimAPI_MakeBox"],
++            capture_output=True, text=True, timeout=20, check=False)
++    except (OSError, subprocess.TimeoutExpired) as exc:
++        raise ValueError("Selected MCP Python interpreter could not be checked.") from exc
++    if probe.returncode:
++        raise ValueError("Selected MCP Python must import H2, FSGen/OCP and Native MCP dependencies.")
++    return path
++
++
++def configure(root=ROOT, runtime=None, h2cad_journal=None, mcp_python=None):
+     root = Path(root).resolve()
+-    python = venv_python(root / ".venv")
+-    if not python.is_file():
+-        raise ValueError("Run uv sync --frozen in the onshape-native directory first.")
++    if mcp_python is None:
++        python = venv_python(root / ".venv")
++        if not python.is_file():
++            raise ValueError("Run uv sync --frozen in the onshape-native directory first.")
++    else:
++        selected = Path(mcp_python).expanduser()
++        python = compatible_mcp_python(selected.resolve()) if selected.is_absolute() else compatible_mcp_python(selected)
+     if runtime is not None:
+         os.environ["ONSHAPE_NATIVE_RUNTIME"] = str(Path(runtime).expanduser().resolve())
+     config = load_config()
+@@ -56,9 +77,11 @@ if __name__ == "__main__":
+     parser = argparse.ArgumentParser(description=__doc__)
+     parser.add_argument("--runtime-dir", type=Path, help="Private pairing/artifact directory; defaults to .runtime or ONSHAPE_NATIVE_RUNTIME.")
+     parser.add_argument("--h2cad-journal", type=Path, help="Pin the existing shared H2 SQLite journal for safe extension reload. Restart the bridge afterward.")
++    parser.add_argument("--mcp-python", type=Path, help="Use an existing Python with H2, FSGen/OCP and Native MCP dependencies for this launcher.")
+     args = parser.parse_args()
+     try:
+-        configure(runtime=args.runtime_dir, h2cad_journal=args.h2cad_journal)
++        configure(runtime=args.runtime_dir, h2cad_journal=args.h2cad_journal,
++                  mcp_python=args.mcp_python)
+     except ValueError as error:
+         raise SystemExit(str(error)) from None
+     print("Configured onshape-native for this device. Pairing stays local; no Onshape credentials needed.")
 diff --git a/skills/onshape-native-modeling/SKILL.md b/skills/onshape-native-modeling/SKILL.md
 index a510b88..d806048 100644
 --- a/skills/onshape-native-modeling/SKILL.md
@@ -117,12 +189,50 @@ index a510b88..d806048 100644
  ## Resolve the task target
  
  1. With a supplied link, call `resolve_target(url="USER_URL")`. With “this model”,
+diff --git a/tests/test_client_setup.py b/tests/test_client_setup.py
+index 97d7aaa..26aaf0c 100644
+--- a/tests/test_client_setup.py
++++ b/tests/test_client_setup.py
+@@ -58,6 +58,33 @@ def test_missing_environment_or_pairing_fails_without_minting_new_token(tmp_path
+     assert not (tmp_path / "missing/bridge.json").exists()
+ 
+ 
++def test_configure_can_pin_existing_compatible_h2_python_without_changing_pairing(tmp_path, monkeypatch):
++    module = script("configure")
++    source = tmp_path / "native source"
++    (source / "extension").mkdir(parents=True)
++    default = venv_python(source / ".venv")
++    default.parent.mkdir(parents=True)
++    default.touch()
++    runtime = tmp_path / "private runtime"
++    first = module.configure(source, runtime=runtime)
++    token = json.loads((runtime / "bridge.json").read_text())["token"]
++    selected = tmp_path / "x64 h2" / "python.exe"
++    selected.parent.mkdir()
++    selected.touch()
++    seen = []
++    def probe(args, **kwargs):
++        seen.append(args)
++        return type("Result", (), {"returncode": 0})()
++    monkeypatch.setattr(module.subprocess, "run", probe)
++    changed = module.configure(source, runtime=runtime, mcp_python=selected)
++    assert changed["mcpServers"]["onshape_native"]["command"] == str(selected)
++    assert seen[0][0] == str(selected) and "OCP.BRepPrimAPI" in seen[0][2]
++    assert json.loads((runtime / "bridge.json").read_text())["token"] == token
++    assert first["mcpServers"]["onshape_native"]["command"] == str(default)
++    with pytest.raises(ValueError, match="absolute"):
++        module.configure(source, runtime=runtime, mcp_python=Path("relative/python.exe"))
++
++
+ def test_claude_registration_is_additive_and_reruns_update_only_owned_plugin(tmp_path):
+     module = script("install_claude")
+     root = tmp_path / "my marketplace"
 diff --git a/tests/test_h2_mcp.py b/tests/test_h2_mcp.py
 new file mode 100644
-index 0000000..204c49d
+index 0000000..656cc5c
 --- /dev/null
 +++ b/tests/test_h2_mcp.py
-@@ -0,0 +1,77 @@
+@@ -0,0 +1,110 @@
 +"""The experimental MCP entry point delegates to the installed H2 CLI once."""
 +
 +import json
@@ -135,6 +245,9 @@ index 0000000..204c49d
 +URL = "https://cad.onshape.com/documents/4e078dec822b4e509616b1cb/w/af0627de07264acf086e646a/e/3a4e8933dde1c594115a657f"
 +TARGET = {"did": "4e078dec822b4e509616b1cb", "wid": "af0627de07264acf086e646a",
 +          "eid": "3a4e8933dde1c594115a657f"}
++VALID_RECEIPT = {"status": "native_definitions_observed", "target": TARGET,
++                 "local_validation": {"status": "passed"}, "begin_sketch": {},
++                 "sketch": {}, "begin_extrude": {}, "extrude": {}}
 +
 +
 +@pytest.mark.asyncio
@@ -154,7 +267,7 @@ index 0000000..204c49d
 +        returncode = exit_code
 +
 +        async def communicate(self):
-+            return (json.dumps({"status": "native_definitions_observed"}).encode(),
++            return (json.dumps(VALID_RECEIPT).encode(),
 +                    b"h2cad: operation outcome unknown; journal operation begin-sketch-test" if exit_code else b"")
 +
 +    async def launch(*args, **kwargs):
@@ -200,6 +313,36 @@ index 0000000..204c49d
 +    monkeypatch.setattr(server, "load_config", lambda: pytest.fail("no bridge configuration read"))
 +    with pytest.raises(OnshapeError, match="existing local .fs file"):
 +        await server.experimental_h2_create_plate(URL, "relative.fs", 17)
++
++
++@pytest.mark.asyncio
++@pytest.mark.parametrize("receipt", [b"not json", b"null", b"[]", b"{}",
++    b'{"status":"native_definitions_observed"}',
++    b'{"status":"failed","target":{}}',
++    json.dumps({**VALID_RECEIPT, "target": {**TARGET, "eid": "wrong"}}).encode(),
++    json.dumps({**VALID_RECEIPT, "status": "failed"}).encode()])
++async def test_h2_mcp_never_confirms_malformed_completion_or_replays(tmp_path, monkeypatch, receipt):
++    source = tmp_path / "plate.fs"
++    source.write_text("source")
++    journal = tmp_path / "intent.sqlite"
++    journal.touch()
++    monkeypatch.setattr(server, "native_target", lambda url: TARGET)
++    monkeypatch.setattr(server, "load_config", lambda: {"h2cad_journal": str(journal)})
++    monkeypatch.setattr(server, "runtime_dir", lambda: tmp_path)
++    monkeypatch.setattr(server.importlib.util, "find_spec", lambda name: object())
++    calls = []
++    class Process:
++        returncode = 0
++        async def communicate(self):
++            return receipt, b""
++    async def launch(*args, **kwargs):
++        calls.append(args)
++        return Process()
++    monkeypatch.setattr(server.asyncio, "create_subprocess_exec", launch)
++    result = json.loads(await server.experimental_h2_create_plate(URL, str(source), 17))
++    assert result["status"] == "needs_readback"
++    assert result["no_automatic_retry"] is True
++    assert len(calls) == 1
 diff --git a/tests/test_responses.py b/tests/test_responses.py
 index d4cc1b4..62eabc2 100644
 --- a/tests/test_responses.py
