@@ -1,0 +1,36 @@
+{
+  "source": "fixtures\\native\\carrier_split_scope_sample.fs",
+  "feature_count": 9,
+  "validation": {
+    "status": "passed",
+    "geometry": {
+      "parts": 3,
+      "volume_mm3": 49680.0,
+      "area_mm2": 18576.0,
+      "bbox_mm": [
+        -30.0,
+        -30.0,
+        0.0,
+        30.0,
+        30.0,
+        23.0
+      ]
+    },
+    "warnings": [],
+    "error": null,
+    "provenance": "FSGen local OpenCascade only",
+    "remote": "not_run",
+    "native_editability": "not_run"
+  },
+  "body_volumes_mm3": [
+    10800.0,
+    19439.999999999996,
+    19440.0
+  ],
+  "expected_body_volumes_mm3": [
+    10800,
+    19440,
+    19440
+  ],
+  "native_verification": "not_run"
+}

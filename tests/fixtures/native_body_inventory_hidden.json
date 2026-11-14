@@ -1,0 +1,353 @@
+{
+  "target": {
+    "did": "4e078dec822b4e509616b1cb",
+    "eid": "e37ca903af44622ca6919031",
+    "wid": "af0627de07264acf086e646a"
+  },
+  "element_revision": "10368dc9251b3615aae5ce20",
+  "document_revision": "5bf156a953a4ba2716ba91f3",
+  "request": {
+    "targetElementId": "4b621d8d622b4d57863db2cb",
+    "filter": {
+      "$type": "bsedit.GBTInsertablesFilter",
+      "includeParts": true,
+      "includeSurfaces": true,
+      "includeSketches": true,
+      "includeReferenceFeatures": false,
+      "includeAssemblies": false,
+      "includeFeatureStudios": false,
+      "includeBlobs": false,
+      "allowedBlobMimeTypes": [],
+      "excludeNewerFSVersions": false,
+      "maxFeatureScriptVersion": 0,
+      "includePartStudios": true,
+      "includeFeatures": false,
+      "includeMeshes": true,
+      "includeWires": false,
+      "includeFlattenedBodies": true,
+      "includeApplications": false,
+      "allowedApplicationMimeTypes": [],
+      "includeCompositeParts": true,
+      "includeFSTables": false,
+      "includeFSComputedPartPropertyFunctions": false,
+      "includeVariables": false,
+      "includeVariableStudios": false,
+      "allowedBlobExtensions": [],
+      "includeSketchesOnFlat": true,
+      "isObsoletion": false,
+      "onlyCustomStandardContent": false
+    },
+    "sourceElementId": "e37ca903af44622ca6919031",
+    "documentMicroversionId": null
+  },
+  "response": {
+    "microversion_after": "5bf156a953a4ba2716ba91f3",
+    "microversion_before": "5bf156a953a4ba2716ba91f3",
+    "next": "Read native_state and check regeneration; an acknowledgement alone does not prove correct geometry.",
+    "result": {
+      "$type": "ui.document.GBTUiQueryAssemblyInsertableElementsResponse",
+      "configuration": {},
+      "configurationKey": "",
+      "contents": [
+        {
+          "$type": "ui.document.GBTUiInsertablePartStudio",
+          "asParametricPartStudio": false,
+          "children": [
+            {
+              "$type": "ui.document.GBTUiInsertablePart",
+              "areFaultsIgnored": false,
+              "bodyType": 0,
+              "children": [],
+              "configurationId": "",
+              "configurationParameterValues": [],
+              "deterministicId": "JID",
+              "disableReason": 0,
+              "documentId": "4e078dec822b4e509616b1cb",
+              "documentVersionId": "",
+              "element": {
+                "$type": "document.GBTDocumentElement",
+                "dataType": "onshape/partstudio",
+                "elementId": "e37ca903af44622ca6919031",
+                "microversion": {
+                  "$type": "document.GBTMicroversionId",
+                  "theId": "10368dc9251b3615aae5ce20"
+                },
+                "name": "Robot - Seven Hole Carrier",
+                "nodeId": "qtFVG/exzpFYdIej",
+                "type": 0
+              },
+              "hasFaults": false,
+              "highBoxCorner": {
+                "$type": "math.GBTVector3d",
+                "x": 0,
+                "y": 0,
+                "z": 0
+              },
+              "insertableQuery": "<captured opaque query; never evaluated>",
+              "isFlattenedBody": false,
+              "isMesh": false,
+              "lowBoxCorner": {
+                "$type": "math.GBTVector3d",
+                "x": 0,
+                "y": 0,
+                "z": 0
+              },
+              "meshState": 0,
+              "partIdentity": {
+                "$type": "partstudio.GBTPSOIdentity",
+                "theId": ""
+              },
+              "partName": "Part 1",
+              "partNumber": "",
+              "partPurpose": 0,
+              "partQuery": "<captured opaque query; never evaluated>",
+              "revision": "",
+              "revisionId": "",
+              "thumbnailUri": "<thumbnail>",
+              "unflattenedPartDeterministicId": "",
+              "versionName": ""
+            },
+            {
+              "$type": "ui.document.GBTUiInsertablePart",
+              "areFaultsIgnored": false,
+              "bodyType": 0,
+              "children": [],
+              "configurationId": "",
+              "configurationParameterValues": [],
+              "deterministicId": "JMD",
+              "disableReason": 0,
+              "documentId": "4e078dec822b4e509616b1cb",
+              "documentVersionId": "",
+              "element": {
+                "$type": "document.GBTDocumentElement",
+                "dataType": "onshape/partstudio",
+                "elementId": "e37ca903af44622ca6919031",
+                "microversion": {
+                  "$type": "document.GBTMicroversionId",
+                  "theId": "10368dc9251b3615aae5ce20"
+                },
+                "name": "Robot - Seven Hole Carrier",
+                "nodeId": "qtFVG/exzpFYdIej",
+                "type": 0
+              },
+              "hasFaults": false,
+              "highBoxCorner": {
+                "$type": "math.GBTVector3d",
+                "x": 0,
+                "y": 0,
+                "z": 0
+              },
+              "insertableQuery": "<captured opaque query; never evaluated>",
+              "isFlattenedBody": false,
+              "isMesh": false,
+              "lowBoxCorner": {
+                "$type": "math.GBTVector3d",
+                "x": 0,
+                "y": 0,
+                "z": 0
+              },
+              "meshState": 0,
+              "partIdentity": {
+                "$type": "partstudio.GBTPSOIdentity",
+                "theId": ""
+              },
+              "partName": "Part 2",
+              "partNumber": "",
+              "partPurpose": 0,
+              "partQuery": "<captured opaque query; never evaluated>",
+              "revision": "",
+              "revisionId": "",
+              "thumbnailUri": "<thumbnail>",
+              "unflattenedPartDeterministicId": "",
+              "versionName": ""
+            },
+            {
+              "$type": "ui.document.GBTUiInsertableFeatureGeometry",
+              "children": [],
+              "configurationId": "",
+              "configurationParameterValues": [],
+              "disableReason": 0,
+              "documentId": "4e078dec822b4e509616b1cb",
+              "documentVersionId": "",
+              "element": {
+                "$type": "document.GBTDocumentElement",
+                "dataType": "onshape/partstudio",
+                "elementId": "e37ca903af44622ca6919031",
+                "microversion": {
+                  "$type": "document.GBTMicroversionId",
+                  "theId": "10368dc9251b3615aae5ce20"
+                },
+                "name": "Robot - Seven Hole Carrier",
+                "nodeId": "qtFVG/exzpFYdIej",
+                "type": 0
+              },
+              "featureId": "FYiuW1a93PZOvwa_0",
+              "featureName": "Sketch 1",
+              "featureType": "newSketch",
+              "insertableQuery": "query = qCreatedBy( id + \"FYiuW1a93PZOvwa_0\", EntityType.BODY);",
+              "isOnFlat": false,
+              "partNumber": "",
+              "revision": "",
+              "revisionId": "",
+              "thumbnailUri": "<thumbnail>",
+              "versionName": ""
+            },
+            {
+              "$type": "ui.document.GBTUiInsertableFeatureGeometry",
+              "children": [],
+              "configurationId": "",
+              "configurationParameterValues": [],
+              "disableReason": 0,
+              "documentId": "4e078dec822b4e509616b1cb",
+              "documentVersionId": "",
+              "element": {
+                "$type": "document.GBTDocumentElement",
+                "dataType": "onshape/partstudio",
+                "elementId": "e37ca903af44622ca6919031",
+                "microversion": {
+                  "$type": "document.GBTMicroversionId",
+                  "theId": "10368dc9251b3615aae5ce20"
+                },
+                "name": "Robot - Seven Hole Carrier",
+                "nodeId": "qtFVG/exzpFYdIej",
+                "type": 0
+              },
+              "featureId": "FHOpXTeoJ27dmXz_1",
+              "featureName": "Sketch 2",
+              "featureType": "newSketch",
+              "insertableQuery": "query = qCreatedBy( id + \"FHOpXTeoJ27dmXz_1\", EntityType.BODY);",
+              "isOnFlat": false,
+              "partNumber": "",
+              "revision": "",
+              "revisionId": "",
+              "thumbnailUri": "<thumbnail>",
+              "versionName": ""
+            },
+            {
+              "$type": "ui.document.GBTUiInsertableFeatureGeometry",
+              "children": [],
+              "configurationId": "",
+              "configurationParameterValues": [],
+              "disableReason": 0,
+              "documentId": "4e078dec822b4e509616b1cb",
+              "documentVersionId": "",
+              "element": {
+                "$type": "document.GBTDocumentElement",
+                "dataType": "onshape/partstudio",
+                "elementId": "e37ca903af44622ca6919031",
+                "microversion": {
+                  "$type": "document.GBTMicroversionId",
+                  "theId": "10368dc9251b3615aae5ce20"
+                },
+                "name": "Robot - Seven Hole Carrier",
+                "nodeId": "qtFVG/exzpFYdIej",
+                "type": 0
+              },
+              "featureId": "FjD3wwmfUBz013S_2",
+              "featureName": "Sketch 3",
+              "featureType": "newSketch",
+              "insertableQuery": "query = qCreatedBy( id + \"FjD3wwmfUBz013S_2\", EntityType.BODY);",
+              "isOnFlat": false,
+              "partNumber": "",
+              "revision": "",
+              "revisionId": "",
+              "thumbnailUri": "<thumbnail>",
+              "versionName": ""
+            }
+          ],
+          "configurationId": "",
+          "configurationParameterValues": [],
+          "configurationParameters": [],
+          "disableReason": 0,
+          "documentId": "4e078dec822b4e509616b1cb",
+          "documentVersionId": "",
+          "element": {
+            "$type": "document.GBTDocumentElement",
+            "dataType": "onshape/partstudio",
+            "elementId": "e37ca903af44622ca6919031",
+            "microversion": {
+              "$type": "document.GBTMicroversionId",
+              "theId": "10368dc9251b3615aae5ce20"
+            },
+            "name": "Robot - Seven Hole Carrier",
+            "nodeId": "qtFVG/exzpFYdIej",
+            "type": 0
+          },
+          "featureScriptVersion": 3112,
+          "insertableFilter": {
+            "$type": "bsedit.GBTInsertablesFilter",
+            "allowedApplicationMimeTypes": [],
+            "allowedBlobExtensions": [],
+            "allowedBlobMimeTypes": [],
+            "excludeNewerFSVersions": false,
+            "includeApplications": false,
+            "includeAssemblies": false,
+            "includeBlobs": false,
+            "includeCompositeParts": false,
+            "includeFSComputedPartPropertyFunctions": false,
+            "includeFSTables": false,
+            "includeFeatureStudios": false,
+            "includeFeatures": false,
+            "includeFlattenedBodies": false,
+            "includeMeshes": false,
+            "includePartStudios": false,
+            "includeParts": false,
+            "includeReferenceFeatures": false,
+            "includeSketches": false,
+            "includeSketchesOnFlat": false,
+            "includeSurfaces": false,
+            "includeVariableStudios": false,
+            "includeVariables": false,
+            "includeWires": false,
+            "isObsoletion": false,
+            "maxFeatureScriptVersion": 0,
+            "onlyCustomStandardContent": false
+          },
+          "insertableQuery": "query = qUnion([ qEverything(EntityType.BODY)]);",
+          "partNumber": "",
+          "revision": "",
+          "revisionId": "",
+          "thumbnailUri": "<thumbnail>",
+          "versionName": ""
+        }
+      ],
+      "updatedThumbnailUri": "<thumbnail>"
+    },
+    "tab_id": 941741361
+  },
+  "viewer": {
+    "exact_cad": false,
+    "microversion": "10368dc9251b3615aae5ce20",
+    "parts": [
+      {
+        "body_id": "JID",
+        "body_type": 0,
+        "composite": false,
+        "full_element_id": "e37ca903af44622ca6919031-10368dc9251b3615aae5ce20",
+        "loaded": true,
+        "name": "Part 1",
+        "occurrence_path": "",
+        "tessellation_setting": 3
+      },
+      {
+        "body_id": "JMD",
+        "body_type": 0,
+        "composite": false,
+        "full_element_id": "e37ca903af44622ca6919031-10368dc9251b3615aae5ce20",
+        "loaded": true,
+        "name": "Part 2",
+        "occurrence_path": "",
+        "tessellation_setting": 3
+      }
+    ],
+    "quality": "Current loaded display tessellation; no requested refinement or export translation.",
+    "source": "loaded-viewer-tessellation",
+    "target": {
+      "did": "4e078dec822b4e509616b1cb",
+      "eid": "e37ca903af44622ca6919031",
+      "wid": "af0627de07264acf086e646a"
+    },
+    "units": "meter",
+    "tab_id": 941741361
+  }
+}
