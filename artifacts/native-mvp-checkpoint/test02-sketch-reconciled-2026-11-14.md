@@ -1,0 +1,17 @@
+# Test 02 source sketch reconciliation — 2026-11-14
+
+Target: H2 CAD Test Project, document `4e078dec822b4e509616b1cb`, workspace `af0627de07264acf086e646a`, Part Studio `3a4e8933dde1c594115a657f`. The official Edge Browser listed and claimed the unique exact URL in tab `941740810`. Signed-in Onshape UI showed `Sketch 1`, `Parts (0)`, and no edit dialog.
+
+Read-only native state returned `connected=true`, `editingFeatureId=null`, and revision `f89acf7690b564103d26e61e`. Saved `Sketch 1` is feature `FyvOb18eGL668Sy_0`, node `MSM/WrCk5O5063RL4`, with four source-named line entities, eleven constraints, fixed bottom-left point at origin, width `40 mm`, height `20 mm`, and a Top plane query with deterministic ID `JDC`. Raw private readback: `upstream/onshape-native/.runtime/patch30-after-login-state.json` in the main checkout.
+
+Before reconciliation, journal operation `sketch-89902f3686b247b0b0708eb88bb07729` was `sent`, the sole unresolved row, with a completion-pending receipt; the persistent unknown-write guard was true. The reviewed `experimental-reconcile-completed-source-sketch` command ran once against exact tab `941740810` and returned exit 0, status `observed_delayed_source_sketch`. Its evidence verified the exact saved definition, Top and origin, the captured active graph, and preservation of unrelated tree identity. It reported `manual_commit_completion=false`, `solid_geometry_verified=false`, and `ui_editability_verified=false`. The journal row is now `observed`, unresolved count 0, guard false.
+
+This is a saved source sketch, not a completed automatic plate. No Extrude was created in this Test 02 run, and the current studio is no longer empty. Do not replay the original `experimental-create-plate` intent here. No CAD write followed reconciliation.
+
+## Guarded resume attempt
+
+After Root reviewed commit `30b9c12`, one `experimental-create-plate` call with `--resume-sketch-op-id sketch-89902f3686b247b0b0708eb88bb07729` exited 1 **before Extrude creation**: `Source sketch row was not uniquely selected; no Extrude action sent.` Begin-Extrude operation `begin-extrude-6203ebc3e3804adf98029dd5ebccfd3f` is `rejected`, unresolved count remains zero, and the guard remains false. Private command output: `.runtime/patch30-resume-plate.stderr.log`.
+
+Official Browser read-only DOM inspection found exactly one visible source row `div.os-list-item[feature-id="FyvOb18eGL668Sy_0"][feature-type="newSketch"]` and one visible Extrude tool `div.tool[command-id="extrude"]`. After the adapter's synthetic `row.click()`, the Sketch row was `os-list-item ns-user-feature` without `selected`; no `.os-list-item.selected` existed. The row contains `.os-list-item-label` and `.os-list-item-name` text `Sketch 1`. The adapter requires `row.classList.contains("selected")` before clicking Extrude. No manual row selection or further CAD action was taken. This is a normal editor selection lifecycle gap, not a source geometry failure.
+
+Root then authorized one ordinary Browser locator click on the exact saved Sketch row for diagnosis. It made that same row `os-list-item selected ns-user-feature`, the only selected row, and revealed the normal tooltip and visibility control. `aria-selected` stayed absent. A subsequent native read still showed `connected=true`, `editingFeatureId=null`, the same Sketch plus rollback tree, and unchanged revision `f89acf7690b564103d26e61e`. This proves the class check is valid while the adapter's synthetic DOM click failed to trigger ordinary selection. No Extrude click or geometry edit followed.
