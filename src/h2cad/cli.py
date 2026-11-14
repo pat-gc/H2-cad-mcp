@@ -303,6 +303,9 @@ async def _bridge_action(args: argparse.Namespace) -> tuple[object, int]:
             target = _target(args)
             if backend.create_target != target.to_dict():
                 raise ValueError("Source run must use the bridge's configured creation target")
+            health = await bridge.health()
+            if health.get("h2cad_create_target") != target.to_dict():
+                raise ValueError("Running bridge creation target differs or is unavailable; reload the configured companion before staging")
             journal = Journal(args.journal)
             try:
                 if args.action == "init":

@@ -1,0 +1,15 @@
+{
+  "op_id": "variable-d2459b74dc7f487ab41f12c4c8291e7a",
+  "target": {
+    "did": "4e078dec822b4e509616b1cb",
+    "wid": "af0627de07264acf086e646a",
+    "eid": "423a1c4eec848f03a9800ba5"
+  },
+  "classification": "rejected_before_extension_dispatch",
+  "reason": "Native creation target differs from the configured test Part Studio",
+  "unchanged_draft_revision": "35c4f37d35d7538fc5bd85fd",
+  "unchanged_draft_feature_id": "Fahvt7Yzhs1Czrc_0",
+  "exact_before_after_tree_equal": true,
+  "bridge_unknown_write": false,
+  "evidence": "Reviewed Broker.dispatch target check precedes command lock, extension access, and send."
+}

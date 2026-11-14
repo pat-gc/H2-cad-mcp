@@ -1,0 +1,98 @@
+From acc16696d173d063f14a3f7cb0a0e84d218ac6ae Mon Sep 17 00:00:00 2001
+From: patcybermind <pato.gonzalezcabrera@gmail.com>
+Date: Sat, 14 Nov 2026 11:53:58 -0500
+Subject: [PATCH] fix: expose running creation target and classify target
+ rejection before dispatch
+
+---
+ onshape_native/bridge.py             |  9 ++++++-
+ tests/test_creation_target_health.py | 36 ++++++++++++++++++++++++++++
+ 2 files changed, 44 insertions(+), 1 deletion(-)
+ create mode 100644 tests/test_creation_target_health.py
+
+diff --git a/onshape_native/bridge.py b/onshape_native/bridge.py
+index fc65007..587bde9 100644
+--- a/onshape_native/bridge.py
++++ b/onshape_native/bridge.py
+@@ -44,6 +44,10 @@ class BridgeError(Exception):
+     pass
+ 
+ 
++class PreDispatchError(BridgeError):
++    """Broker rejected a request before it could send anything to the extension."""
++
++
+ def configured_create_target(config):
+     target = config.get("h2cad_create_target", CREATE_LEGACY_TARGET)
+     if (not isinstance(target, dict) or set(target) != {"did", "wid", "eid"}
+@@ -759,7 +763,7 @@ class Broker:
+         validate_job(job)
+         if (job.get("kind") in {"partstudio_begin_top_sketch", "partstudio_begin_source_extrude", "partstudio_populate_sketch", "partstudio_populate_source_sketch", "partstudio_populate_extrude", "partstudio_populate_variable", "partstudio_populate_plane"}
+                 and job.get("target") != configured_create_target(self.config)):
+-            raise BridgeError("Native creation target differs from the configured test Part Studio")
++            raise PreDispatchError("Native creation target differs from the configured test Part Studio")
+         if self.reload_record and (self.reload_record.get("status") == "pending" or
+                 self.reload_record.get("status") in {"uncertain", "timeout"} and not is_cad_read(job)):
+             raise BridgeError("Extension reload has no verified outcome; no CAD command was sent.")
+@@ -1142,6 +1146,7 @@ def create_app(config=None):
+         if denied is not None:
+             return denied
+         return JSONResponse({"protocol": 1, "extension_connected": broker.extension is not None,
++                             "h2cad_create_target": configured_create_target(config),
+                              "extension": broker.extension_info, "pending": len(broker.pending),
+                              "reload": broker.reload_record,
+                              "capabilities": ["ui_exports_v1", "chunked_upload_v1", "chunked_response_v1", "artifact_download_v1", "viewer_mesh_v1", "h2_depth_edit_server_v1", "h2_native_begin_top_sketch_server_v1", "h2_native_typed_top_plane_server_v1", "h2_native_begin_source_extrude_server_v1", "h2_native_sketch_populate_server_v1", "h2_source_sketch_server_v1", "h2_native_extrude_populate_server_v1", "h2_source_extrude_server_v1", "h2_native_variable_populate_server_v1", "h2_native_plane_populate_server_v1", "h2_native_completion_receipt_server_v1", "h2_extension_reload_server_v1"]})
+@@ -1967,6 +1972,8 @@ def create_app(config=None):
+         try:
+             data = await read_body(request)
+             return JSONResponse(await broker.dispatch(data))
++        except PreDispatchError as error:
++            return JSONResponse({"error": str(error), "write_stage": "pre_dispatch"}, 400)
+         except (BridgeError, ValueError) as error:
+             return JSONResponse({"error": str(error)}, 400)
+ 
+diff --git a/tests/test_creation_target_health.py b/tests/test_creation_target_health.py
+new file mode 100644
+index 0000000..f4041ce
+--- /dev/null
++++ b/tests/test_creation_target_health.py
+@@ -0,0 +1,36 @@
++from starlette.testclient import TestClient
++
++from onshape_native.bridge import create_app
++
++
++def test_running_target_is_visible_and_mismatch_attests_no_dispatch():
++    target = {"did": "4e078dec822b4e509616b1cb", "wid": "af0627de07264acf086e646a",
++              "eid": "423a1c4eec848f03a9800ba5"}
++    app = create_app({"port": 8766, "token": "x" * 32, "h2cad_create_target": target})
++    class Connection:
++        sent = []
++        async def send_json(self, data):
++            self.sent.append(data)
++    connection = Connection()
++    app.state.broker.extension = connection
++    with TestClient(app, base_url="http://127.0.0.1:8766") as client:
++        headers = {"Authorization": "Bearer " + "x" * 32}
++        assert client.get('/health', headers=headers).json()['h2cad_create_target'] == target
++        response = client.post('/command', headers=headers, json={
++            "kind": "partstudio_begin_top_sketch", "target": {**target, "eid": "9a062f0eef8bb961f8c84f8e"},
++            "expected_element_microversion": "a" * 24})
++        assert response.status_code == 400
++        assert response.json()['write_stage'] == 'pre_dispatch'
++        assert connection.sent == []
++
++
++def test_generic_dispatch_error_is_not_misreported_as_pre_dispatch():
++    from onshape_native.bridge import BridgeError
++    app = create_app({"port": 8766, "token": "x" * 32})
++    async def fail(job):
++        raise BridgeError('Uncertain transaction')
++    app.state.broker.dispatch = fail
++    with TestClient(app, base_url="http://127.0.0.1:8766") as client:
++        response = client.post('/command', headers={"Authorization": "Bearer " + "x" * 32}, json={})
++        assert response.status_code == 400
++        assert 'write_stage' not in response.json()
+-- 
+2.54.0.windows.1
+

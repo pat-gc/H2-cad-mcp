@@ -8,7 +8,7 @@ from h2cad import cli, source_run
 
 
 @pytest.mark.parametrize("action", ["init", "next", "apply"])
-@pytest.mark.parametrize("mismatch", [None, "journal", "target"])
+@pytest.mark.parametrize("mismatch", [None, "journal", "target", "running_target"])
 def test_source_run_cli_pins_routes_and_closes(tmp_path, monkeypatch, capsys, action, mismatch):
     target = {"did": "a" * 24, "wid": "b" * 24, "eid": "c" * 24}
     journal = tmp_path / "journal.sqlite"
@@ -24,6 +24,9 @@ def test_source_run_cli_pins_routes_and_closes(tmp_path, monkeypatch, capsys, ac
 
         async def close(self):
             events.append("close")
+
+        async def health(self):
+            return {"h2cad_create_target": target if mismatch != "running_target" else {}}
 
     def backend(bridge, tab_id):
         return SimpleNamespace(create_target=target if mismatch != "target" else {}, tab_id=tab_id)
@@ -58,7 +61,7 @@ def test_source_run_cli_pins_routes_and_closes(tmp_path, monkeypatch, capsys, ac
     assert cli.main(argv) == (1 if mismatch else 0)
     output = capsys.readouterr()
     if mismatch:
-        assert "pin" in output.err or "configured creation target" in output.err
+        assert "pin" in output.err or "creation target" in output.err
         assert events == ([] if mismatch == "journal" else ["open", "close"])
         assert not journal.exists()
     else:
