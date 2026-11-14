@@ -40,3 +40,5 @@ mass-property comparison. It does not authorize repeated cuts: complete source
 journal/modification-chain binding and independent write-time scope verification
 remain unimplemented. Mass properties do not prove topology, bounds, fit or motion.
 The actual 2020 profile and robotic arm assembly remain unfinished.
+
+A follow-up [source-history inspection](carrier-split-history-proof.json) matched the live saved fixture and journal, including the original NEW and observed REMOVE. It remains read-only and must be joined to current inventory before any future write integration.

@@ -1,0 +1,38 @@
+{
+  "target": {
+    "did": "4e078dec822b4e509616b1cb",
+    "wid": "af0627de07264acf086e646a",
+    "eid": "4bae4e36c39e40e64e8146d1"
+  },
+  "source_sha256": "8c39327db2eb9daa1acd0036c3f2df64178a938ea79c0846ebeb640bc88da9ee",
+  "target_logical_id": "Carrier blank",
+  "target_feature_id": "FfQqD1D77pgFCAA_0",
+  "target_op_id": "extrude-585e2ef0f8ff416a85116d7c3c6e54f4",
+  "observed_removes": [
+    {
+      "logical_id": "Carrier through bores",
+      "op_id": "extrude-45e7bb388acf4d6b97c90124059d3667",
+      "feature_id": "F3hgpZaazvOORTW_2"
+    }
+  ],
+  "ordered_bound_feature_ids": [
+    "FgPqANVUhcs8QiT_0",
+    "FbyBVi0Ec36Q3T0_0",
+    "FT7u4OFknZfiN5k_0",
+    "FfQqD1D77pgFCAA_0",
+    "F1B1jF6z5MEv0a8_1",
+    "FkdV7bDofuTfOm7_1",
+    "FouZC0aVaNLic5m_1",
+    "FAjvx8sOHcRlzkL_2",
+    "F3hgpZaazvOORTW_2"
+  ],
+  "element_microversion": "d559ebfd48db73fba2a05d78",
+  "document_microversion": "fb6532f39280688e48bd9764",
+  "snapshot_sha256": "86dae4d2500dd5a3f7ecf3cf6a7c7474bc87a3ac081462ddb41226d552bea8d4",
+  "source_definitions_observed": true,
+  "write_ready": false,
+  "missing_evidence": [
+    "fresh inventory joined to this exact snapshot and complete descendant set",
+    "native write preflight and reconciliation integration"
+  ]
+}
