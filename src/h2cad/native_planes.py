@@ -1,0 +1,253 @@
+"""Offline OFFSET-plane mapping; no allocation, transport or frame verification.
+
+Symbolic offsets are supported only while their source length variables remain
+strictly positive. Re-stage after edits: crossing zero invalidates this mapping.
+The expression remains symbolic; its numeric value is only an expected cache.
+"""
+
+from __future__ import annotations
+
+import ast
+import copy
+import math
+import re
+from fractions import Fraction
+from typing import Any, Sequence
+
+from .backend import Unsupported
+from .model import Feature, Target, canonical
+
+
+_NUMBER = r"[+-]?(?:\d+(?:\.\d*)?|\.\d+)"
+_REFERENCE = re.compile(r'query=qCreatedBy\(makeId\("(Top|Right)"\), EntityType\.FACE\);\Z')
+_TYPES = {"entities": "QueryList", "cplaneType": "Enum", "offset": "Quantity",
+          "angle": "Quantity", "oppositeDirection": "Boolean", "flipAlignment": "Boolean",
+          "flipNormal": "Boolean", "width": "Quantity", "height": "Quantity"}
+_SOURCE_TYPES = {"QueryList": "148", "Enum": "145", "Quantity": "147", "Boolean": "144"}
+
+
+def _source_plane(feature: Feature) -> tuple[str, str]:
+    raw = feature.provenance.get("fsgen_feature_json")
+    if (feature.kind != "cPlane" or not isinstance(raw, dict)
+            or raw.get("btType") != "BTMFeature-134" or raw.get("featureType") != "cPlane"
+            or raw.get("name") != feature.logical_id):
+        raise Unsupported("Expected an original FSGen cPlane template")
+    params = raw.get("parameters")
+    if not isinstance(params, list) or any(not isinstance(p, dict) for p in params):
+        raise Unsupported("Invalid plane source parameters")
+    by_id = {p.get("parameterId"): p for p in params}
+    if len(by_id) != len(params) or set(by_id) != set(_TYPES):
+        raise Unsupported("Unsupported plane source parameter set")
+    projection, schema = {}, {}
+    for name, p in by_id.items():
+        kind = _TYPES[name]
+        if p.get("btType") != f"BTMParameter{kind}-{_SOURCE_TYPES[kind]}":
+            raise Unsupported("Plane source parameter type mismatch")
+        if kind == "QueryList":
+            qs = p.get("queries")
+            if (not isinstance(qs, list) or len(qs) != 1 or not isinstance(qs[0], dict)
+                    or qs[0].get("btType") != "BTMIndividualQuery-138"):
+                raise Unsupported("One source reference plane required")
+            projection[name] = [qs[0].get("queryString")]
+        else:
+            key = "expression" if kind == "Quantity" else "value"
+            if key not in p:
+                raise Unsupported("Missing plane source parameter value")
+            projection[name] = p[key]
+        schema[name] = {k: v for k, v in p.items() if k not in {"expression", "value", "queries"}}
+    if (canonical(projection) != canonical(feature.parameters)
+            or canonical(schema) != canonical(feature.structure.get("parameter_schema"))
+            or canonical({k: v for k, v in raw.items() if k != "parameters"})
+            != canonical(feature.structure.get("fsgen_native"))):
+        raise Unsupported("Plane source and semantic projection differ")
+    if (projection["cplaneType"] != "OFFSET" or by_id["cplaneType"].get("enumName") != "CPlaneType"
+            or any(projection[k] is not False for k in ("oppositeDirection", "flipAlignment", "flipNormal"))
+            or projection["angle"] != "0 deg" or projection["width"] != "150 mm"
+            or projection["height"] != "150 mm"):
+        raise Unsupported("Only observed OFFSET plane defaults are supported")
+    query = projection["entities"][0]
+    match = _REFERENCE.fullmatch(query) if isinstance(query, str) else None
+    expression = projection["offset"]
+    if not match or not isinstance(expression, str) or not expression.strip() or len(expression) > 300:
+        raise Unsupported("Unsupported reference plane or offset expression")
+    if type(feature.provenance.get("source_line")) is not int or feature.provenance["source_line"] < 1:
+        raise Unsupported("Plane source order is unavailable")
+    return match[1], expression.strip()
+
+
+def _linear_expression(expression: str) -> dict[str, Fraction]:
+    """Length variables combined linearly with dimensionless numeric scalars."""
+    if re.search(r"[A-Za-z_]", re.sub(r"#[A-Za-z][A-Za-z0-9_]*", "0", expression)):
+        raise Unsupported("Only explicit source variables and numeric scalars are supported")
+    translated = re.sub(r"#([A-Za-z][A-Za-z0-9_]*)", r"v_\1", expression)
+    try:
+        tree = ast.parse(translated, mode="eval")
+    except (SyntaxError, ValueError) as exc:
+        raise Unsupported("Unsupported symbolic plane offset") from exc
+    if len(list(ast.walk(tree))) > 80:
+        raise Unsupported("Plane expression is too complex")
+
+    def visit(node):
+        if isinstance(node, ast.Constant) and type(node.value) in (int, float):
+            if not -1e12 <= node.value <= 1e12:
+                raise Unsupported("Finite plane scalar required")
+            return 0, {"": Fraction(str(node.value))}
+        if isinstance(node, ast.Name) and re.fullmatch(r"v_[A-Za-z][A-Za-z0-9_]*", node.id):
+            # Bare identifiers are not accepted as alternate variable syntax.
+            if "#" + node.id[2:] not in expression:
+                raise Unsupported("Explicit source variable reference required")
+            return 1, {"#" + node.id[2:]: Fraction(1)}
+        if isinstance(node, ast.UnaryOp) and isinstance(node.op, (ast.UAdd, ast.USub)):
+            dim, terms = visit(node.operand)
+            sign = -1 if isinstance(node.op, ast.USub) else 1
+            return dim, {k: sign * v for k, v in terms.items()}
+        if isinstance(node, ast.BinOp):
+            ld, left = visit(node.left)
+            rd, right = visit(node.right)
+            if isinstance(node.op, (ast.Add, ast.Sub)) and ld == rd:
+                result = dict(left)
+                for key, value in right.items():
+                    result[key] = result.get(key, Fraction(0)) + (-value if isinstance(node.op, ast.Sub) else value)
+                return ld, result
+            if isinstance(node.op, ast.Mult) and ld + rd <= 1:
+                if rd == 0:
+                    return ld, {k: v * right[""] for k, v in left.items()}
+                return rd, {k: v * left[""] for k, v in right.items()}
+            if isinstance(node.op, ast.Div) and rd == 0 and right[""] != 0:
+                return ld, {k: v / right[""] for k, v in left.items()}
+        raise Unsupported("Only linear length-variable offsets with scalar arithmetic are supported")
+
+    dim, terms = visit(tree.body)
+    if dim != 1 or not terms or any(value == 0 for value in terms.values()):
+        raise Unsupported("Offset requires nonzero length-variable coefficients")
+    return terms
+
+
+def stage_offset_plane(feature: Feature, *, variables: Sequence[Feature] = ()) -> dict[str, Any]:
+    """Retain source expressions and state the positive-domain sign assumption."""
+    reference, expression = _source_plane(feature)
+    literal = re.fullmatch(rf"({_NUMBER})\s*mm", expression)
+    assumptions = {}
+    if literal:
+        if feature.dependencies:
+            raise Unsupported("Literal offset cannot have variable dependencies")
+        signed_value = float(literal[1])
+    else:
+        terms = _linear_expression(expression)
+        if set(terms) != set(feature.dependencies):
+            raise Unsupported("Plane dependency list differs from offset expression")
+        signs = {1 if value > 0 else -1 for value in terms.values()}
+        if len(signs) != 1:
+            raise Unsupported("Offset sign is not invariant over positive source variables")
+        from .native import stage_length_variable
+        supplied = {}
+        for variable in variables:
+            if variable.logical_id in supplied:
+                raise Unsupported("Duplicate source variable")
+            supplied[variable.logical_id] = variable
+        for name in terms:
+            if name not in supplied:
+                raise Unsupported("Missing validated source variable")
+            staged = stage_length_variable(supplied[name])
+            value = float(staged["expression"].strip()[:-2])
+            if not math.isfinite(value) or value <= 0:
+                raise Unsupported("Symbolic plane offsets require strictly positive source variables")
+            if staged["source_line"] >= feature.provenance["source_line"]:
+                raise Unsupported("Plane variable must precede its use")
+            assumptions[name] = {"expression": staged["expression"], "value_mm": value, "required_domain": "positive"}
+        try:
+            signed_value = sum(float(coef) * assumptions[name]["value_mm"] for name, coef in terms.items())
+        except OverflowError as exc:
+            raise Unsupported("Offset magnitude is outside the observed native range") from exc
+    if not math.isfinite(signed_value) or abs(signed_value) > 500000:
+        raise Unsupported("Offset magnitude is outside the observed native range")
+    opposite = signed_value < 0
+    magnitude = (f"{abs(signed_value):g} mm" if literal and opposite else
+                 f"-({expression})" if opposite else expression)
+    return {"logical_id": feature.logical_id, "reference_plane": reference,
+            "source_expression": expression, "magnitude_expression": magnitude,
+            "magnitude_mm": abs(signed_value), "opposite_direction": opposite,
+            "dependencies": list(feature.dependencies), "positive_variable_assumptions": assumptions,
+            "write_ready": False, "frame_verified": False}
+
+
+def expected_offset_plane_tree(feature: Feature, before: dict, *, target: Target,
+                               expected_revision: str, saved_tree: dict,
+                               reference_binding: dict, variables: Sequence[Feature] = ()) -> dict:
+    """Map into an explicitly fresh, UI-bound draft using same-revision query proof.
+
+    ``reference_binding`` carries target, element_microversion, query and query_data
+    from the caller's exact readback. No deterministic IDs are synthesized here.
+    Caller must validate dependencies against live variables before any submission.
+    """
+    staged = stage_offset_plane(feature, variables=variables)
+    if (any(not isinstance(value, str) or not re.fullmatch(r"[a-f0-9]{24}", value) for value in target.to_dict().values())
+            or not isinstance(expected_revision, str) or not re.fullmatch(r"[a-f0-9]{24}", expected_revision)
+            or before.get("target") != target.to_dict()
+            or before.get("element_microversion") != expected_revision or before.get("connected") is not True):
+        raise Unsupported("Exact connected plane target and revision required")
+    tree = before.get("tree", {})
+    children = tree.get("children")
+    fid = before.get("editingFeatureId")
+    if tree.get("$type") != "bsedit.GBTMModel" or not isinstance(children, list) or not fid:
+        raise Unsupported("Fresh active plane draft required")
+    matches = [n for n in children if n.get("featureId") == fid]
+    if len(matches) != 1:
+        raise Unsupported("Active plane identity is ambiguous")
+    draft = matches[0]
+    stripped = copy.deepcopy(tree)
+    stripped["children"] = [n for n in stripped["children"] if n.get("featureId") != fid]
+    if (stripped != saved_tree or any(n.get("featureId") == fid for n in saved_tree.get("children", []))
+            or draft.get("$type") != "bsedit.GBTMFeature" or draft.get("featureType") != "cPlane"
+            or not draft.get("nodeId") or draft.get("suppressed") is not False
+            or draft.get("hasUserCode") is not False or draft.get("namespace") != ""
+            or draft.get("subFeatures") != [] or draft.get("parameterLibraries") != []):
+        raise Unsupported("Fresh plane draft or unchanged saved baseline required")
+    params = draft.get("parameters", [])
+    by_id = {p.get("parameterId"): p for p in params}
+    if len(by_id) != len(params) or set(by_id) != set(_TYPES):
+        raise Unsupported("Unexpected native plane parameter schema")
+    for name, p in by_id.items():
+        if (p.get("$type") != "bsedit.GBTMParameter" + _TYPES[name] or not p.get("nodeId")
+                or p.get("hasUserCode") is not False):
+            raise Unsupported("Native plane parameter type/identity differs")
+    if by_id["cplaneType"].get("enumName") != "CPlaneType" or by_id["cplaneType"].get("value") != "OFFSET":
+        raise Unsupported("Native OFFSET plane draft required")
+    for name, expression, value, units in (("offset", "25 mm", 25, "millimeter"),
+                                         ("angle", "0 deg", 0, "degree"),
+                                         ("width", "150 mm", 150, "millimeter"),
+                                         ("height", "150 mm", 150, "millimeter")):
+        if any(by_id[name].get(k) != v for k, v in {"expression": expression, "value": value, "units": units}.items()):
+            raise Unsupported("Plane draft must retain observed native defaults")
+    if any(by_id[k].get("value") is not False for k in ("oppositeDirection", "flipAlignment", "flipNormal")):
+        raise Unsupported("Plane draft direction differs from observed defaults")
+    queries = by_id["entities"].get("queries")
+    if not isinstance(queries, list) or len(queries) != 1:
+        raise Unsupported("One UI-bound reference plane required")
+    query = queries[0]
+    qdata = reference_binding.get("query_data", {})
+    details = qdata.get("evaluationDetails", {})
+    ids = query.get("deterministicIds")
+    if (reference_binding.get("target") != target.to_dict()
+            or reference_binding.get("element_microversion") != expected_revision
+            or reference_binding.get("query") != query
+            or query.get("$type") != "bsedit.GBTMIndividualQuery" or not query.get("nodeId")
+            or query.get("queryString") != "" or query.get("hasUserCode") is not False
+            or not isinstance(ids, list) or len(ids) != 1 or not isinstance(ids[0], str) or not ids[0]
+            or qdata.get("$type") != "display.GBTQueryData" or qdata.get("deterministicIds") != ids
+            or qdata.get("featureId") != staged["reference_plane"] or qdata.get("selectionName") != "Face"
+            or qdata.get("hasErrorEntity") is not False or qdata.get("isTemporaryFakeDataForSelection") is not False
+            or details.get("fullOperationId") != staged["reference_plane"] + ".planeOp"
+            or details.get("entityType") != 2 or details.get("status") != 0
+            or details.get("outsideExactDependencies") is not False):
+        raise Unsupported("Exact same-revision reference-plane query proof required")
+    result = copy.deepcopy(tree)
+    output = next(n for n in result["children"] if n.get("featureId") == fid)
+    for p in output["parameters"]:
+        if p["parameterId"] == "offset":
+            p.update(expression=staged["magnitude_expression"], value=staged["magnitude_mm"])
+        elif p["parameterId"] == "oppositeDirection":
+            p["value"] = staged["opposite_direction"]
+    return {**staged, "feature_id": fid, "feature_node_id": draft["nodeId"], "expected_tree": result,
+            "target": target.to_dict(), "expected_revision": expected_revision,
+            "requires_live_dependency_verification": bool(staged["dependencies"])}
