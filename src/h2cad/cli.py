@@ -128,6 +128,16 @@ def build_parser() -> argparse.ArgumentParser:
     source_sketch_reconcile.add_argument("--bridge-config", type=Path, required=True)
     source_sketch_reconcile.add_argument("--tab-id", type=int, required=True)
     source_sketch_reconcile.add_argument("--journal", type=Path, required=True)
+    source_extrusion = commands.add_parser("experimental-populate-source-extrusion", help="populate a UI-bound source extrusion from its observed sketch")
+    source_extrusion.add_argument("source", type=Path)
+    _add_target(source_extrusion)
+    source_extrusion.add_argument("--bridge-config", type=Path, required=True)
+    source_extrusion.add_argument("--tab-id", type=int, required=True)
+    source_extrusion.add_argument("--journal", type=Path, required=True)
+    source_extrusion.add_argument("--logical-id", required=True)
+    source_extrusion.add_argument("--sketch-op-id", required=True)
+    source_extrusion.add_argument("--baseline", type=Path, required=True)
+    source_extrusion.add_argument("--variable-op-id")
     plane_cmd = commands.add_parser("experimental-populate-plane", help="populate a UI-allocated reference-bound OFFSET plane")
     plane_cmd.add_argument("source", type=Path)
     _add_target(plane_cmd)
@@ -229,6 +239,7 @@ async def _bridge_action(args: argparse.Namespace) -> tuple[object, int]:
                         "experimental-extrude-populate", "experimental-begin-source-extrude",
                         "experimental-populate-variable", "experimental-reconcile-saved-source-variable",
                         "experimental-populate-plane", "experimental-reconcile-saved-source-plane",
+                        "experimental-populate-source-extrusion",
                         "experimental-populate-source-sketch", "experimental-reconcile-saved-source-sketch",
                         "experimental-create-plate",
                         "experimental-classify-known-invalid-sketch",
@@ -318,6 +329,16 @@ async def _bridge_action(args: argparse.Namespace) -> tuple[object, int]:
                 return await populate_source_sketch(backend, _target(args), args.source, logical_id=args.logical_id,
                     baseline=json.loads(args.baseline.read_text(encoding="utf-8")), plane_op_id=args.plane_op_id,
                     variable_op_ids=json.loads(args.variable_operations.read_text(encoding="utf-8")), journal=journal), 0
+            finally:
+                journal.close()
+        if args.command == "experimental-populate-source-extrusion":
+            from .native_source_extrusions import populate_source_extrusion
+            journal = Journal(args.journal)
+            try:
+                return await populate_source_extrusion(backend, _target(args), args.source,
+                    logical_id=args.logical_id, sketch_op_id=args.sketch_op_id,
+                    baseline=json.loads(args.baseline.read_text(encoding="utf-8")),
+                    variable_op_id=args.variable_op_id, journal=journal), 0
             finally:
                 journal.close()
         if args.command == "experimental-populate-plane":
