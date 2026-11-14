@@ -1,8 +1,8 @@
-> **Active budget:** user resumed until 85% remaining (15% used). Last meter 10% used. Root owns live Browser/bridge/journal; plane_mapping owns bounded offline body-scope proof work. Check usage between batches and stop at15% used.
+> **Active budget:** user resumed until85%remaining (15%used). Latest meter14%used. Root owns live Browser/bridge/journal; workers completed bounded tasks and are idle. Stop development at15%used.
 >
-> **Saved live state:** Robot - Seven Hole Carrier, EID e37ca903af44622ca6919031 / tab 941741361, revision c130f5d8bed1a97d87b830a4. Nine source features, two solids; source-run, mass properties and 12-to-14-to-12 exact tree restoration passed. No unresolved writes; reload guard false. Source47 is documentation-only; paired runtime46 remains active.
+> **Saved live state:** Robot - Split Scope Test, EID4bae4e36c39e40e64e8146d1 / tab941741361, revisiond559ebfd48db73fba2a05d78. Nine source features, three solids. Split geometry and12-to-14-to-12 exact tree/body identity restoration passed. Source-run native measurements match local count/volume/area; no unresolved writes. Earlier carrier/car studios preserved. Seven-hole carrier visibility test restored, its newer revision is3d339ad24212eec552bd1ea9. Source47 is documentation-only; paired modeling runtime46 unchanged.
 >
-> **Latest offline work:** hollow square tube validated locally (not 2020 T-slot). Repeated source-target REMOVE is now rejected by both coordinator and direct H2 writer (06589bb, 45 focused tests). Earlier full suite:348 passed; source-run/CLI/setup:45 passed; bootstrap47:2 passed. Complete arm remains unfinished. Next: complete current body-set/lineage proof before sequential cuts, genuine2020 profiles and source-backed assemblies/mates. Graph last refreshed at745 nodes/2702 edges; refresh final guard/bootstrap changes on resume.
+> **Integrated verification:**425tests passed. New local preview command, server body inventory parser, read-only native per-body volume/area collector, source-run automatic measurement checkpoint. Hidden and split bodies observed; candidate scope detects both descendants but grants no write authority. Graph refreshed:807nodes,2934edges,35communities. Next: bind complete observed body lineage to source journal/modification chain and independently verify scope in native write preflight before sequential cuts; actual2020profiles and source-backed robot assembly/mates remain unfinished.
 
 # H2 CAD development status
 
@@ -51,7 +51,7 @@ Source47 (`914d844`, tree `13a9995f99bef8af6a3c7f872d35ea7b46d5b812`) updates th
 - Patch42 focused validation:37H2/bootstrap,155Native Python,54adapter tests passed.
 - Patch43 documentation: YAML/manifest/reference/CLI checks and two bootstrap tests passed.
 - Latest full suite:348passed after coordinator REMOVE integration. Latest focused source-run/CLI/setup tests:45passed, including measurement provenance, stale revision and changed/missing evidence rejection. Hollow-tube local validation:5passed.
-- Latest Graphify refresh:745nodes,2702edges,22communities,46/56files cached; no external model. Refresh once after each substantive integrated src/scripts/tests batch, not for documentation-only edits.
+- Latest Graphify refresh:807nodes,2934edges,35communities,49/68files cached; no external model. Refresh once after each substantive integrated src/scripts/tests batch, not for documentation-only edits.
 
 Earlier plate proof remains in [Test03](../artifacts/native-mvp-checkpoint/test03-clean-source-plate-2026-11-14.md). It passed with supported fresh-tab saved-state recovery. Detailed variable/plane/sketch/extrusion samples and transport repairs are in [development evidence](../artifacts/native-car-origin-circle-and-plane37-REPORT.md).
 

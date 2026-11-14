@@ -305,6 +305,62 @@ async def record_measurements(path, backend, source, target, journal, evidence_p
                 "geometry_comparison": _measurement_comparison(run, state)}
 
 
+def _native_measurement_status(run, state):
+    evidence = run.get("native_measurements")
+    if not evidence:
+        return None
+    status = "match"
+    if (evidence["element_microversion"] != state["element_microversion"]
+            or evidence["document_microversion"] != state["microversion"]):
+        status = "stale"
+    try:
+        if hashlib.sha256(Path(evidence["report"]).read_bytes()).hexdigest() != evidence["sha256"]:
+            status = "evidence_changed"
+    except OSError:
+        status = "evidence_unavailable"
+    return {"status": status, "independently_acquired": True,
+            "method": "native_mass_properties", "shape_verified": False,
+            "report": evidence["report"], "sha256": evidence["sha256"]}
+
+
+async def measure_native(path, backend, source, target, journal):
+    """Compare directly acquired native solid count, volume and area to local CAD."""
+    from .native_geometry import collect_native_geometry
+    with _lock(path):
+        run, _ = _load(path, source, target, journal)
+        _adopt(run, journal)
+        before = await backend.raw_state(target)
+        _state(run, before, target, backend)
+        if (len(run["bindings"]) != len(run["plan"]) or run["staged"]
+                or before.get("editingFeatureId", "missing") is not None
+                or before.get("h2Readback", {}).get("incompleteFeatureEdit")):
+            raise Unsupported("Complete saved idle source run required before native measurement")
+        result = await collect_native_geometry(backend, target)
+        after = result["raw_provenance"]["after_state"]
+        if (not _same_snapshot(before, result["raw_provenance"]["before_state"])
+                or before.get("microversion") != result["document_microversion"]):
+            raise Unsupported("Native measurement started from a changed source snapshot")
+        _state(run, after, target, backend)
+        local = run["local_validation"]["geometry"]
+        if result["body_count"] != local.get("parts"):
+            raise Unsupported("Native solid count differs from local source model")
+        for native_key, local_key in (("volume_mm3", "volume_mm3"), ("surface_area_mm2", "area_mm2")):
+            actual = result["totals"][native_key]["nominal"]
+            expected = local.get(local_key)
+            if (type(expected) not in (int, float) or not math.isfinite(expected)
+                    or not math.isclose(actual, expected, rel_tol=1e-7, abs_tol=0.002)):
+                raise Unsupported("Native " + local_key + " differs from local source model")
+        evidence_path = Path(str(path) + ".native-geometry.json").resolve()
+        _save(evidence_path, result)
+        run["native_measurements"] = {"element_microversion": result["element_microversion"],
+            "document_microversion": result["document_microversion"], "report": str(evidence_path),
+            "sha256": hashlib.sha256(evidence_path.read_bytes()).hexdigest()}
+        _save(path, run)
+        return {"action": "native_measurements_recorded", "body_count": result["body_count"],
+                "totals": result["totals"], "native_mass_properties_verified": True,
+                "geometry_verified": False, "native_comparison": _native_measurement_status(run, after)}
+
+
 async def _require_remove_capabilities(backend, feature):
     if feature["kind"]=="extrude" and feature["stage"]["operation_type"]=="REMOVE":
         health=await backend.bridge.health()
@@ -327,6 +383,9 @@ async def next_action(path, backend, source, target, journal):
             result = {"action": "verify_geometry", "source_features_observed": len(run["bindings"]), "geometry_verified": False}
             if run.get("geometry_measurements"):
                 result["geometry_comparison"] = _measurement_comparison(run, state)
+            if run.get("native_measurements"):
+                result["native_comparison"] = _native_measurement_status(run, state)
+                result["native_mass_properties_verified"] = result["native_comparison"]["status"] == "match"
             return result
         feature = run["plan"][len(run["bindings"])]
         await _require_remove_capabilities(backend, feature)

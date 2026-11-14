@@ -353,6 +353,33 @@ def test_all_features_dispatch_in_order_with_observed_dependencies(setup, monkey
         assert sync(run.next_action(path,backend,source,TARGET,journal))['geometry_comparison']['status']=='evidence_changed'
         image.unlink()
         assert sync(run.next_action(path,backend,source,TARGET,journal))['geometry_comparison']['status']=='evidence_unavailable'
+        from h2cad import native_geometry
+        backend.state['microversion']='f'*24
+        geometry = dict(target=TARGET.to_dict(), body_count=2,
+            element_microversion=backend.state['element_microversion'], document_microversion='f'*24,
+            totals={'volume_mm3':{'nominal':45265.304}, 'surface_area_mm2':{'nominal':18677.987}},
+            raw_provenance={'before_state':copy.deepcopy(backend.state),'after_state':copy.deepcopy(backend.state)})
+        async def collect(owner, target):
+            assert owner is backend and target == TARGET
+            return copy.deepcopy(geometry)
+        monkeypatch.setattr(native_geometry,'collect_native_geometry',collect)
+        geometry['body_count']=1
+        with pytest.raises(Unsupported,match='solid count'):
+            sync(run.measure_native(path,backend,source,TARGET,journal))
+        geometry['body_count']=2
+        geometry['totals']['volume_mm3']['nominal']=40000
+        with pytest.raises(Unsupported,match='volume_mm3'):
+            sync(run.measure_native(path,backend,source,TARGET,journal))
+        assert 'native_measurements' not in json.loads(path.read_text())
+        geometry['totals']['volume_mm3']['nominal']=45265.304
+        result=sync(run.measure_native(path,backend,source,TARGET,journal))
+        assert result['native_mass_properties_verified'] is True
+        assert result['geometry_verified'] is False
+        assert sync(run.next_action(path,backend,source,TARGET,journal))['native_mass_properties_verified'] is True
+        backend.state['microversion']='d'*24
+        assert sync(run.next_action(path,backend,source,TARGET,journal))['native_comparison']['status']=='stale'
+        Path(result['native_comparison']['report']).write_text('changed')
+        assert sync(run.next_action(path,backend,source,TARGET,journal))['native_comparison']['status']=='evidence_changed'
         assert len(calls)==len(plan)
 
 

@@ -3,6 +3,14 @@
 Scope: generic profile capability, not a dimensioned or rated vendor extrusion.
 No browser experiments or runtime modifications were performed for this audit.
 
+Follow-up live evidence now exists: [split-body report](../../artifacts/robot/carrier-split-REPORT.md).
+Native QueryInsertables includes hidden bodies, and the split fixture enumerates
+both descendants with the original creator and a Boolean full operation ID.
+`native_body_sets.py` checks this evidence; `native_geometry.py` independently
+collects per-body volume/area at stable document and element revisions. These
+read-only contracts do not grant write authority. Remaining work is source-journal
+modification-chain binding and independent scope verification during write preflight.
+
 ## Current routes
 
 | Route | Local FSGen | Current native source writer | Consequence |

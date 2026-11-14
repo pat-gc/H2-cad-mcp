@@ -1,0 +1,25 @@
+{
+  "status": "rendered",
+  "source_sha256": "8c39327db2eb9daa1acd0036c3f2df64178a938ea79c0846ebeb640bc88da9ee",
+  "image_sha256": "fd76b5a0a8bbdc341445d7055ede63d043dfc370422feab98116c0ee6ccc85a9",
+  "image": "carrier-split-local-preview.png",
+  "geometry": {
+    "parts": 3,
+    "volume_mm3": 49680.0,
+    "area_mm2": 18576.0,
+    "bbox_mm": [
+      -30.0,
+      -30.0,
+      0.0,
+      30.0,
+      30.0,
+      23.0
+    ]
+  },
+  "kernel_valid_solids": 3,
+  "warnings": [],
+  "provenance": "FSGen local OpenCascade",
+  "remote": "not_run",
+  "native_compatibility": "not_checked",
+  "native_editability": "not_run"
+}

@@ -73,7 +73,7 @@ def build_parser() -> argparse.ArgumentParser:
     preview_cmd.add_argument("source", type=Path)
     preview_cmd.add_argument("--output", type=Path, required=True)
     source_run_cmd = commands.add_parser("experimental-source-run", help="checkpoint source-order execution; Browser still allocates drafts")
-    source_run_cmd.add_argument("action", choices=("init", "next", "apply", "record-measurements"))
+    source_run_cmd.add_argument("action", choices=("init", "next", "apply", "record-measurements", "measure-native"))
     source_run_cmd.add_argument("--measurements", type=Path, help="Browser mass-property evidence JSON for record-measurements")
     source_run_cmd.add_argument("source", type=Path)
     source_run_cmd.add_argument("--run-state", type=Path, required=True)
@@ -91,6 +91,11 @@ def build_parser() -> argparse.ArgumentParser:
     _add_target(inspect_cmd)
     inspect_cmd.add_argument("--bridge-config", type=Path, required=True)
     inspect_cmd.add_argument("--tab-id", type=int)
+    geometry_cmd = commands.add_parser("inspect-geometry", help="read native solid inventory, volume and area through the session bridge")
+    _add_target(geometry_cmd)
+    geometry_cmd.add_argument("--bridge-config", type=Path, required=True)
+    geometry_cmd.add_argument("--tab-id", type=int, required=True)
+    geometry_cmd.add_argument("--output", type=Path)
     probe_cmd = commands.add_parser("native-probe", help="read sketch/extrusion runtime schemas and settings only")
     _add_target(probe_cmd)
     probe_cmd.add_argument("--bridge-config", type=Path, required=True)
@@ -305,7 +310,7 @@ async def _bridge_action(args: argparse.Namespace) -> tuple[object, int]:
                     "running_creation_target": health.get("h2cad_create_target")}, 0
         backend = NativeBackend(bridge, tab_id=args.tab_id)
         if args.command == "experimental-source-run":
-            from .source_run import initialize_run, next_action, apply_staged, record_measurements
+            from .source_run import initialize_run, next_action, apply_staged, record_measurements, measure_native
             target = _target(args)
             if backend.create_target != target.to_dict():
                 raise ValueError("Source run must use the bridge's configured creation target")
@@ -320,12 +325,17 @@ async def _bridge_action(args: argparse.Namespace) -> tuple[object, int]:
                     if args.measurements is None:
                         raise ValueError("record-measurements requires --measurements")
                     return await record_measurements(args.run_state, backend, args.source, target, journal, args.measurements), 0
+                if args.action == "measure-native":
+                    return await measure_native(args.run_state, backend, args.source, target, journal), 0
                 action = next_action if args.action == "next" else apply_staged
                 return await action(args.run_state, backend, args.source, target, journal), 0
             finally:
                 journal.close()
         if args.command == "inspect":
             return await backend.raw_state(_target(args)), 0
+        if args.command == "inspect-geometry":
+            from .native_geometry import collect_native_geometry
+            return await collect_native_geometry(backend, _target(args)), 0
         if args.command == "native-probe":
             return await backend.modeling_probe(_target(args)), 0
         if args.command == "native-create-probe":
@@ -502,7 +512,8 @@ def main(argv: list[str] | None = None) -> int:
             if getattr(args, "output", None):
                 args.output.parent.mkdir(parents=True, exist_ok=True)
                 args.output.write_text(json.dumps(value, indent=2, ensure_ascii=False, sort_keys=True) + "\n", encoding="utf-8")
-            _print(value)
+            _print({k: v for k, v in value.items() if k != "raw_provenance"}
+                   if args.command == "inspect-geometry" else value)
             return status
         if getattr(args, "output", None):
             args.output.parent.mkdir(parents=True, exist_ok=True)

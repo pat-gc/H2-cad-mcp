@@ -7,7 +7,7 @@ import pytest
 from h2cad import cli, source_run
 
 
-@pytest.mark.parametrize("action", ["init", "next", "apply", "record-measurements"])
+@pytest.mark.parametrize("action", ["init", "next", "apply", "record-measurements", "measure-native"])
 @pytest.mark.parametrize("mismatch", [None, "journal", "target", "running_target"])
 def test_source_run_cli_pins_routes_and_closes(tmp_path, monkeypatch, capsys, action, mismatch):
     target = {"did": "a" * 24, "wid": "b" * 24, "eid": "c" * 24}
@@ -54,12 +54,18 @@ def test_source_run_cli_pins_routes_and_closes(tmp_path, monkeypatch, capsys, ac
         events[-1] = "record-measurements"
         return {"action": "measurements_recorded"}
 
+    async def measure(path, backend, source, given_target, given_journal):
+        await next_step(path, backend, source, given_target, given_journal)
+        events[-1] = "measure-native"
+        return {"action": "measurements_recorded"}
+
     monkeypatch.setattr(cli, "NativeBridge", Bridge)
     monkeypatch.setattr(cli, "NativeBackend", backend)
     monkeypatch.setattr(source_run, "initialize_run", initialize)
     monkeypatch.setattr(source_run, "next_action", next_step)
     monkeypatch.setattr(source_run, "apply_staged", apply)
     monkeypatch.setattr(source_run, "record_measurements", record)
+    monkeypatch.setattr(source_run, "measure_native", measure)
     argv = ["experimental-source-run", action, str(tmp_path / "source.fs"),
             "--run-state", str(tmp_path / "run.json"), "--journal", str(journal),
             "--bridge-config", str(config), "--tab-id", "123"]

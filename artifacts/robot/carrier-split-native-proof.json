@@ -1,0 +1,302 @@
+{
+  "target": {
+    "did": "4e078dec822b4e509616b1cb",
+    "eid": "4bae4e36c39e40e64e8146d1",
+    "wid": "af0627de07264acf086e646a"
+  },
+  "source_sha256": "8c39327db2eb9daa1acd0036c3f2df64178a938ea79c0846ebeb640bc88da9ee",
+  "source_features_observed": 9,
+  "feature_bindings": {
+    "#carrierThickness": {
+      "feature_id": "FgPqANVUhcs8QiT_0",
+      "op_id": "variable-77bd2ec5fad649e2b282746baa4deac7"
+    },
+    "Carrier blank": {
+      "feature_id": "FfQqD1D77pgFCAA_0",
+      "op_id": "extrude-585e2ef0f8ff416a85116d7c3c6e54f4"
+    },
+    "Carrier holes": {
+      "feature_id": "FAjvx8sOHcRlzkL_2",
+      "op_id": "source-sketch-70a914aeb555445ca300963a4bb8c5a9"
+    },
+    "Carrier outline": {
+      "feature_id": "FT7u4OFknZfiN5k_0",
+      "op_id": "source-sketch-b6199a9ce3cb4142b31a2a9187282df3"
+    },
+    "Carrier plane": {
+      "feature_id": "FbyBVi0Ec36Q3T0_0",
+      "op_id": "plane-71a37ec406d04ad28afd64d2f9c0fd24"
+    },
+    "Carrier through bores": {
+      "feature_id": "F3hgpZaazvOORTW_2",
+      "op_id": "extrude-45e7bb388acf4d6b97c90124059d3667"
+    },
+    "Untouched witness": {
+      "feature_id": "FouZC0aVaNLic5m_1",
+      "op_id": "extrude-eef22644b2724dee9dcb15b31662722f"
+    },
+    "Witness outline": {
+      "feature_id": "FkdV7bDofuTfOm7_1",
+      "op_id": "source-sketch-b179c9881ff448bda5b4a191929e8cb9"
+    },
+    "Witness plane": {
+      "feature_id": "F1B1jF6z5MEv0a8_1",
+      "op_id": "plane-b7c9f9f6669b40c4a10e94d651c6a984"
+    }
+  },
+  "local_validation": {
+    "error": null,
+    "geometry": {
+      "area_mm2": 18576.0,
+      "bbox_mm": [
+        -30.0,
+        -30.0,
+        0.0,
+        30.0,
+        30.0,
+        23.0
+      ],
+      "parts": 3,
+      "volume_mm3": 49680.0
+    },
+    "native_editability": "not_run",
+    "provenance": "FSGen local OpenCascade only",
+    "remote": "not_run",
+    "status": "passed",
+    "warnings": []
+  },
+  "unchanged_feature_ids": true,
+  "unchanged_body_ids": true,
+  "restored_exact_tree": true,
+  "tree_sha256": "1c2ddc4f8b2b872e602d2a5798c814b7ddb46495e46fac3bfbb407f19651dc1d",
+  "edit_sequence_mm": [
+    12,
+    14,
+    12
+  ],
+  "unresolved_writes": 0,
+  "connected_idle": true,
+  "method": "Native QueryInsertables + GetQueryData + geometry-only MassProp, pinned document/element revisions",
+  "phases": [
+    {
+      "target": {
+        "did": "4e078dec822b4e509616b1cb",
+        "eid": "4bae4e36c39e40e64e8146d1",
+        "wid": "af0627de07264acf086e646a"
+      },
+      "element_microversion": "ffa8966499beb0ab5fbf504b",
+      "document_microversion": "338e320cdb965992fcb74687",
+      "body_count": 3,
+      "bodies": [
+        {
+          "body_id": "JMD",
+          "creator_feature_id": "FouZC0aVaNLic5m_1",
+          "full_operation_id": "FouZC0aVaNLic5m_1.opExtrude",
+          "surface_area_mm2": {
+            "max": 7920.022104188991,
+            "min": 7919.977895811008,
+            "nominal": 7920.0
+          },
+          "volume_mm3": {
+            "max": 10800.488595170986,
+            "min": 10799.51140482901,
+            "nominal": 10799.999999999998
+          }
+        },
+        {
+          "body_id": "JQD",
+          "creator_feature_id": "FfQqD1D77pgFCAA_0",
+          "full_operation_id": "F3hgpZaazvOORTW_2.boolean.opBoolean",
+          "surface_area_mm2": {
+            "max": 5328.02688842848,
+            "min": 5327.973111571521,
+            "nominal": 5328.0
+          },
+          "volume_mm3": {
+            "max": 19440.722987586087,
+            "min": 19439.277012413906,
+            "nominal": 19439.999999999996
+          }
+        },
+        {
+          "body_id": "JQH",
+          "creator_feature_id": "FfQqD1D77pgFCAA_0",
+          "full_operation_id": "F3hgpZaazvOORTW_2.boolean.opBoolean",
+          "surface_area_mm2": {
+            "max": 5328.02688842848,
+            "min": 5327.973111571521,
+            "nominal": 5328.0
+          },
+          "volume_mm3": {
+            "max": 19440.722987586087,
+            "min": 19439.277012413906,
+            "nominal": 19439.999999999996
+          }
+        }
+      ],
+      "totals": {
+        "surface_area_mm2": {
+          "max": 18576.075881045952,
+          "min": 18575.92411895405,
+          "nominal": 18576.0
+        },
+        "volume_mm3": {
+          "max": 49681.93457034316,
+          "min": 49678.065429656825,
+          "nominal": 49679.99999999999
+        }
+      },
+      "scope_write_ready": false,
+      "shape_verified": false
+    },
+    {
+      "target": {
+        "did": "4e078dec822b4e509616b1cb",
+        "wid": "af0627de07264acf086e646a",
+        "eid": "4bae4e36c39e40e64e8146d1"
+      },
+      "element_microversion": "a37e7fe7bf9f70a029a1dceb",
+      "document_microversion": "2e4ffe19632f7e98a3a2c993",
+      "body_count": 3,
+      "bodies": [
+        {
+          "body_id": "JMD",
+          "creator_feature_id": "FouZC0aVaNLic5m_1",
+          "full_operation_id": "FouZC0aVaNLic5m_1.opExtrude",
+          "volume_mm3": {
+            "nominal": 10799.999999999998,
+            "min": 10799.51140482901,
+            "max": 10800.488595170986
+          },
+          "surface_area_mm2": {
+            "nominal": 7920.0,
+            "min": 7919.977895811008,
+            "max": 7920.022104188991
+          }
+        },
+        {
+          "body_id": "JQD",
+          "creator_feature_id": "FfQqD1D77pgFCAA_0",
+          "full_operation_id": "F3hgpZaazvOORTW_2.boolean.opBoolean",
+          "volume_mm3": {
+            "nominal": 22680.0,
+            "min": 22679.198761086293,
+            "max": 22680.801238913707
+          },
+          "surface_area_mm2": {
+            "nominal": 5676.000000000001,
+            "min": 5675.971693836119,
+            "max": 5676.028306163882
+          }
+        },
+        {
+          "body_id": "JQH",
+          "creator_feature_id": "FfQqD1D77pgFCAA_0",
+          "full_operation_id": "F3hgpZaazvOORTW_2.boolean.opBoolean",
+          "volume_mm3": {
+            "nominal": 22680.0,
+            "min": 22679.198761086293,
+            "max": 22680.801238913707
+          },
+          "surface_area_mm2": {
+            "nominal": 5676.000000000001,
+            "min": 5675.971693836119,
+            "max": 5676.028306163882
+          }
+        }
+      ],
+      "totals": {
+        "volume_mm3": {
+          "nominal": 56160.0,
+          "min": 56157.9089270016,
+          "max": 56162.0910729984
+        },
+        "surface_area_mm2": {
+          "nominal": 19272.0,
+          "min": 19271.921283483247,
+          "max": 19272.078716516757
+        }
+      },
+      "scope_write_ready": false,
+      "shape_verified": false
+    },
+    {
+      "target": {
+        "did": "4e078dec822b4e509616b1cb",
+        "eid": "4bae4e36c39e40e64e8146d1",
+        "wid": "af0627de07264acf086e646a"
+      },
+      "element_microversion": "d559ebfd48db73fba2a05d78",
+      "document_microversion": "fb6532f39280688e48bd9764",
+      "body_count": 3,
+      "bodies": [
+        {
+          "body_id": "JMD",
+          "creator_feature_id": "FouZC0aVaNLic5m_1",
+          "full_operation_id": "FouZC0aVaNLic5m_1.opExtrude",
+          "surface_area_mm2": {
+            "max": 7920.022104188991,
+            "min": 7919.977895811008,
+            "nominal": 7920.0
+          },
+          "volume_mm3": {
+            "max": 10800.488595170986,
+            "min": 10799.51140482901,
+            "nominal": 10799.999999999998
+          }
+        },
+        {
+          "body_id": "JQD",
+          "creator_feature_id": "FfQqD1D77pgFCAA_0",
+          "full_operation_id": "F3hgpZaazvOORTW_2.boolean.opBoolean",
+          "surface_area_mm2": {
+            "max": 5328.02688842848,
+            "min": 5327.973111571521,
+            "nominal": 5328.0
+          },
+          "volume_mm3": {
+            "max": 19440.722987586087,
+            "min": 19439.277012413906,
+            "nominal": 19439.999999999996
+          }
+        },
+        {
+          "body_id": "JQH",
+          "creator_feature_id": "FfQqD1D77pgFCAA_0",
+          "full_operation_id": "F3hgpZaazvOORTW_2.boolean.opBoolean",
+          "surface_area_mm2": {
+            "max": 5328.02688842848,
+            "min": 5327.973111571521,
+            "nominal": 5328.0
+          },
+          "volume_mm3": {
+            "max": 19440.722987586087,
+            "min": 19439.277012413906,
+            "nominal": 19439.999999999996
+          }
+        }
+      ],
+      "totals": {
+        "surface_area_mm2": {
+          "max": 18576.075881045952,
+          "min": 18575.92411895405,
+          "nominal": 18576.0
+        },
+        "volume_mm3": {
+          "max": 49681.93457034316,
+          "min": 49678.065429656825,
+          "nominal": 49679.99999999999
+        }
+      },
+      "scope_write_ready": false,
+      "shape_verified": false
+    }
+  ],
+  "source_acceptance_rejected_while_edited": true,
+  "scope_finding": "Both split descendants share original creator; fullOperationId points to Boolean. One selected descendant is insufficient.",
+  "limitations": [
+    "Repeated-cut writers still blocked",
+    "Shape/bounds/motion not proved by mass properties",
+    "Complete robot not modeled"
+  ]
+}

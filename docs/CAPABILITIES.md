@@ -14,6 +14,7 @@ The supported delivery is an agent skill combining local FSGen/OpenCascade valid
 | Planes | Signed OFFSET from Top or Right, including live-tested zero offset, literal or validated linear expressions | No Front, angled, face-derived or arbitrary-frame planes |
 | Extrusions | SOLID/NEW/BLIND, exact whole-sketch regions, positive literal or direct variable depth | Explicit-scope REMOVE passed live on one observed source-created body; ADD/intersection, arithmetic depth expressions, reverse/symmetric extrusion and draft remain unsupported |
 | Regeneration | Native variable edits regenerate dependent source geometry; same-ID restoration tested in isolated samples | Full car14→16→14 wheel-radius edit passed with stable IDs and exact restored definitions |
+| Geometry inspection | Native server inventory, per-body volume/area bounds and creator associations; source-run count/volume/area comparison | Read-only, pinned document and element revisions; metrics do not establish shape, fit or motion |
 | Updates | Three-way planner and narrowly scoped native edit paths exist | General source synchronization and existing-feature update execution remain unsupported |
 | Assemblies | Underlying tools inspect/edit existing mates, transform existing occurrences and preview existing revolute mates | No source-backed assembly creation, insertion or mate-creation pipeline |
 | Unknown writes | Intent journal, exact target/revision checks, no replay, independent saved-tree proof and explicit marker retirement | Missing proof/receipt leaves an operation unresolved; no atomic rollback promise |
@@ -31,6 +32,7 @@ Live evidence includes the source plate with edit/restore; all seven car variabl
 ## Remaining primitives for the robotic arm
 
 1. The complete seven-hole bearing carrier passed all nine coordinator features, local/native mass properties, preserved witness body and exact 12→14→12 edit restoration. See [full carrier proof](../artifacts/robot/full-carrier-REPORT.md).
+   The split-carrier fixture also passed three-body native measurements and edit/restore. Read-only inventory detects both descendants; repeated cuts remain blocked pending journal-chain and write-time scope binding. See [split proof](../artifacts/robot/carrier-split-REPORT.md).
 2. Actual T-slot 2020 profiles still need general profiles or validated component insertion. A separate [hollow square tube fixture](robot/HOLLOW-TUBE-PRIMITIVE.md) passes local geometry validation using existing rectangle/REMOVE operations; it is not a T-slot substitute and has not been tested live.
 3. Source-bound assembly creation and insertion, then fixed connections, three revolute joints, one slider joint, limits and independent motion verification.
 4. Repeatable source updates and regeneration checks. Additional plane orientations depend on the chosen mechanical layout.

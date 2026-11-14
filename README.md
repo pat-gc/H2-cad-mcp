@@ -65,6 +65,7 @@ explicitly:
 ```powershell
 python -m h2cad doctor --bridge-config PATH_TO_BRIDGE_JSON
 python -m h2cad inspect --did DID --wid WID --eid EID --bridge-config PATH_TO_BRIDGE_JSON
+python -m h2cad inspect-geometry --did DID --wid WID --eid EID --bridge-config PATH_TO_BRIDGE_JSON --tab-id TAB --output artifacts/native-geometry.json
 python -m h2cad reconcile OP_ID --journal PATH_TO_JOURNAL_DB --bridge-config PATH_TO_BRIDGE_JSON
 ```
 

@@ -151,6 +151,22 @@ or unavailable evidence. It does not read pixels or obtain mass properties itsel
 `geometry_verified` stays false and `independently_acquired` stays false. Human
 editability and geometric shape checks remain separate evidence.
 
+`experimental-source-run measure-native` now acquires mass properties directly
+through read-only native session commands. It requires the complete source run,
+unchanged observed definitions, saved idle state, and clear journal. It compares
+server-enumerated solid count, total volume and area with local validation, saves
+a hashed `.native-geometry.json` evidence file beside the run checkpoint, and
+reports `native_mass_properties_verified: true` only on a match. Later `next`
+calls invalidate this result when either revision changes or evidence changes.
+This does not prove shape, bounds, manufacturability or assembly motion.
+
+For independent inspection, `inspect-geometry --did DID --wid WID --eid EID
+--bridge-config CONFIG --tab-id TAB --output REPORT.json` returns per-body nominal,
+minimum and maximum volume/area, creator associations and totals. Terminal output
+is compact; the optional report retains raw read provenance. Both document and
+element revisions are pinned across reads. It uses no REST endpoint and infers
+no mass or material properties from geometry.
+
 ## Existing plate MCP entry point
 
 The reviewed Native fork adds `experimental_h2_create_plate` to its existing
