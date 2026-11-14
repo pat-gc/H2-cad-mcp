@@ -13,13 +13,13 @@ The supported delivery is an agent skill combining local FSGen/OpenCascade valid
 | Circles | One or more circles, each with diameter and two position dimensions; source expressions and fixed local origin | Centers on either coordinate axis currently rejected |
 | Planes | Signed OFFSET from Top or Right, literal or validated linear expressions | No Front, angled, face-derived or arbitrary-frame planes |
 | Extrusions | SOLID/NEW/BLIND, exact whole-sketch regions, positive literal or direct variable depth | No ADD/REMOVE/intersection, arithmetic depth expressions, reverse/symmetric extrusion or draft |
-| Regeneration | Native variable edits regenerate dependent source geometry; same-ID restoration tested in isolated samples | Full-car edit/restore gate is tracked separately in STATUS |
+| Regeneration | Native variable edits regenerate dependent source geometry; same-ID restoration tested in isolated samples | Full car14→16→14 wheel-radius edit passed with stable IDs and exact restored definitions |
 | Updates | Three-way planner and narrowly scoped native edit paths exist | General source synchronization and existing-feature update execution remain unsupported |
 | Assemblies | Underlying tools inspect/edit existing mates, transform existing occurrences and preview existing revolute mates | No source-backed assembly creation, insertion or mate-creation pipeline |
 | Unknown writes | Intent journal, exact target/revision checks, no replay, independent saved-tree proof and explicit marker retirement | Missing proof/receipt leaves an operation unresolved; no atomic rollback promise |
 | Authentication | Authenticated Edge session and private loopback pairing; official Browser controls | Computer Use is authorized only for saved sign-in |
 
-Live evidence includes the source plate with edit/restore; all seven car variables; source planes, rectangles and circles; and source extrusions. The current car run has created all 22 native definitions and is performing final geometry/editability checks. The isolated two-circle extrusion proved two NEW solids and variable-driven regeneration. These results do not establish a general mechanical-design or assembly compiler. See the [evidence report](../artifacts/native-car-origin-circle-and-plane37-REPORT.md).
+Live evidence includes the source plate with edit/restore; all seven car variables; source planes, rectangles and circles; and source extrusions. The car passed all22 native definitions, eight-solid volume/area, independent tessellated bounds, and ordinary parameter edit/restore checks. The isolated two-circle extrusion proved two NEW solids and variable-driven regeneration. These results do not establish a general mechanical-design or assembly compiler. See the [evidence report](../artifacts/native-car-origin-circle-and-plane37-REPORT.md).
 
 ## Implementation references
 
