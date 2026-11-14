@@ -1,0 +1,1 @@
+{"classId": 3222, "defaults": {"$type": "ui.assembly.GBTUiAssemblyTreeItemDefinitionRequest", "editDescription": "", "elementId": "", "messageId": "", "nodeId": "", "parentOccurrence": {"$type": "assembly.GBTOccurrence", "path": []}}, "name": "ui.assembly.GBTUiAssemblyTreeItemDefinitionRequest", "tab_id": 941741361}

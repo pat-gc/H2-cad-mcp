@@ -1,0 +1,241 @@
+{
+  "assembly_target": {
+    "did": "4e078dec822b4e509616b1cb",
+    "wid": "af0627de07264acf086e646a",
+    "eid": "4b621d8d622b4d57863db2cb"
+  },
+  "assembly_microversion": "313bfe22c361f0d362864e00",
+  "source_part_studio_eid": "9b8155a2839e649138dae95f",
+  "source_part_ids": [
+    "JID",
+    "JMD",
+    "JQD",
+    "JQH",
+    "JUD",
+    "JUH",
+    "JYD",
+    "JYH"
+  ],
+  "occurrence_count": 8,
+  "source_body_ids_verified": true,
+  "unique_occurrence_paths": true,
+  "all_transforms_identity": true,
+  "units_in": "meter",
+  "units_out": "millimeter",
+  "exact_cad": false,
+  "quality": "Current loaded display tessellation; no requested refinement or export translation.",
+  "aggregate_bounds_mm": {
+    "min": [
+      -57.00000002980232,
+      -90.00000357627869,
+      1.0000000474974513
+    ],
+    "max": [
+      57.00000002980232,
+      90.00000357627869,
+      64.99999761581421
+    ]
+  },
+  "occurrences": [
+    {
+      "body_id": "JID",
+      "name": "Part 1",
+      "occurrence_path": "M0E00ppn3/JNI2lIQ",
+      "source_full_element_id": "9b8155a2839e649138dae95f-56e3965de03a89dd46ffe363",
+      "occurrence_transform": [
+        1,
+        0,
+        0,
+        0,
+        0,
+        1,
+        0,
+        0,
+        0,
+        0,
+        1,
+        0,
+        0,
+        0,
+        0,
+        1
+      ],
+      "vertices": 24
+    },
+    {
+      "body_id": "JMD",
+      "name": "Part 2",
+      "occurrence_path": "MAWzelXr+CaiTGN7K",
+      "source_full_element_id": "9b8155a2839e649138dae95f-56e3965de03a89dd46ffe363",
+      "occurrence_transform": [
+        1,
+        0,
+        0,
+        0,
+        0,
+        1,
+        0,
+        0,
+        0,
+        0,
+        1,
+        0,
+        0,
+        0,
+        0,
+        1
+      ],
+      "vertices": 24
+    },
+    {
+      "body_id": "JUD",
+      "name": "Part 5",
+      "occurrence_path": "MjFhRBjdIFYn0nu8i",
+      "source_full_element_id": "9b8155a2839e649138dae95f-56e3965de03a89dd46ffe363",
+      "occurrence_transform": [
+        1,
+        0,
+        0,
+        0,
+        0,
+        1,
+        0,
+        0,
+        0,
+        0,
+        1,
+        0,
+        0,
+        0,
+        0,
+        1
+      ],
+      "vertices": 292
+    },
+    {
+      "body_id": "JQD",
+      "name": "Part 3",
+      "occurrence_path": "MtxkmR44o1kFEp0GW",
+      "source_full_element_id": "9b8155a2839e649138dae95f-56e3965de03a89dd46ffe363",
+      "occurrence_transform": [
+        1,
+        0,
+        0,
+        0,
+        0,
+        1,
+        0,
+        0,
+        0,
+        0,
+        1,
+        0,
+        0,
+        0,
+        0,
+        1
+      ],
+      "vertices": 292
+    },
+    {
+      "body_id": "JQH",
+      "name": "Part 4",
+      "occurrence_path": "MgXTBd5GhooePVqfI",
+      "source_full_element_id": "9b8155a2839e649138dae95f-56e3965de03a89dd46ffe363",
+      "occurrence_transform": [
+        1,
+        0,
+        0,
+        0,
+        0,
+        1,
+        0,
+        0,
+        0,
+        0,
+        1,
+        0,
+        0,
+        0,
+        0,
+        1
+      ],
+      "vertices": 292
+    },
+    {
+      "body_id": "JUH",
+      "name": "Part 6",
+      "occurrence_path": "M+xXIO4WPHWA0TpUk",
+      "source_full_element_id": "9b8155a2839e649138dae95f-56e3965de03a89dd46ffe363",
+      "occurrence_transform": [
+        1,
+        0,
+        0,
+        0,
+        0,
+        1,
+        0,
+        0,
+        0,
+        0,
+        1,
+        0,
+        0,
+        0,
+        0,
+        1
+      ],
+      "vertices": 292
+    },
+    {
+      "body_id": "JYD",
+      "name": "Part 7",
+      "occurrence_path": "MP8aZtMCStbD7DoQj",
+      "source_full_element_id": "9b8155a2839e649138dae95f-56e3965de03a89dd46ffe363",
+      "occurrence_transform": [
+        1,
+        0,
+        0,
+        0,
+        0,
+        1,
+        0,
+        0,
+        0,
+        0,
+        1,
+        0,
+        0,
+        0,
+        0,
+        1
+      ],
+      "vertices": 292
+    },
+    {
+      "body_id": "JYH",
+      "name": "Part 8",
+      "occurrence_path": "MDwf4mqi6l/I1V3Wz",
+      "source_full_element_id": "9b8155a2839e649138dae95f-56e3965de03a89dd46ffe363",
+      "occurrence_transform": [
+        1,
+        0,
+        0,
+        0,
+        0,
+        1,
+        0,
+        0,
+        0,
+        0,
+        1,
+        0,
+        0,
+        0,
+        0,
+        1
+      ],
+      "vertices": 292
+    }
+  ]
+}
