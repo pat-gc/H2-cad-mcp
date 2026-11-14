@@ -21,6 +21,19 @@ The focused reliability and normal-editor sequence are documented in [CAD resear
 
 ## Current result and next gate
 
+**Public package check:** [H2-cad-mcp](https://github.com/pat-gc/H2-cad-mcp)
+was published on `master` at `15439708df16853b2001dbf5d3a3ea4ebad73d6f`.
+An independent fresh clone of that commit completed pinned editable FSGen
+setup and all 30 Native patches in an isolated x64 Python 3.11 environment.
+Imports resolved to the fresh clone for H2, FSGen and Native. Offline checks
+passed: 91 H2 tests, 78 Native Node tests, 8 Native Python tests, and local
+OpenCascade validation of the minimal plate (one part, 40 × 20 × 5 mm bounds,
+4000 mm³). These checks did not access a browser or bridge and do not establish
+the still-missing automatic live plate. Integrated test guard `20dc15f`
+rejects pytest from another H2 checkout before collection (observed exit 4
+with both paths); the correct editable checkout passed seven focused core
+tests. The fresh-clone measurements preceded the guard.
+
 | Gate | Current evidence and limit | Next owner/action |
 | --- | --- | --- |
 | Local source model | Approved eight-solid conceptual car from `basic_car.fs`; local geometry bounds 114 × 180 × 64 mm. This is local parity only. | Native: compile its full variable, plane, sketch, and extrusion graph to supported native operations. |
@@ -42,4 +55,7 @@ The first checkpoint Part Studio `1926791d173990d5d45f70ef` contained an ownersh
 
 Next sequence: Native reusable normal-editor initiation → Astra review → tester clean plate flow from an empty studio with no manual modeling, including saved/timeout/restart recovery → native car variables/planes/circles/expressions and eight-part parity → verified car edit and identity preservation → authorized replacement of the old generated car. Each owner should update the matching table row with observed evidence, not transport acknowledgments or inferred success.
 
-After integrated patch 30, one main-checkout syntax-only Graphify refresh succeeded: 450 nodes, 1609 edges, 14 communities; five of 29 files were extracted and 24 served from cache. No external model was used.
+After integrated test guard `20dc15f`, one main-checkout syntax-only Graphify
+refresh succeeded: 454 nodes, 1615 edges, 10 communities; one of 30 files was
+extracted and 29 served from cache. No external model was used. The earlier
+patch 30 refresh recorded 450 nodes, 1609 edges and 14 communities.

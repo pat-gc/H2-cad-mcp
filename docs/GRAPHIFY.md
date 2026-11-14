@@ -17,3 +17,9 @@ $env:GRAPHIFY_BACKEND = 'none'
 ```
 
 `--force` allows the updated graph to shrink when code is deleted; unchanged code still uses the syntax cache. Refreshing isn't needed for documentation or generated output changes. Use `graphify-out/GRAPH_REPORT.md` for an offline overview, `graphify-out/graph.html` to browse the map (the browser loads its rendering library from a public CDN), or query `graphify-out/graph.json` locally with the CLI. Generated outputs and the tool environment are excluded from Git.
+
+For unfamiliar call paths, dependencies, or affected tests, consult the existing
+graph when it narrows navigation, then confirm each finding in the actual
+source. Use `rg` for simple names and file lookups. Do not query or refresh the
+graph for every small edit; refresh once after an integrated source, script, or
+test batch as described above.
