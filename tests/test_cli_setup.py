@@ -34,10 +34,12 @@ def test_bootstrap_applies_native_patch_to_pinned_local_clone(tmp_path):
     result = module.bootstrap(tmp_path, with_fsgen=False, dry_run=False, python="python", sources_only=True)
     assert result["status"] == "sources_ready"
     checkout = tmp_path / "upstream" / "onshape-native"
-    ancestor = subprocess.check_output(["git", "rev-parse", "HEAD~31"], cwd=checkout, text=True).strip()
+    patch_count = max(int(name.removeprefix("NATIVE_PATCH").removesuffix("_TREE") or "1")
+                      for name in vars(module) if name.startswith("NATIVE_PATCH") and name.endswith("_TREE"))
+    ancestor = subprocess.check_output(["git", "rev-parse", f"HEAD~{patch_count}"], cwd=checkout, text=True).strip()
     assert ancestor == module.NATIVE_SHA
     assert "h2Readback" in (checkout / "extension" / "page-adapter.js").read_text(encoding="utf-8")
-    assert module.native_checkout_reviewed(checkout, module.git_state(checkout)) == 31
+    assert module.native_checkout_reviewed(checkout, module.git_state(checkout)) == patch_count
     assert "featureSave" in (checkout / "extension" / "page-adapter.js").read_text(encoding="utf-8")
     # Re-running setup leaves the reviewed checkout intact.
     assert module.bootstrap(tmp_path, with_fsgen=False, dry_run=False, python="python", sources_only=True)["status"] == "sources_ready"
