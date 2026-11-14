@@ -1,60 +1,42 @@
 # Capability evidence
 
-This matrix distinguishes upstream implementation evidence from verification of
-the integrated system. No live Onshape tests have been performed in this project.
+Updated 2026-11-14. [STATUS.md](STATUS.md) is the authority for the current live run. Local FSGen supports more operations than the current native writers; successful source parsing alone does not authorize a native write.
 
-| Capability | FSGen upstream | Onshape Native upstream | Integration acceptance |
-|---|---|---|---|
-| Script to separate native features | Implemented tracer/serializer | Different typed editor protocol | Pending compiler tests |
-| Editable sketches and dimensional constraints | Native feature JSON, not mesh | Captured native sketch commands; creation not replay-verified | Live blocked |
-| Native extrusion | Full REST feature serialization | Add/specify/commit observed; specific edit replay noted upstream | Live creation blocked |
-| Local geometry | OpenCascade via build123d; partial outcomes possible | No local CAD kernel | Pending retained validation tests |
-| Incremental modification | Positional suffix rebuild | Native feature edits and REST patch path | Safe semantic planner pending |
-| Three-way human/AI parameter merge | Absent | Absent | Pending deterministic merge tests |
-| Atomic revision rejection | REST path can support revision fields | Native path only client preflight | Native existing-document writes blocked |
-| Unknown-write handling | Needs audit of retry behavior | Broker never automatically replays | Durable reconciliation pending |
-| Native readback | REST full features/geometry | Editor tree; full semantic/regeneration proof not stable | Live verification adapter blocked |
-| Topology identity | Query expressions and native IDs | Captured/live native selection IDs | Ambiguous selection must fail closed |
-| Authentication | Developer API key in REST mode | Authenticated browser plus private loopback pairing | No credential acquisition attempted |
-| Assemblies | Outside initial native Part Studio slice | Several native commands replay-verified upstream | Unsupported in current integration |
-| Browser API quota exemption | Not applicable | Native RPC and browser REST are distinct paths | No quota exemption claim |
+## Implemented source workflow
 
-## Subsystem and dependency map
+The supported delivery is an agent skill combining local FSGen/OpenCascade validation, ordinary Browser feature allocation, deterministic source population through the private Native session bridge, and independent saved-state reconciliation. It is not a single autonomous car MCP call. No REST CAD-write fallback is used.
 
-```mermaid
-flowchart TD
-  Source[Part Studio FeatureScript] --> Trace[FSGen tracer]
-  Trace --> Local[FSGen FS-Lite / build123d / OpenCascade]
-  Trace --> Compile[H2 semantic compiler]
-  Compile --> Desired[Desired feature graph]
-  Base[Persisted sync snapshot] --> Plan[Three-way deterministic planner]
-  Desired --> Plan
-  Observed[Observed Onshape state] --> Plan
-  Plan --> Executor[Serial executor and SQLite journal]
-  Executor --> Adapter[Native protocol adapter]
-  Adapter --> Bridge[Separately installed Native loopback bridge]
-  Bridge --> Extension[Browser extension and live typed editor serializer]
-  Extension --> Onshape[Authoritative Onshape model]
-  Onshape --> Observed
-```
+| Operation | Implemented native path | Boundary |
+| --- | --- | --- |
+| Variables | Literal ASSIGNED/LENGTH variables, source-order journal bindings | General expression-valued variables and arbitrary updates are unsupported |
+| Rectangles | One rectangle per source sketch, four lines and twelve source constraints mapped to thirteen native constraints with a fixed local origin; symbolic dimensions preserved | Both first-corner coordinates must be nonzero in the new source path; the legacy plate path handles origin-anchored rectangles. No mixed/multiple profiles |
+| Circles | One or more circles, each with diameter and two position dimensions; source expressions and fixed local origin | Centers on either coordinate axis currently rejected |
+| Planes | Signed OFFSET from Top or Right, literal or validated linear expressions | No Front, angled, face-derived or arbitrary-frame planes |
+| Extrusions | SOLID/NEW/BLIND, exact whole-sketch regions, positive literal or direct variable depth | No ADD/REMOVE/intersection, arithmetic depth expressions, reverse/symmetric extrusion or draft |
+| Regeneration | Native variable edits regenerate dependent source geometry; same-ID restoration tested in isolated samples | Full-car edit/restore gate is tracked separately in STATUS |
+| Updates | Three-way planner and narrowly scoped native edit paths exist | General source synchronization and existing-feature update execution remain unsupported |
+| Assemblies | Underlying tools inspect/edit existing mates, transform existing occurrences and preview existing revolute mates | No source-backed assembly creation, insertion or mate-creation pipeline |
+| Unknown writes | Intent journal, exact target/revision checks, no replay, independent saved-tree proof and explicit marker retirement | Missing proof/receipt leaves an operation unresolved; no atomic rollback promise |
+| Authentication | Authenticated Edge session and private loopback pairing; official Browser controls | Computer Use is authorized only for saved sign-in |
 
-The bridge dependency is optional and installed as a pinned local fork with
-compatibility patches. User-reported owner permission is recorded in
-`UPSTREAM-PERMISSION.md`; upstream attribution is retained. Browser REST and
-official developer REST are not implicit execution alternatives.
+Live evidence includes the source plate with edit/restore; all seven car variables; source planes, rectangles and circles; and source extrusions. The current car run has created all 22 native definitions and is performing final geometry/editability checks. The isolated two-circle extrusion proved two NEW solids and variable-driven regeneration. These results do not establish a general mechanical-design or assembly compiler. See the [evidence report](../artifacts/native-car-origin-circle-and-plane37-REPORT.md).
 
-## Required operation inventory and current gaps
+## Implementation references
 
-Initial native slice requires runtime schema detection, exact tab/target binding,
-fresh insertion position and node IDs, plane query resolution, sketch creation,
-rectangle entities and constraints/dimensions, extrusion profile resolution,
-feature commit, and full semantic/regeneration readback. Captured command shapes
-alone do not prove those operations can be compiled correctly for a new session.
+- Source staging: `src/h2cad/native_rectangles.py`, `native_circles.py`, `native_planes.py`, `native_extrusions.py`.
+- Journaled writers: `src/h2cad/native_sketches.py`, `native_source_extrusions.py`, and variable population in `native.py`.
+- Native protocol and independent verification: reviewed patches under `patches/onshape-native/`, currently through runtime42; patch43 only updates the packaged skill.
+- Agent workflow and commands: [MCP integration](h2cad-mcp.md), packaged modeling skill reference `references/h2-source-workflow.md`.
 
-Later feature coverage requires variables, circles/holes, fillets/chamfers,
-patterns, transforms, boolean operations, face-relative sketches and assemblies.
-Each requires dependency and identity-preservation tests before support is claimed.
+## Remaining primitives for the robotic arm
 
-Fragile native dependencies include webpack module profiles, constructor registry,
-typed field/class IDs, editor tree shape, feature-node allocation, selection and
-transaction sequence state. Unsupported builds must fail without writes.
+1. Zero-coordinate circle placement and REMOVE extrusion with exact target-body binding for centered shafts, mounting holes and bores.
+2. Mixed/nested profiles or validated component insertion for actual hollow/T-slot 2020 profiles; a solid rectangular bar is not equivalent.
+3. Source-bound assembly creation and insertion, then fixed connections, three revolute joints, one slider joint, limits and independent motion verification.
+4. Repeatable source updates and regeneration checks. Additional plane orientations depend on the chosen mechanical layout.
+
+This is a code audit, not a claim that every supported combination has been exercised live. The robotic design must separately establish loads, drive sizing, reach, travel, clearances and manufacturability.
+
+## Reliability limits
+
+Native dependencies include runtime constructor registries, typed field IDs, editor model state, native node allocation and transaction sequencing. The browser/session interface is not a public stable API. Unsupported builds, ambiguous references and mismatched definitions must fail before writes. Exact preflight is not server-side atomic compare-and-set; concurrent human edits still require inspection and reconciliation. No rate-limit or quota exemption is claimed.
