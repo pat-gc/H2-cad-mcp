@@ -1,0 +1,173 @@
+From 28985a5b1d49931ff61d7055a2a27fc0a88eb10c Mon Sep 17 00:00:00 2001
+From: patcybermind <pato.gonzalezcabrera@gmail.com>
+Date: Sat, 14 Nov 2026 07:01:35 -0500
+Subject: [PATCH] fix: diagnose plane mismatches on the exact JSON wire
+ representation
+
+---
+ extension/page-adapter.js  | 69 +++++++++++++++++++++++---------------
+ tests/adapter.test.mjs     | 10 +++++-
+ tests/test_plane_writer.py | 21 ++++++++++++
+ 3 files changed, 72 insertions(+), 28 deletions(-)
+
+diff --git a/extension/page-adapter.js b/extension/page-adapter.js
+index e371936..f519bae 100644
+--- a/extension/page-adapter.js
++++ b/extension/page-adapter.js
+@@ -251,6 +251,37 @@ export async function pageCommand(job) {
+   function nativeRootSource() {
+     return elementModel?.definition?.assembly ? "element_definition_assembly" : "client_cache";
+   }
++  function stableTreeJSON(value) {
++    const stable = x => Array.isArray(x) ? x.map(stable) : x && typeof x === "object"
++      ? Object.fromEntries(Object.keys(x).sort().map(k=>[k,stable(x[k])])) : x;
++    return JSON.stringify(stable(value));
++  }
++  function compareNativeTrees(live, expected) {
++    const liveJSON=stableTreeJSON(live),expectedJSON=stableTreeJSON(expected);
++    if(liveJSON===expectedJSON)return {equal:true,root_source:nativeRootSource(),difference:null};
++    let budget=20000;
++    const type = value => value===null ? "null" : Array.isArray(value) ? "array" : typeof value;
++    function firstDifference(a,b,path="tree",depth=0) {
++      if (--budget<0 || depth>40) return {path,live_type:type(a),expected_type:type(b),reason:"diagnostic_bound"};
++      if (Object.is(a,b)) return null;
++      if (type(a)!==type(b)) return {path,live_type:type(a),expected_type:type(b),reason:"type"};
++      if (a && typeof a==="object") {
++        for (const key of [...new Set([...Object.keys(a),...Object.keys(b)])].sort()) {
++          const next=(path+"."+key).slice(0,240);
++          if (!Object.hasOwn(a,key) || !Object.hasOwn(b,key))
++            return {path:next,live_type:Object.hasOwn(a,key)?type(a[key]):"missing",
++              expected_type:Object.hasOwn(b,key)?type(b[key]):"missing",reason:"field_presence"};
++          const diff=firstDifference(a[key],b[key],next,depth+1);if(diff)return diff;
++        }
++        return null;
++      }
++      return {path,live_type:type(a),expected_type:type(b),reason:"value"};
++    }
++    // Diagnose exactly the representation compared above. Own undefined object
++    // fields are absent on JSON wire; they cannot explain a later mismatch.
++    const difference=firstDifference(JSON.parse(liveJSON),JSON.parse(expectedJSON));
++    return {equal:false,root_source:nativeRootSource(),difference};
++  }
+   function state() {
+     // The loopback extension may be connected while the Onshape editor socket
+     // is not. Refuse before touching model-tree getters in that state.
+@@ -334,7 +365,13 @@ export async function pageCommand(job) {
+         retirement.status="retired";
+       }
+     }
+-    return {...state(),...(retirement ? {marker_retirement:retirement} : {})};
++    const snapshot=state();
++    if (Object.hasOwn(job,"compare_tree")) {
++      if (!job.compare_tree || typeof job.compare_tree!=="object" || Array.isArray(job.compare_tree))
++        throw new Error("State comparison requires a tree object.");
++      snapshot.tree_comparison=compareNativeTrees(snapshot.tree,job.compare_tree);
++    }
++    return {...snapshot,...(retirement ? {marker_retirement:retirement} : {})};
+   }
+   if (job.kind === "ui_inspect") {
+     const nodes = [...document.querySelectorAll('button,input,select,textarea,[role="button"],[role="tab"],[role="menuitem"],[contenteditable="true"]')]
+@@ -894,32 +931,10 @@ export async function pageCommand(job) {
+     if (matches?.length!==1 || !matches[0].nodeId || matches[0].suppressed!==false)
+       throw new Error("One active unsuppressed plane required.");
+     const feature = matches[0];
+-    const stableTree = x => Array.isArray(x) ? x.map(stableTree) : x && typeof x === "object"
+-      ? Object.fromEntries(Object.keys(x).sort().map(k=>[k,stableTree(x[k])])) : x;
+-    const equal = (a,b) => JSON.stringify(stableTree(a))===JSON.stringify(stableTree(b));
+-    const liveBefore = plain(root());
+-    if (!equal(liveBefore,edit.before_tree)) {
+-      let budget=20000;
+-      const type = value => value===null ? "null" : Array.isArray(value) ? "array" : typeof value;
+-      function firstDifference(a,b,path="tree",depth=0) {
+-        if (--budget<0 || depth>40) return {path,live_type:type(a),expected_type:type(b),reason:"diagnostic_bound"};
+-        if (Object.is(a,b)) return null;
+-        if (type(a)!==type(b)) return {path,live_type:type(a),expected_type:type(b),reason:"type"};
+-        if (a && typeof a==="object") {
+-          for (const key of [...new Set([...Object.keys(a),...Object.keys(b)])].sort()) {
+-            const next=(path+"."+key).slice(0,240);
+-            if (!Object.hasOwn(a,key) || !Object.hasOwn(b,key))
+-              return {path:next,live_type:Object.hasOwn(a,key)?type(a[key]):"missing",
+-                expected_type:Object.hasOwn(b,key)?type(b[key]):"missing",reason:"field_presence"};
+-            const diff=firstDifference(a[key],b[key],next,depth+1);if(diff)return diff;
+-          }
+-          return null;
+-        }
+-        return {path,live_type:type(a),expected_type:type(b),reason:"value"};
+-      }
+-      const diff=firstDifference(liveBefore,edit.before_tree);
+-      throw new Error("Plane baseline changed before dispatch. "+JSON.stringify({root_source:nativeRootSource(),difference:diff}));
+-    }
++    const equal = (a,b) => stableTreeJSON(a)===stableTreeJSON(b);
++    const comparison=compareNativeTrees(plain(root()),edit.before_tree);
++    if(!comparison.equal)
++      throw new Error("Plane baseline changed before dispatch. "+JSON.stringify(comparison));
+     const expected = plain(root());
+     const newFeature = expected.children.find(n=>n.featureId===edit.feature_id);
+     const params = newFeature.parameters;
+diff --git a/tests/adapter.test.mjs b/tests/adapter.test.mjs
+index 3a9121c..dbf9ee3 100644
+--- a/tests/adapter.test.mjs
++++ b/tests/adapter.test.mjs
+@@ -1082,6 +1082,9 @@ test('plane compares the captured full state root and diagnoses exact field diff
+   for(const fault of [null,'missing','null','value']){
+     let revision='a'.repeat(24),editing=captured.editingFeatureId;
+     const primary=typed(captured.tree),cache=typed(captured.tree);
++    // Reproduce a real own getter omitted from the captured JSON transport.
++    Object.defineProperty(primary.children[0].parameters[12],'latestComputedValue',{
++      enumerable:true,get:()=>undefined});
+     cache.children[0].name='different cache root';
+     const expected=structuredClone(captured.tree);
+     const plane=expected.children.find(n=>n.featureId===editing);
+@@ -1104,6 +1107,11 @@ test('plane compares the captured full state root and diagnoses exact field diff
+     const state=await pageCommand({kind:'state',target:temp});
+     assert.equal(state.native_root_source,'element_definition_assembly');
+     if(!fault)assert.deepEqual(JSON.parse(JSON.stringify(state.tree)),captured.tree);
++    const comparisonState=await pageCommand(JSON.parse(JSON.stringify({kind:'state',target:temp,compare_tree:baseline})));
++    assert.equal(comparisonState.tree_comparison.equal,!fault);
++    assert.equal(sent.length,0);
++    if(fault)assert.doesNotMatch(JSON.stringify(comparisonState.tree_comparison),/latestComputedValue/);
++    if(fault==='value')assert.match(JSON.stringify(comparisonState.tree_comparison),/children.0.name/);
+     const result=await pageCommand({kind:'partstudio_populate_plane',target:temp,op_id:'plane-'+'a'.repeat(32),
+       expected_element_microversion:'a'.repeat(24),plane_edit:{feature_id:captured.editingFeatureId,
+         expression:'20 mm',value:20,opposite_direction:false,before_tree:baseline,expected_tree:expected}});
+@@ -1112,7 +1120,7 @@ test('plane compares the captured full state root and diagnoses exact field diff
+       assert.match(result.error,/Plane baseline changed before dispatch/);
+       assert.match(result.error,/root_source/);assert.ok(result.error.length<600);
+       if(fault==='missing'||fault==='null')assert.match(result.error,/suppressionState/);
+-      if(fault==='null'){assert.match(result.error,/undefined/);assert.match(result.error,/null/);}
++      if(fault==='null'){assert.match(result.error,/missing/);assert.match(result.error,/null/);}
+     }else{
+       assert.equal(result.definition_candidate,true,JSON.stringify(result));assert.equal(sent.length,2);
+       assert.equal(cache.children[0].name,'different cache root');
+diff --git a/tests/test_plane_writer.py b/tests/test_plane_writer.py
+index d38efce..5f426d1 100644
+--- a/tests/test_plane_writer.py
++++ b/tests/test_plane_writer.py
+@@ -108,3 +108,24 @@ def test_plane_job_validation():
+     assert validate_job(job) == job
+     for field, value in [("value", -20), ("feature_id", "wrong"), ("opposite_direction", "false")]:
+         with pytest.raises(BridgeError): validate_job({**job, "plane_edit": {**job["plane_edit"], field: value}})
++
++
++@pytest.mark.asyncio
++async def test_read_only_comparison_preserves_captured_tree_through_http_json():
++    captured = json.loads((Path(__file__).parent / "fixtures/captured_plane37_draft.json").read_text())["tree"]
++    _, _, target, _ = scenario()
++    app = create_app({"token": TOKEN, "port": 8766, "h2cad_create_target": target})
++    received = []
++    async def dispatch(job):
++        received.append(job)
++        assert job["kind"] == "state" and job["compare_tree"] == captured
++        assert job["compare_tree"]["children"][0]["suppressionState"] is None
++        assert "latestComputedValue" not in job["compare_tree"]["children"][0]["parameters"][12]
++        return {"tree": job["compare_tree"], "tree_comparison": {"equal": True}}
++    app.state.broker.dispatch = dispatch
++    async with httpx.AsyncClient(transport=httpx.ASGITransport(app), base_url="http://127.0.0.1:8766",
++                                 headers={"Authorization": "Bearer " + TOKEN}) as client:
++        response = await client.post("/command", json={"kind": "state", "target": target,
++                                                       "tab_id": 7, "compare_tree": captured})
++    assert response.status_code == 200 and response.json()["tree"] == captured
++    assert len(received) == 1
+-- 
+2.54.0.windows.1
+
