@@ -43,8 +43,8 @@ def stage_source_circles(feature: Feature, *, variables: Sequence[Feature] = ())
     if not reference:
         raise Unsupported("Explicit source-created circle plane required")
     entities, constraints = raw.get("entities"), raw.get("constraints")
-    if not isinstance(entities, list) or not entities or not isinstance(constraints, list) or len(constraints) != 3 * len(entities):
-        raise Unsupported("Each source circle requires diameter and two origin dimensions")
+    if not isinstance(entities, list) or not entities or not isinstance(constraints, list) or not constraints:
+        raise Unsupported("Each source circle requires diameter and complete origin placement")
     variable_stages = {v.logical_id: stage_length_variable(v) for v in variables}
     if len(variable_stages) != len(variables):
         raise Unsupported("Ambiguous source variables")
@@ -85,13 +85,33 @@ def stage_source_circles(feature: Feature, *, variables: Sequence[Feature] = ())
         by = {p.get("parameterId"): p for p in ps}
         if (constraint.get("btType") != "BTMSketchConstraint-2" or not isinstance(cid, str) or not cid
                 or cid in constraint_ids or len(by) != len(ps)
-                or by.get("localFirst", {}).get("btType") != "BTMParameterString-149"
-                or by.get("length", {}).get("btType") != "BTMParameterQuantity-147"):
+                or by.get("localFirst", {}).get("btType") != "BTMParameterString-149"):
             raise Unsupported("Circle constraint schema or identity differs")
         constraint_ids.add(cid)
-        first, expression = by["localFirst"].get("value"), by["length"].get("expression")
-        value = value_mm(expression)
+        first = by["localFirst"].get("value")
         kind = constraint.get("constraintType")
+        if kind in {"COINCIDENT", "HORIZONTAL", "VERTICAL"}:
+            circle = next((c for c in circles.values() if c["source_center_id"] == first), None)
+            if (circle is None or set(by) != {"localFirst", "externalSecond"}
+                    or by["externalSecond"].get("btType") != "BTMParameterQueryList-148"
+                    or by["externalSecond"].get("queries") != [{"btType": "BTMIndividualQuery-138", "queryString": 'query=qCreatedBy(makeId("Origin"), EntityType.VERTEX);'}]):
+                raise Unsupported("Circle geometric origin reference differs")
+            axes = ("HORIZONTAL", "VERTICAL") if kind == "COINCIDENT" else (("HORIZONTAL",) if kind == "VERTICAL" else ("VERTICAL",))
+            for axis in axes:
+                coordinate = circle["seed_geometry"]["xCenter" if axis == "HORIZONTAL" else "yCenter"]
+                signature = (circle["source_entity_id"], axis)
+                if coordinate != 0 or signature in dimensions_seen:
+                    raise Unsupported("Circle origin placement contradicts source geometry")
+                dimensions_seen.add(signature)
+            circle["dimensions"].append({"source_constraint_id": cid, "source_kind": kind,
+                "native_mapping": {"constraintType": {"COINCIDENT": 1, "HORIZONTAL": 4, "VERTICAL": 3}[kind],
+                    "localFirst": first, "localSecond_role": "verified_local_origin_anchor",
+                    "mapping_observed": False, "requires_active_solver_proof": True}})
+            continue
+        if by.get("length", {}).get("btType") != "BTMParameterQuantity-147":
+            raise Unsupported("Circle dimension quantity required")
+        expression = by["length"].get("expression")
+        value = value_mm(expression)
         if kind == "DIAMETER" and set(by) == {"localFirst", "length"} and first in circles:
             circle, direction, expected = circles[first], "DIAMETER", circles[first]["seed_geometry"]["radius"] * 2000
             mapped = {"constraintType": 25, "localFirst": first, "expression": expression, "mapping_observed": True}

@@ -66,3 +66,23 @@ def test_inconsistent_or_unbound_circle_source_is_rejected(fault):
         next(v for v in variables if v.logical_id == "#wheelRadius").provenance["source_line"] = 100000
     with pytest.raises(Unsupported):
         stage_source_circles(sketch, variables=variables)
+
+
+@pytest.mark.parametrize("x,y,expected", [(0,0,[1,25]),(0,15,[25,3,12]),(15,0,[25,12,4]),(-15,0,[25,12,4])])
+def test_centered_and_axis_circles_preserve_geometric_source_constraints(x,y,expected):
+    from h2cad.native_sketches import source_sketch_plan
+    text = f'''FeatureScript 3083;
+    import(path : "onshape/std/common.fs", version : "3083.0");
+    export function build(context is Context, id is Id) {{
+      cPlane(context,id+"P",{{"entities":qCreatedBy(makeId("Top"),EntityType.FACE),"offset":0*millimeter}});
+      var s=newSketch(context,id+"S",{{"sketchPlane":qCreatedBy(id+"P",EntityType.FACE)}});
+      skCircle(s,"c",{{"center":vector({x},{y})*millimeter,"radius":3*millimeter}});
+      skSolve(s);
+    }}'''
+    feature=next(f for f in compile_fsgen(text,TARGET).features if f.kind=="newSketch")
+    plan=source_sketch_plan(feature)
+    assert [c["constraintType"] for c in plan["constraints"]][1:]==expected
+    assert plan["graph_anchors"]["c.center"]==[x/1000,y/1000,0]
+    assert len(plan["inferred_alignment_constraints"])==1
+    assert all(p.get("value")!=0 for c in plan["constraints"] for p in c["parameters"] if p["parameterId"]=="length")
+    assert not any(p["parameterId"].startswith("external") for c in plan["constraints"] for p in c["parameters"])

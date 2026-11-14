@@ -1,0 +1,21 @@
+{
+  "status": "passed",
+  "geometry": {
+    "parts": 2,
+    "volume_mm3": 53660.708,
+    "area_mm2": 18169.646,
+    "bbox_mm": [
+      -30.0,
+      -30.0,
+      0.0,
+      30.0,
+      30.0,
+      23.0
+    ]
+  },
+  "warnings": [],
+  "error": null,
+  "provenance": "FSGen local OpenCascade only",
+  "remote": "not_run",
+  "native_editability": "not_run"
+}

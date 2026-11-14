@@ -17,6 +17,7 @@ from .native import _verify_source_region_query, stage_length_variable
 
 _REGION = re.compile(r'query=qSketchRegion\(makeId\("([^"\\]+)"\)\);\Z')
 _LITERAL = re.compile(r'[+]?(?:\d+(?:\.\d*)?|\.\d+)\s*mm\Z')
+_BODY = re.compile(r'query=qCreatedBy\(makeId\("([^"\\]+)"\), EntityType\.BODY\);\Z')
 
 
 def stage_source_extrusion(feature: Feature, variables: Sequence[Feature] = ()) -> dict:
@@ -47,9 +48,20 @@ def stage_source_extrusion(feature: Feature, variables: Sequence[Feature] = ()) 
             or canonical({k: v for k, v in raw.items() if k != "parameters"})
             != canonical(feature.structure.get("fsgen_native"))):
         raise Unsupported("Extrusion source and semantic projection differ")
-    for key, value in (("domain", "MODEL"), ("bodyType", "SOLID"), ("operationType", "NEW"), ("endBound", "BLIND")):
+    for key, value in (("domain", "MODEL"), ("bodyType", "SOLID"), ("endBound", "BLIND")):
         if projection.get(key) != value:
-            raise Unsupported("Only MODEL/SOLID/NEW/BLIND source extrusions are supported")
+            raise Unsupported("Only MODEL/SOLID/BLIND source extrusions are supported")
+    operation = projection.get("operationType")
+    target_body = None
+    if operation == "REMOVE":
+        scope = projection.get("booleanScope")
+        body = (_BODY.fullmatch(scope[0]) if isinstance(scope, list) and len(scope) == 1
+                and isinstance(scope[0], str) else None)
+        if projection.get("defaultScope") is not False or body is None:
+            raise Unsupported("REMOVE requires one explicit source-created target body and defaultScope false")
+        target_body = body[1]
+    elif operation != "NEW":
+        raise Unsupported("Only NEW or explicitly scoped REMOVE source extrusion is supported")
     for key in ("midplane", "oppositeDirection", "hasOffset", "hasExtrudeDirection", "startOffset",
                 "symmetric", "hasDraft", "hasSecondDirection"):
         if projection.get(key) is not False:
@@ -61,7 +73,7 @@ def stage_source_extrusion(feature: Feature, variables: Sequence[Feature] = ()) 
     expression = projection.get("depth")
     if not isinstance(expression, str):
         raise Unsupported("Source depth expression required")
-    dependencies = {match[1]}
+    dependencies = {match[1]} | ({target_body} if target_body else set())
     variable = None
     if _LITERAL.fullmatch(expression.strip()):
         value = float(expression.strip()[:-2])
@@ -77,6 +89,7 @@ def stage_source_extrusion(feature: Feature, variables: Sequence[Feature] = ()) 
     if not math.isfinite(value) or not 0 < value <= 1000 or set(feature.dependencies) != dependencies:
         raise Unsupported("Source depth bounds or dependency identities differ")
     return {"logical_id": feature.logical_id, "sketch_logical_id": match[1], "depth_expression": expression,
+            "operation_type": operation, "target_body_logical_id": target_body,
             "depth_seed_mm": value, "source_template": copy.deepcopy(raw), "variable": variable,
             "regeneration_verified": False, "solid_geometry_verified": False}
 
@@ -90,6 +103,8 @@ def map_source_extrusion(before: dict, feature: Feature, *, target: Target, sket
     sketch operation. This pure function does not authenticate journal provenance.
     """
     staged = stage_source_extrusion(feature, variables)
+    if staged["operation_type"] != "NEW":
+        raise Unsupported("REMOVE native mapping awaits verified target-body query binding")
     if (before.get("target") != {"did": target.did, "wid": target.wid, "eid": target.eid}
             or before.get("connected") is not True
             or not re.fullmatch(r"[a-f0-9]{24}", str(before.get("element_microversion", "")))):

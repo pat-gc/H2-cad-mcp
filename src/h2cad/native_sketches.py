@@ -96,7 +96,13 @@ def source_sketch_plan(feature, variables=()):
             circles.append({"entity_id": ident, "center_id": center, "radius": geometry["radius"]})
             for d in circle["dimensions"]:
                 mapped = d["native_mapping"]
-                if mapped["constraintType"] == 25:
+                if "source_kind" in d:
+                    # Source zero coordinates are geometric constraints, not zero dimensions.
+                    # Point-pair mappings remain candidates until the active solver proves them.
+                    inferred.append(d["source_constraint_id"])
+                    constraint(d["source_constraint_id"], mapped["constraintType"],
+                        [string("localFirst", center), string("localSecond", origin)], [center, origin])
+                elif mapped["constraintType"] == 25:
                     constraint(d["source_constraint_id"], 25, [string("localFirst", ident),
                         quantity("length", d["source_value_mm"], "millimeter", d["source_expression"]),
                         quantity("labelRatio", 1.5, ""), quantity("labelAngle", .7, "radian")], [ident])

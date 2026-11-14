@@ -170,3 +170,13 @@ def test_wrong_target_draft_or_query_evidence_rejected(mutate):
     mutate(before, saved, binding)
     with pytest.raises(Unsupported):
         mapping(planes["Chassis height"], before=before, saved=saved, binding=binding)
+
+
+def test_literal_zero_offset_preserves_forward_direction():
+    planes, variables = source_features(SOURCE.read_text().replace('"offset" : 20 * millimeter','"offset" : 0 * millimeter'))
+    stage = stage_offset_plane(planes["Chassis height"], variables=variables)
+    assert stage["magnitude_mm"] == 0 and stage["opposite_direction"] is False
+    mapped = mapping(planes["Chassis height"],variables=variables)
+    ps={p["parameterId"]:p for p in mapped["expected_tree"]["children"][1]["parameters"]}
+    assert ps["offset"]["expression"]=="0 mm"
+    assert ps["offset"]["value"]==0 and ps["oppositeDirection"]["value"] is False
