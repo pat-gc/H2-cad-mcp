@@ -1,0 +1,38 @@
+{
+  "target": {
+    "did": "4e078dec822b4e509616b1cb",
+    "eid": "423a1c4eec848f03a9800ba5",
+    "wid": "af0627de07264acf086e646a"
+  },
+  "feature_ids": [
+    "Fahvt7Yzhs1Czrc_0",
+    "FWxD163iuTgdgtx_0",
+    "F2bSfsiw3pLeZsr_0",
+    "FZT3wk30E2c6tsM_0",
+    "FikBK0lyXMhoCD8_1",
+    "FfFPssRZTkZCTOp_1",
+    "FROcem81nGqRQvz_1",
+    "FzfObEamq9axe4Z_2",
+    "FXY94T7TMD6sGVL_2"
+  ],
+  "native_feature_count": 9,
+  "stable_feature_ids": true,
+  "restored_exact_tree": true,
+  "saved_revisions": [
+    "043ede7530940aadec2c634e",
+    "7acb0b164a5d53eafad3ddd2",
+    "4050945c2e3e70b8862fcbb1"
+  ],
+  "carrier_volume_mm3": [
+    42860.708,
+    50004.159,
+    42860.708
+  ],
+  "witness_volume_mm3_at_12_and_14": [
+    10800,
+    10800
+  ],
+  "scope_cut_depth_mm": 24,
+  "local_expected_cut_volume_mm3": 53660.708,
+  "geometry_method": "Normal Onshape Mass Properties; source dimensions and identities independently read through Native bridge"
+}

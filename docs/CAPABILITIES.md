@@ -10,9 +10,9 @@ The supported delivery is an agent skill combining local FSGen/OpenCascade valid
 | --- | --- | --- |
 | Variables | Literal ASSIGNED/LENGTH variables, source-order journal bindings | General expression-valued variables and arbitrary updates are unsupported |
 | Rectangles | One rectangle per source sketch, four lines and twelve source constraints mapped to thirteen native constraints with a fixed local origin; symbolic dimensions preserved | Both first-corner coordinates must be nonzero in the new source path; the legacy plate path handles origin-anchored rectangles. No mixed/multiple profiles |
-| Circles | One or more circles, each with diameter and two position dimensions; source expressions and fixed local origin | Centered/axis geometric constraints stage offline; live solver acceptance remains pending |
+| Circles | One or more circles, each with diameter and two position dimensions; source expressions and fixed local origin | Origin-centered and axis-centered circles passed native active-solver and saved-definition checks |
 | Planes | Signed OFFSET from Top or Right, including live-tested zero offset, literal or validated linear expressions | No Front, angled, face-derived or arbitrary-frame planes |
-| Extrusions | SOLID/NEW/BLIND, exact whole-sketch regions, positive literal or direct variable depth | No ADD/REMOVE/intersection, arithmetic depth expressions, reverse/symmetric extrusion or draft |
+| Extrusions | SOLID/NEW/BLIND, exact whole-sketch regions, positive literal or direct variable depth | Explicit-scope REMOVE passed live on one observed source-created body; ADD/intersection, arithmetic depth expressions, reverse/symmetric extrusion and draft remain unsupported |
 | Regeneration | Native variable edits regenerate dependent source geometry; same-ID restoration tested in isolated samples | Full car14→16→14 wheel-radius edit passed with stable IDs and exact restored definitions |
 | Updates | Three-way planner and narrowly scoped native edit paths exist | General source synchronization and existing-feature update execution remain unsupported |
 | Assemblies | Underlying tools inspect/edit existing mates, transform existing occurrences and preview existing revolute mates | No source-backed assembly creation, insertion or mate-creation pipeline |
@@ -25,12 +25,12 @@ Live evidence includes the source plate with edit/restore; all seven car variabl
 
 - Source staging: `src/h2cad/native_rectangles.py`, `native_circles.py`, `native_planes.py`, `native_extrusions.py`.
 - Journaled writers: `src/h2cad/native_sketches.py`, `native_source_extrusions.py`, and variable population in `native.py`.
-- Native protocol and independent verification: reviewed patches under `patches/onshape-native/`, extension42; patch43 updates the packaged skill; companion44 exposes its running creation target and typed pre-dispatch target rejection.
+- Native protocol and independent verification: reviewed patches under `patches/onshape-native/`, paired source46; patches45/46 add journal-bound scoped REMOVE with unchanged single-profile target sketch and live scope re-resolution.
 - Agent workflow and commands: [MCP integration](h2cad-mcp.md), packaged modeling skill reference `references/h2-source-workflow.md`.
 
 ## Remaining primitives for the robotic arm
 
-1. Zero-coordinate circle placement and REMOVE extrusion with exact target-body binding for centered shafts, mounting holes and bores.
+1. Combine the now-live-proven zero-coordinate circles and scoped REMOVE into the complete seven-hole bearing carrier fixture. See [live primitive proof](../artifacts/robot/carrier-remove-REPORT.md).
 2. Mixed/nested profiles or validated component insertion for actual hollow/T-slot 2020 profiles; a solid rectangular bar is not equivalent.
 3. Source-bound assembly creation and insertion, then fixed connections, three revolute joints, one slider joint, limits and independent motion verification.
 4. Repeatable source updates and regeneration checks. Additional plane orientations depend on the chosen mechanical layout.

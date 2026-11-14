@@ -1,0 +1,17 @@
+{
+  "feature_id": "FXY94T7TMD6sGVL_2",
+  "sketch_feature_id": "FzfObEamq9axe4Z_2",
+  "revision_before": "c6400cf24aef7a087bbdb01a",
+  "revision_after": "043ede7530940aadec2c634e",
+  "depth_mm": 24.0,
+  "definition_observed": true,
+  "region_source_verified": true,
+  "unrelated_tree_preserved": true,
+  "completion_timing": "saved_idle_observed_after_pending_receipt",
+  "solid_geometry_verified": false,
+  "ui_editability_verified": false,
+  "depth_expression": "24 mm",
+  "regeneration_verified": false,
+  "region_count_verified": false,
+  "op_id": "extrude-69d0f6c3fb9343d998acdfa34ab0c3cc"
+}

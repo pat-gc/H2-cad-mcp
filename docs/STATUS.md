@@ -1,6 +1,6 @@
-> **STOPPED by usage reserve:** meter reached6%used /94%remaining. User explicitly required stopping below95%remaining. All workers finished; do not resume development without new user authorization.
+> **Active budget:** user authorized continuation until90%remaining (10%used). Root is sole live owner; check account meter between batches and stop at10%used. Last observed6%used. Workers remain idle.
 >
-> **Stopping checkpoint:** full root suite341passed before final target-sketch guard. Worker patch46 fixes that guard (19H2/43Native focused tests passed). Patches45/46 are registered and applied to source only; running companion44 and extension42 remain unchanged. Bootstrap46 registration is the final root checkpoint. No native cut committed. Carrier remains saved idle, eight verified source features and native volumes43200/10800/54000mm³. EID423a1c4eec848f03a9800ba5, revision076e2127daeaffcc472f0fe4, Browser tab941741361. Report: `artifacts/robot/carrier-prefix-REPORT.md`. Next authorized session: activate reviewed paired46 runtime only after idle/journal checks, then run scoped cut and verify witness unchanged. Coordinator CLI remains NEW-only; direct REMOVE writer takes observed target_body_op_id. Final guard tree: cc9f5f269fe0134befe4c69b545a909365379c57. Latest source commits1a80736 and59fff6c; root owns final registration. Do not infer robot completion.
+> **Live work:** paired source46 is active. Native scoped cut passed carrier/witness volumes and12→14→12 ordinary variable edit; exact9feature tree restored. Separate origin/axis-circle sketch passed active solver and saved proof. Current EID423a1c4eec848f03a9800ba5/tab941741361 is idle at revision0a87fae1ef50f8cd55f559d4 with10sourcefeatures. See `artifacts/robot/carrier-remove-REPORT.md`. One worker is integrating REMOVE into coordinator/CLI; root owns live verification. Next: full seven-hole carrier through coordinator. Meterlast7used/93remaining.
 
 # H2 CAD development status
 
@@ -39,7 +39,7 @@ On timeout, preserve the operation and journal. No replay, guard clearing by ass
 
 ## Implementation and validation
 
-Active extension42 tree: `5fc52e3437e5643cf46a907d4eb118a3bac98feb`; running companion44 tree `609c529546d734c94d112a0880d59abbdca97118`. Patch44 exposes its loaded target and distinguishes broker target rejection before dispatch. Patch45 tree `538641515240891642b79de01641146347b441df` is registered and applied to source only, not activated. It adds explicit-scope REMOVE with paired capabilities and single-profile target restriction. Patch46 adds the exact live target-sketch comparison and contour-edit regression; source-only, awaiting paired runtime activation and live proof.
+Active paired source46 tree: `cc9f5f269fe0134befe4c69b545a909365379c57`. Patch44 reports loaded creation target; patches45/46 implement explicit REMOVE scope bound to an observed NEW extrusion and unchanged single-profile target sketch. Active native cut, preserved witness, variable edit/restore and centered-circle solver proofs are in the carrier report.
 
 Source43 (`bfaf034`) updates existing plugin modeling instructions and adds `references/h2-source-workflow.md`; it is documentation only and does not require interrupting the live runtime. See [MCP/skill workflow](h2cad-mcp.md) and [actual capability boundaries](CAPABILITIES.md). Existing plugin/server identity remains unchanged.
 
