@@ -19,7 +19,7 @@ from typing import Any
 import httpx
 
 from .backend import BackendError, Capabilities, Receipt, Unsupported, UncertainWrite
-from .model import Feature, Operation, Snapshot, Target
+from .model import Feature, Operation, Snapshot, Target, canonical
 from .journal import Journal
 
 _ID = re.compile(r"[a-f0-9]{24}\Z")
@@ -559,6 +559,70 @@ def _schema_fields(defaults: dict[str, Any], required: set[str]) -> None:
     missing = required - defaults.keys()
     if missing:
         raise Unsupported("Runtime serializer lacks fields: " + ", ".join(sorted(missing)))
+
+
+def stage_length_variable(feature: Feature) -> dict[str, Any]:
+    """Validate and retain one FSGen variable definition for a future native writer.
+
+    The returned template is source data, not a browser message. A live native
+    variable definition and readback are still required before submission.
+    """
+    template = feature.provenance.get("fsgen_feature_json")
+    if (feature.kind != "assignVariable" or not isinstance(template, dict)
+            or template.get("featureType") != "assignVariable"
+            or template.get("btType") != "BTMFeature-134"):
+        raise Unsupported("Expected an FSGen assignVariable creation template")
+    raw = template.get("parameters")
+    if (not isinstance(raw, list) or not raw or
+            any(not isinstance(item, dict) or not isinstance(item.get("parameterId"), str)
+                or not item["parameterId"] for item in raw)):
+        raise Unsupported("Variable template has invalid parameter definitions")
+    ids = [item["parameterId"] for item in raw]
+    if len(ids) != len(set(ids)) or set(ids) != set(feature.parameters):
+        raise Unsupported("Variable source and semantic parameter IDs differ")
+    source_values = {}
+    for item in raw:
+        if "expression" in item:
+            value = item["expression"]
+        elif "value" in item:
+            value = item["value"]
+        elif "queries" in item:
+            if not isinstance(item["queries"], list) or any(
+                    not isinstance(query, dict) for query in item["queries"]):
+                raise Unsupported("Variable template has invalid query parameters")
+            value = [query.get("queryString") for query in item["queries"]]
+        else:
+            value = item
+        source_values[item["parameterId"]] = value
+    if canonical(source_values) != canonical(feature.parameters):
+        raise Unsupported("Variable source and semantic parameter values differ")
+    source_schema = {item["parameterId"]: {key: value for key, value in item.items()
+                                            if key not in {"expression", "value", "queries"}}
+                     for item in raw}
+    if (canonical(source_schema) != canonical(feature.structure.get("parameter_schema"))
+            or canonical({key: value for key, value in template.items() if key != "parameters"})
+            != canonical(feature.structure.get("fsgen_native"))):
+        raise Unsupported("Variable source and semantic structure differ")
+    name = feature.parameters.get("name")
+    expression = feature.parameters.get("lengthValue")
+    if (feature.parameters.get("mode") != "ASSIGNED"
+            or feature.parameters.get("variableType") != "LENGTH"
+            or feature.parameters.get("measurementMode") != "DISTANCE"
+            or not isinstance(name, str) or not re.fullmatch(r"[A-Za-z][A-Za-z0-9_]*", name)
+            or feature.logical_id != f"#{name}"
+            or not isinstance(expression, str)
+            or not re.fullmatch(r"[+-]?(?:\d+(?:\.\d*)?|\.\d+)\s*mm", expression.strip())
+            or feature.parameters.get("value") != expression):
+        raise Unsupported("Only named ASSIGNED/LENGTH literal millimeter variables are staged")
+    if feature.dependencies:
+        raise Unsupported("Literal source variable cannot have feature dependencies")
+    source_line = feature.provenance.get("source_line")
+    if type(source_line) is not int or source_line < 1:
+        raise Unsupported("Variable source order is unavailable")
+    return {"logical_id": feature.logical_id, "name": name, "expression": expression,
+            "dependencies": list(feature.dependencies), "source_line": source_line,
+            "source_template": copy.deepcopy(template), "ready_to_submit": False,
+            "reason": "Native variable creation and saved readback schema are not yet observed"}
 
 
 def stage_rectangle(feature: Feature, *, bindings: dict[str, Any], schema: dict[str, Any]) -> PreparedCommand:
