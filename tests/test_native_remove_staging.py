@@ -40,8 +40,12 @@ def test_implicit_or_nonbody_remove_scope_rejected(old, new):
         stage_source_extrusion(cut, variables)
 
 
-def test_remove_cannot_enter_new_only_native_mapper():
-    cut, variables = staged_source()
-    with pytest.raises(Unsupported, match="target-body query"):
-        map_source_extrusion({}, cut, target=TARGET, sketch_feature_id="unused",
-                             sketch_definition={}, query_response={}, variables=variables)
+def test_remove_mapper_requires_explicit_target_binding():
+    from test_native_remove_extrusions import remove_scenario
+    features,args=remove_scenario()
+    cut=next(f for f in features if f.logical_id==args["logical_id"])
+    sketch=next(n for n in args["before"]["tree"]["children"] if n.get("featureId")=="sourceSketch_0")
+    with pytest.raises(Unsupported, match="source NEW body definition"):
+        map_source_extrusion(args["before"],cut,target=TARGET,sketch_feature_id="sourceSketch_0",
+            sketch_definition=sketch,query_response=args["query_response"],
+            variables=[f for f in features if f.kind=="assignVariable"])

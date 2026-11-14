@@ -12,7 +12,7 @@ from .native_planes import _observed_row
 
 
 def source_extrusion_intent(features, logical_id, before, baseline, query_response, *,
-                            target, sketch_op_id, variable_op_id, journal):
+                            target, sketch_op_id, variable_op_id, journal, target_body_op_id=None, scope_query_response=None):
     """Bind source semantics to one observed sketch and one newly allocated draft."""
     matches = [f for f in features if f.kind == "extrude" and f.logical_id == logical_id]
     variables = [f for f in features if f.kind == "assignVariable"]
@@ -61,8 +61,32 @@ def source_extrusion_intent(features, logical_id, before, baseline, query_respon
         live = [n for n in before["tree"]["children"] if n.get("featureId") == variable_feature_id]
         if len(expected) != 1 or live != expected:
             raise Unsupported("Live depth variable differs from observed source definition")
+    target_definition = None
+    if stage["operation_type"] == "REMOVE":
+        tr, ti, to = _observed_row(journal, target_body_op_id, key, "experimental_source_extrude_populate")
+        targets = [f for f in features if f.kind == "extrude" and f.logical_id == stage["target_body_logical_id"]]
+        if (len(targets)!=1 or tr["logical_id"]!=stage["target_body_logical_id"]
+                or ti.get("source_feature")!=targets[0].provenance.get("fsgen_feature_json")
+                or stage_source_extrusion(targets[0],variables)["operation_type"]!="NEW"
+                or targets[0].provenance["source_line"]>=feature.provenance["source_line"]):
+            raise Unsupported("REMOVE target source NEW operation provenance differs")
+        target_stage = stage_source_extrusion(targets[0],variables)
+        target_sketches = [f for f in features if f.kind=="newSketch" and f.logical_id==target_stage["sketch_logical_id"]]
+        if len(target_sketches)!=1 or ti.get("sketch_source_feature")!=target_sketches[0].provenance.get("fsgen_feature_json"):
+            raise Unsupported("Target body source sketch provenance differs")
+        from .native_sketches import source_sketch_plan
+        target_plan=source_sketch_plan(target_sketches[0],variables)
+        if not target_sketches[0].structure.get("sketch",{}).get("rectangle") and len(target_plan["graph_circles"])!=1:
+            raise Unsupported("REMOVE scope requires a single-region source NEW body; multi-body source is unsupported")
+        saved = [n for n in ti.get("expected_tree",{}).get("children",[]) if n.get("featureId")==to["feature_id"]]
+        if len(saved)!=1:
+            raise Unsupported("Observed target body definition missing")
+        target_definition = saved[0]
+    elif target_body_op_id is not None or scope_query_response is not None:
+        raise Unsupported("NEW extrusion cannot carry a target-body dependency")
     mapped = map_source_extrusion(before, feature, target=target, sketch_feature_id=observation["feature_id"],
-        sketch_definition=sketch, query_response=query_response, variables=variables)
+        sketch_definition=sketch, query_response=query_response, variables=variables,
+        target_body_definition=target_definition, scope_query_response=scope_query_response)
     order = [n.get("featureId") for n in before["tree"]["children"]]
     if order.index(observation["feature_id"]) >= order.index(fid) or (
             variable_feature_id and order.index(variable_feature_id) >= order.index(fid)):
@@ -75,11 +99,12 @@ def source_extrusion_intent(features, logical_id, before, baseline, query_respon
             "sketch_op_id": sketch_op_id, "sketch_feature_id": observation["feature_id"],
             "saved_sketch_definition": copy.deepcopy(sketch), "variable_op_id": variable_op_id,
             "variable_feature_id": variable_feature_id, "region_query_evidence": query_response,
-            "from_mm": depth["value"]}
+            "from_mm": depth["value"], "target_body_op_id": target_body_op_id,
+            "saved_target_body_definition": target_definition, "scope_query_evidence": scope_query_response}
 
 
 async def populate_source_extrusion(backend, target, source, *, logical_id, sketch_op_id,
-                                    baseline, journal, variable_op_id=None):
+                                    baseline, journal, variable_op_id=None, target_body_op_id=None):
     from .fsgen import compile_fsgen
     from .native import PreDispatchRejected, _confirm_pending_readback
     if target.to_dict() != backend.create_target or backend.tab_id is None:
@@ -95,6 +120,12 @@ async def populate_source_extrusion(backend, target, source, *, logical_id, sket
                 or "h2_source_extrude_page_v1" not in (health.get("extension") or {}).get("capabilities", [])
                 or "h2_native_completion_receipt_page_v1" not in (health.get("extension") or {}).get("capabilities", [])):
             raise Unsupported("Paired source extrusion capability unavailable")
+        requested_stage = stage_source_extrusion(next(f for f in features if f.logical_id==logical_id),
+                                                [f for f in features if f.kind=="assignVariable"])
+        if requested_stage["operation_type"]=="REMOVE" and (
+                "h2_source_remove_server_v1" not in health.get("capabilities",[]) or
+                "h2_source_remove_page_v1" not in (health.get("extension") or {}).get("capabilities",[])):
+            raise Unsupported("Paired explicit-scope REMOVE writer capability unavailable")
         before = await backend.raw_state(target)
         drafts = [n for n in before.get("tree", {}).get("children", []) if n.get("featureId") == before.get("editingFeatureId")]
         if len(drafts) != 1 or drafts[0].get("featureType") != "extrude":
@@ -105,11 +136,21 @@ async def populate_source_extrusion(backend, target, source, *, logical_id, sket
         resolved = await backend.bridge.command({"kind": "native", "target": target.to_dict(), "tab_id": backend.tab_id,
             "command": "ui.GBTUiGetQueryDataCall", "body": {"elementId": target.eid,
                 "queries": params[0]["queries"], "qFunction": "", "additionalArguments": [], "queryNodeIdToInContextNodeId": {}}})
+        scope_response = None
+        source_stage = requested_stage
+        if source_stage["operation_type"] == "REMOVE":
+            scope = [p for p in drafts[0].get("parameters",[]) if p.get("parameterId")=="booleanScope"]
+            if len(scope)!=1 or len(scope[0].get("queries",[]))!=1:
+                raise Unsupported("UI must explicitly select one target body before REMOVE population")
+            scope_response = await backend.bridge.command({"kind":"native","target":target.to_dict(),"tab_id":backend.tab_id,
+                "command":"ui.GBTUiGetQueryDataCall","body":{"elementId":target.eid,"queries":scope[0]["queries"],
+                "qFunction":"","additionalArguments":[],"queryNodeIdToInContextNodeId":{}}})
         confirm = await backend.raw_state(target)
         if any(confirm.get(k) != before.get(k) for k in ("target", "connected", "editingFeatureId", "element_microversion", "tree")):
             raise Unsupported("Extrusion draft changed during source-region resolution")
         intent = source_extrusion_intent(features, logical_id, before, baseline, resolved, target=target,
-            sketch_op_id=sketch_op_id, variable_op_id=variable_op_id, journal=journal)
+            sketch_op_id=sketch_op_id, variable_op_id=variable_op_id, journal=journal,
+            target_body_op_id=target_body_op_id,scope_query_response=scope_response)
         stage = intent["source_stage"]
         op_id = "extrude-" + uuid4().hex
         journal.prepare(op_id=op_id, target=key, expected_revision=before["element_microversion"],
@@ -122,7 +163,9 @@ async def populate_source_extrusion(backend, target, source, *, logical_id, sket
                                  "from_mm": intent["from_mm"], "to_mm": stage["depth_seed_mm"]},
                 "source_extrusion": {"depth_expression": stage["depth_expression"],
                                      "before_tree": before["tree"], "expected_tree": intent["expected_tree"],
-                                     "sketch_definition": intent["saved_sketch_definition"]}})
+                                     "sketch_definition": intent["saved_sketch_definition"],
+                                     **({"operation_type": "REMOVE", "target_body_definition": intent["saved_target_body_definition"],
+                                        "scope_query_evidence": intent["scope_query_evidence"]} if stage["operation_type"]=="REMOVE" else {})}})
         except PreDispatchRejected as exc:
             journal.transition(op_id, "rejected", error=str(exc)); raise
         except Exception as exc:

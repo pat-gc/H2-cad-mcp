@@ -94,17 +94,37 @@ def stage_source_extrusion(feature: Feature, variables: Sequence[Feature] = ()) 
             "regeneration_verified": False, "solid_geometry_verified": False}
 
 
+def verify_target_body_query(query, response, feature_id):
+    """Prove one explicitly selected solid from the observed source NEW extrusion."""
+    result = response.get("result", {}) if isinstance(response, dict) else {}
+    data = result.get("queryData")
+    if (not isinstance(query, dict) or query.get("$type") != "bsedit.GBTMIndividualQuery"
+            or not query.get("nodeId") or query.get("queryString") != ""
+            or not isinstance(query.get("deterministicIds"), list) or len(query["deterministicIds"]) != 1
+            or not isinstance(query["deterministicIds"][0], str) or not query["deterministicIds"][0]
+            or result.get("$type") != "ui.GBTUiGetQueryDataResponse"
+            or not isinstance(data, list) or len(data) != 1):
+        raise Unsupported("One explicit native solid scope query required")
+    selected = data[0]
+    detail = selected.get("evaluationDetails", {})
+    if (selected.get("featureId") != feature_id or selected.get("deterministicIds") != query["deterministicIds"]
+            or selected.get("selectionName") != "Part" or selected.get("hasErrorEntity") is not False
+            or selected.get("isTemporaryFakeDataForSelection") is not False
+            or detail.get("entityType") != 3 or detail.get("status") != 0
+            or detail.get("outsideExactDependencies") is not False
+            or detail.get("fullOperationId") != feature_id + ".opExtrude"):
+        raise Unsupported("REMOVE scope does not resolve to the observed source body")
+
+
 def map_source_extrusion(before: dict, feature: Feature, *, target: Target, sketch_feature_id: str,
                          sketch_definition: dict, query_response: dict,
-                         variables: Sequence[Feature] = ()) -> dict:
+                         variables: Sequence[Feature] = (), target_body_definition=None, scope_query_response=None) -> dict:
     """Map only depth on a UI-created draft already bound to the exact sketch.
 
     ``sketch_definition`` must come from the caller's previously observed source
     sketch operation. This pure function does not authenticate journal provenance.
     """
     staged = stage_source_extrusion(feature, variables)
-    if staged["operation_type"] != "NEW":
-        raise Unsupported("REMOVE native mapping awaits verified target-body query binding")
     if (before.get("target") != {"did": target.did, "wid": target.wid, "eid": target.eid}
             or before.get("connected") is not True
             or not re.fullmatch(r"[a-f0-9]{24}", str(before.get("element_microversion", "")))):
@@ -132,11 +152,24 @@ def map_source_extrusion(before: dict, feature: Feature, *, target: Target, sket
         actual = by_id[p["parameterId"]]
         if actual.get("$type") != "bsedit.G" + p["btType"].split("-")[0] or not actual.get("nodeId"):
             raise Unsupported("Native extrusion parameter type or identity differs")
-        if p["parameterId"] in {"entities", "depth"}:
+        if p["parameterId"] in {"entities", "depth"} or (staged["operation_type"] == "REMOVE" and p["parameterId"] == "booleanScope"):
             continue
         for key in ("value", "expression", "enumName", "queries"):
             if key in p and actual.get(key) != p[key]:
                 raise Unsupported("Native extrusion defaults differ from source semantics")
+    if staged["operation_type"] == "REMOVE":
+        body = target_body_definition
+        if (not isinstance(body, dict) or body.get("featureType") != "extrude" or not body.get("nodeId")
+                or [n for n in children if n.get("featureId") == body.get("featureId")] != [body]
+                or next((p.get("value") for p in body.get("parameters",[]) if p.get("parameterId")=="operationType"),None) != "NEW"
+                or children.index(body) >= children.index(draft)):
+            raise Unsupported("Exact preceding source NEW body definition required")
+        scope = by_id["booleanScope"].get("queries")
+        if not isinstance(scope,list) or len(scope)!=1:
+            raise Unsupported("Exactly one explicit target-body scope required")
+        verify_target_body_query(scope[0], scope_query_response, body["featureId"])
+    elif target_body_definition is not None or scope_query_response is not None:
+        raise Unsupported("NEW extrusion cannot carry a REMOVE target binding")
     depth, regions = by_id["depth"], by_id["entities"].get("queries")
     if (depth.get("units") != "millimeter" or type(depth.get("value")) not in (float, int)
             or not math.isfinite(depth["value"]) or depth["value"] <= 0
