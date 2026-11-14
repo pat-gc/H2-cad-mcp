@@ -251,3 +251,137 @@ def expected_offset_plane_tree(feature: Feature, before: dict, *, target: Target
     return {**staged, "feature_id": fid, "feature_node_id": draft["nodeId"], "expected_tree": result,
             "target": target.to_dict(), "expected_revision": expected_revision,
             "requires_live_dependency_verification": bool(staged["dependencies"])}
+
+
+def _observed_row(journal, op_id, target_key, action):
+    import json
+    row = journal.get(op_id)
+    if not row or row["target"] != target_key or row["action"] != action or row["state"] != "observed":
+        raise Unsupported("Matching observed source journal operation required")
+    intent, observation = json.loads(row["intent"]), json.loads(row["observation"] or "{}")
+    if (observation.get("definition_observed") is not True
+            or observation.get("feature_id") != intent.get("before_state", {}).get("editingFeatureId")):
+        raise Unsupported("Saved source feature identity unverified")
+    return row, intent, observation
+
+
+def plane_population_intent(features, logical_id, before, baseline, binding, *, target,
+                            previous_op_ids, variable_op_ids, journal):
+    """Validate source order and journal-backed live identities before dispatch.
+
+    Baseline is a connected saved-idle state captured BEFORE normal UI allocation.
+    It may include arbitrary intervening sketches/extrudes; none are allocated here.
+    """
+    from .native import stage_length_variable
+    variables = [f for f in features if f.kind == "assignVariable"]
+    planes = [f for f in features if f.kind == "cPlane"]
+    stages = [stage_offset_plane(f, variables=variables) for f in planes]
+    variable_stages = [stage_length_variable(f) for f in variables]
+    indices = [i for i, s in enumerate(stages) if s["logical_id"] == logical_id]
+    if (len(indices) != 1 or len(previous_op_ids) != indices[0]
+            or len(set(previous_op_ids)) != len(previous_op_ids)):
+        raise Unsupported("Every preceding source plane operation required in order")
+    index = indices[0]
+    if (baseline.get("target") != target.to_dict() or baseline.get("connected") is not True
+            or baseline.get("editingFeatureId", "missing") is not None
+            or not re.fullmatch(r"[a-f0-9]{24}", str(baseline.get("element_microversion", "")))
+            or baseline["element_microversion"] == before.get("element_microversion")
+            or baseline.get("h2Readback", {}).get("incompleteFeatureEdit")):
+        raise Unsupported("Pre-allocation saved idle baseline and target required")
+    result = expected_offset_plane_tree(planes[index], before, target=target,
+        expected_revision=before.get("element_microversion"), saved_tree=baseline.get("tree"),
+        reference_binding=binding, variables=variables)
+    children = baseline["tree"]["children"]
+    key = "/".join(target.to_dict().values())
+    identity_map = {}
+    for i, op_id in enumerate(previous_op_ids):
+        row, intent, observation = _observed_row(journal, op_id, key, "experimental_plane_populate")
+        if (row["logical_id"] != stages[i]["logical_id"] or intent.get("source_stages") != stages
+                or intent.get("source_index") != i):
+            raise Unsupported("Preceding plane source provenance differs")
+        fid = observation["feature_id"]
+        expected = [n for n in intent["expected_tree"]["children"] if n.get("featureId") == fid]
+        if len(expected) != 1 or [n for n in children if n.get("featureId") == fid] != expected:
+            raise Unsupported("Previously saved plane definition changed")
+        identity_map[row["logical_id"]] = fid
+    dependencies = stages[index]["dependencies"]
+    if set(variable_op_ids) != set(dependencies):
+        raise Unsupported("Exact journal operation for every symbolic dependency required")
+    variable_map = {}
+    for name in dependencies:
+        row, intent, observation = _observed_row(journal, variable_op_ids[name], key, "experimental_variable_populate")
+        vi = next((i for i, s in enumerate(variable_stages) if s["logical_id"] == name), None)
+        if (vi is None or row["logical_id"] != name or intent.get("source_stages") != variable_stages
+                or intent.get("source_index") != vi):
+            raise Unsupported("Dependency source definitions or journal provenance differ")
+        fid = observation["feature_id"]
+        expected = [n for n in intent["expected_tree"]["children"] if n.get("featureId") == fid]
+        live = [n for n in children if n.get("featureId") == fid]
+        if len(expected) != 1 or live != expected or live[0].get("featureType") != "assignVariable":
+            raise Unsupported("Live dependency no longer matches verified source variable")
+        p = {p["parameterId"]: p for p in live[0]["parameters"]}
+        assumption = stages[index]["positive_variable_assumptions"][name]
+        if (p.get("name", {}).get("value") != name[1:]
+                or p.get("mode", {}).get("value") != "ASSIGNED"
+                or p.get("variableType", {}).get("value") != "LENGTH"
+                or any(p.get(k, {}).get("expression") != assumption["expression"]
+                       or p[k].get("value") != assumption["value_mm"]
+                       or p[k].get("units") != "millimeter" for k in ("value", "lengthValue"))):
+            raise Unsupported("Live variable literal definition differs from positive source domain")
+        variable_map[name] = fid
+    if len(set([*identity_map.values(), *variable_map.values(), result["feature_id"]])) != len(identity_map) + len(variable_map) + 1:
+        raise Unsupported("Source feature identities collide")
+    return {"before_state": before, "baseline": baseline, "reference_binding": binding,
+            "expected_tree": result["expected_tree"], "source_stages": stages, "source_index": index,
+            "previous_op_ids": previous_op_ids, "identity_map": identity_map,
+            "variable_op_ids": variable_op_ids, "variable_identity_map": variable_map,
+            "variable_stages": variable_stages}
+
+
+async def populate_test_plane(backend, target, source, *, logical_id, previous_op_ids,
+                              baseline, reference_binding, variable_op_ids, journal):
+    """Populate one normal-browser-allocated draft; never allocate or replay it."""
+    from uuid import uuid4
+    from .backend import UncertainWrite
+    from .native import PreDispatchRejected, _confirm_pending_readback
+    from .fsgen import compile_fsgen
+    if target.to_dict() != backend.create_target or backend.tab_id is None:
+        raise Unsupported("Plane population requires authorized temporary tab")
+    features = compile_fsgen(source, target).features
+    key = "/".join(target.to_dict().values())
+    with journal.target_lock(key):
+        if journal.has_unresolved():
+            raise UncertainWrite("Prior write unresolved; reconcile before plane population")
+        health = await backend.bridge.health()
+        if (health.get("extension_connected") is not True
+                or "h2_native_plane_populate_server_v1" not in health.get("capabilities", [])
+                or "h2_native_plane_populate_page_v1" not in (health.get("extension") or {}).get("capabilities", [])
+                or "h2_native_completion_receipt_page_v1" not in (health.get("extension") or {}).get("capabilities", [])):
+            raise Unsupported("Paired plane population capability unavailable")
+        before = await backend.raw_state(target)
+        intent = plane_population_intent(features, logical_id, before, baseline, reference_binding,
+            target=target, previous_op_ids=previous_op_ids, variable_op_ids=variable_op_ids, journal=journal)
+        op_id = "plane-" + uuid4().hex
+        journal.prepare(op_id=op_id, target=key, expected_revision=before["element_microversion"],
+                        action="experimental_plane_populate", logical_id=logical_id, intent=intent)
+        stage = intent["source_stages"][intent["source_index"]]
+        try:
+            response = await backend.bridge.command({"kind": "partstudio_populate_plane", "op_id": op_id,
+                "target": target.to_dict(), "tab_id": backend.tab_id,
+                "expected_element_microversion": before["element_microversion"],
+                "plane_edit": {"feature_id": before["editingFeatureId"],
+                               "expression": stage["magnitude_expression"], "value": stage["magnitude_mm"],
+                               "opposite_direction": stage["opposite_direction"],
+                               "before_tree": before["tree"], "expected_tree": intent["expected_tree"]}})
+        except PreDispatchRejected as exc:
+            journal.transition(op_id, "rejected", error=str(exc))
+            raise
+        except Exception as exc:
+            journal.transition(op_id, "unknown", error=str(exc))
+            raise UncertainWrite(f"Plane outcome unknown; journal operation {op_id}") from exc
+        if response.get("op_id") != op_id:
+            journal.transition(op_id, "unknown", error="Plane receipt identity differs")
+            raise UncertainWrite(f"Plane outcome unknown; journal operation {op_id}")
+        journal.transition(op_id, "sent", receipt=response)
+        return await _confirm_pending_readback(backend.bridge.reconcile_saved_source_plane,
+                                               op_id, backend.tab_id, "Plane")

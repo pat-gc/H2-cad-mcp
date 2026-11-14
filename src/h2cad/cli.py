@@ -113,6 +113,22 @@ def build_parser() -> argparse.ArgumentParser:
     begin_cmd.add_argument("--bridge-config", type=Path, required=True)
     begin_cmd.add_argument("--tab-id", type=int, required=True)
     begin_cmd.add_argument("--journal", type=Path, required=True)
+    plane_cmd = commands.add_parser("experimental-populate-plane", help="populate a UI-allocated reference-bound OFFSET plane")
+    plane_cmd.add_argument("source", type=Path)
+    _add_target(plane_cmd)
+    plane_cmd.add_argument("--bridge-config", type=Path, required=True)
+    plane_cmd.add_argument("--tab-id", type=int, required=True)
+    plane_cmd.add_argument("--journal", type=Path, required=True)
+    plane_cmd.add_argument("--logical-id", required=True)
+    plane_cmd.add_argument("--previous-plane-op-id", action="append", default=[])
+    plane_cmd.add_argument("--baseline", type=Path, required=True)
+    plane_cmd.add_argument("--reference-binding", type=Path, required=True)
+    plane_cmd.add_argument("--variable-operations", type=Path, required=True, help="JSON source variable name to observed journal operation map")
+    plane_reconcile = commands.add_parser("experimental-reconcile-saved-source-plane")
+    plane_reconcile.add_argument("op_id")
+    plane_reconcile.add_argument("--bridge-config", type=Path, required=True)
+    plane_reconcile.add_argument("--tab-id", type=int, required=True)
+    plane_reconcile.add_argument("--journal", type=Path, required=True)
     variable_cmd = commands.add_parser("experimental-populate-variable", help="populate one blank UI-allocated LENGTH variable from source")
     variable_cmd.add_argument("source", type=Path)
     _add_target(variable_cmd)
@@ -197,6 +213,7 @@ async def _bridge_action(args: argparse.Namespace) -> tuple[object, int]:
                         "experimental-sketch-populate",
                         "experimental-extrude-populate", "experimental-begin-source-extrude",
                         "experimental-populate-variable", "experimental-reconcile-saved-source-variable",
+                        "experimental-populate-plane", "experimental-reconcile-saved-source-plane",
                         "experimental-create-plate",
                         "experimental-classify-known-invalid-sketch",
                         "experimental-finalize-known-invalid-sketch-cancel",
@@ -231,6 +248,8 @@ async def _bridge_action(args: argparse.Namespace) -> tuple[object, int]:
             return result, 2 if result.get("status") == "observed_partial_top_begin" else 0
         if args.command == "experimental-reconcile-completed-source-sketch":
             return await bridge.reconcile_completed_source_sketch(args.op_id, args.tab_id), 0
+        if args.command == "experimental-reconcile-saved-source-plane":
+            return await bridge.reconcile_saved_source_plane(args.op_id, args.tab_id), 0
         if args.command == "experimental-reconcile-saved-source-variable":
             return await bridge.reconcile_saved_source_variable(args.op_id, args.tab_id), 0
         if args.command == "experimental-reconcile-saved-source-extrude":
@@ -272,6 +291,18 @@ async def _bridge_action(args: argparse.Namespace) -> tuple[object, int]:
             journal = Journal(args.journal)
             try:
                 return await backend.classify_known_invalid_sketch(args.op_id, journal), 0
+            finally:
+                journal.close()
+        if args.command == "experimental-populate-plane":
+            from .native_planes import populate_test_plane
+            journal = Journal(args.journal)
+            try:
+                return await populate_test_plane(backend, _target(args), args.source,
+                    logical_id=args.logical_id, previous_op_ids=args.previous_plane_op_id,
+                    baseline=json.loads(args.baseline.read_text(encoding="utf-8")),
+                    reference_binding=json.loads(args.reference_binding.read_text(encoding="utf-8")),
+                    variable_op_ids=json.loads(args.variable_operations.read_text(encoding="utf-8")),
+                    journal=journal), 0
             finally:
                 journal.close()
         if args.command == "experimental-populate-variable":
