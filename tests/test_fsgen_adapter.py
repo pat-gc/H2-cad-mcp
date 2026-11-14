@@ -85,10 +85,24 @@ def test_circle_entity_and_constraint_changes_are_not_invisible():
                                            '"radius" : 5 * millimeter'), Target("d", "w", "e"), "r1")
     before = base.features[0].structure["fsgen_native"]
     after = changed.features[0].structure["fsgen_native"]
-    assert before["entities"] != after["entities"]
+    assert before["entities"] == after["entities"]  # both radii are dimension-driven
+    assert (base.features[0].provenance["fsgen_feature_json"]["entities"]
+            != changed.features[0].provenance["fsgen_feature_json"]["entities"])
     assert before["constraints"] != after["constraints"]
     plan = plan_changes(base, base, changed)
     assert any(c.path == "structure" and c.logical_id == "Outline" for c in plan.conflicts)
+
+    renamed = compile_fsgen(circle.replace('skCircle(s, "rim",',
+                                            'skCircle(s, "outer",'), Target("d", "w", "e"), "r1")
+    assert renamed.features[0].structure["fsgen_native"]["entities"] != before["entities"]
+    assert any(c.path == "structure" and c.logical_id == "Outline"
+               for c in plan_changes(base, base, renamed).conflicts)
+
+    moved = compile_fsgen(circle.replace('"center" : vector(0, 0) * millimeter',
+                                          '"center" : vector(2, 0) * millimeter'), Target("d", "w", "e"), "r1")
+    assert moved.features[0].structure["fsgen_native"]["constraints"] != before["constraints"]
+    assert any(c.path == "structure" and c.logical_id == "Outline"
+               for c in plan_changes(base, base, moved).conflicts)
 
 
 def test_literal_extrusion_depth_edit_is_parameter_only():

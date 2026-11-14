@@ -42,6 +42,44 @@ def test_body_height_edit_preserves_unrelated_feature_definitions():
         feature for feature in base.features if feature.logical_id != "#bodyHeight"]
 
 
+def test_wheel_radius_variable_edit_preserves_driven_circle_definitions():
+    source = SOURCE.read_text(encoding="utf-8")
+    variant = source.replace('"wheelRadius", 14 * millimeter',
+                             '"wheelRadius", 16 * millimeter')
+    assert variant != source
+    target = Target("d", "w", "e")
+    base = compile_fsgen(source, target, "r1")
+    desired = compile_fsgen(variant, target, "r1")
+    plan = plan_changes(base, base, desired)
+    assert not plan.conflicts, [(conflict.logical_id, conflict.path) for conflict in plan.conflicts]
+    assert [operation.logical_id for operation in plan.operations] == ["#wheelRadius"]
+    for name in ("Left wheel sketch", "Right wheel sketch"):
+        original = next(feature for feature in base.features if feature.logical_id == name)
+        updated = next(feature for feature in desired.features if feature.logical_id == name)
+        assert original.semantically_equal(updated)
+        assert original.dependencies == updated.dependencies
+        assert original.provenance["fsgen_feature_json"]["_driven"] == ["front", "rear"]
+        assert original.provenance["fsgen_feature_json"]["entities"] != updated.provenance["fsgen_feature_json"]["entities"]
+        assert all("geometry" not in entity for entity in original.structure["fsgen_native"]["entities"])
+    for script in (source, variant):
+        report = validate_fsgen(script)
+        assert report.status == "passed", report.to_dict()
+        assert report.geometry["parts"] == 8
+
+
+def test_wheelbase_variable_edit_keeps_driven_center_constraints():
+    source = SOURCE.read_text(encoding="utf-8")
+    variant = source.replace('"wheelbase", 130 * millimeter',
+                             '"wheelbase", 140 * millimeter')
+    assert variant != source
+    target = Target("d", "w", "e")
+    base = compile_fsgen(source, target, "r1")
+    desired = compile_fsgen(variant, target, "r1")
+    plan = plan_changes(base, base, desired)
+    assert not plan.conflicts, [(conflict.logical_id, conflict.path) for conflict in plan.conflicts]
+    assert [operation.logical_id for operation in plan.operations] == ["#wheelbase"]
+
+
 def test_car_offset_planes_preserve_variable_expressions_and_source_order():
     snapshot = compile_fsgen(SOURCE, Target("d", "w", "e"))
     features = {feature.logical_id: feature for feature in snapshot.features}

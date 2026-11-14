@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import copy
 import json
 import re
 from pathlib import Path
@@ -48,6 +49,35 @@ def _parameter_value(item: dict):
     if "queries" in item:
         return [q.get("queryString") for q in item["queries"]]
     return item
+
+
+def _semantic_native_body(template: dict) -> dict:
+    """Exclude evaluated geometry FSGen proves is controlled by constraints.
+
+    The complete creation body stays in provenance. Only the planner's semantic
+    comparison drops numeric geometry for entities named by FSGen's `_driven`.
+    Its entity identities, construction flags, and driving constraints remain.
+    """
+    driven = template.get("_driven", [])
+    if (not isinstance(driven, list) or any(not isinstance(name, str) or not name for name in driven)
+            or len(set(driven)) != len(driven)):
+        raise FsgenCompileError("FSGen returned invalid driven entity IDs")
+    body = copy.deepcopy({key: value for key, value in template.items()
+                          if key not in {"parameters", "_driven"}})
+    if driven:
+        entities = body.get("entities")
+        if (not isinstance(entities, list) or any(not isinstance(entity, dict)
+                                                 or not isinstance(entity.get("entityId"), str)
+                                                 for entity in entities)):
+            raise FsgenCompileError("FSGen driven entities lack a sketch entity list")
+        ids = [entity["entityId"] for entity in entities]
+        if len(set(ids)) != len(ids) or not set(driven) <= set(ids):
+            raise FsgenCompileError("FSGen driven entity IDs do not match the sketch")
+        for entity in entities:
+            if entity["entityId"] in driven:
+                for field in ("geometry", "startParam", "endParam"):
+                    entity.pop(field, None)
+    return body
 
 
 def compile_fsgen(source: str | Path, target: Target, revision: str = "local") -> Snapshot:
@@ -117,8 +147,7 @@ def compile_fsgen(source: str | Path, target: Target, revision: str = "local") -
         # constraints, feature type). They must participate in conflict checks.
         # Parameter payload values live only in `parameters`; retaining them
         # here would turn a simple depth edit into a false structural conflict.
-        structure = {"fsgen_native": {k: v for k, v in template.items()
-                                      if k not in {"parameters", "_driven"}},
+        structure = {"fsgen_native": _semantic_native_body(template),
                      "parameter_schema": {
                          p["parameterId"]: {k: v for k, v in p.items()
                                             if k not in {"expression", "value", "queries"}}

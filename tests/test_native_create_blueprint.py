@@ -78,7 +78,7 @@ def test_active_native_rectangle_endpoints_match_fsgen_plan():
     lambda x: x.features[0].structure.update(parameter_schema=None),
     lambda x: x.features[0].structure["fsgen_native"].update(entities="oops"),
     lambda x: x.features[0].structure["fsgen_native"]["entities"][0].update(endParam=.05),
-    lambda x: x.features[0].structure["fsgen_native"]["entities"][1]["geometry"].update(dirY=-1),
+    lambda x: x.features[0].provenance["fsgen_feature_json"]["entities"][1]["geometry"].update(dirY=-1),
     lambda x: x.features[0].structure["fsgen_native"]["constraints"][0]["parameters"][1].update(value="box.top.end"),
     lambda x: x.features[0].structure["fsgen_native"]["constraints"][-1]["parameters"][-1].update(expression="21 mm"),
     lambda x: x.features[0].structure["fsgen_native"]["constraints"].append({"constraintType": "TANGENT"}),

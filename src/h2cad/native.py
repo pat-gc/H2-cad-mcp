@@ -196,13 +196,23 @@ def stage_minimal_pair(snapshot: Snapshot) -> NativePairBlueprint:
             or not xy[0] < xy[2] or not xy[1] < xy[3]
             or rectangle.get("construction") is not False):
         raise Unsupported("Rectangle coordinates must be finite, ordered, and nonconstruction")
-    sketch_body = sketch.structure.get("fsgen_native")
+    # The planner stores a semantic projection: FSGen-driven entities omit
+    # evaluated coordinates there. Validate native creation against the intact
+    # source payload, and require that it projects back to the compared body.
+    sketch_body = sketch.provenance.get("fsgen_feature_json")
+    semantic_sketch_body = sketch.structure.get("fsgen_native")
     if (not isinstance(sketch_body, dict) or sketch_body.get("featureType") != "newSketch"
             or sketch_body.get("name") != sketch.logical_id
             or not isinstance(sketch_body.get("entities"), list) or len(sketch_body["entities"]) != 4
             or not isinstance(sketch_body.get("constraints"), list)
             or sketch.parameters.get("sketchPlane") != ['query=qCreatedBy(makeId("Top"), EntityType.FACE);']):
         raise Unsupported("FSGen sketch entities, constraints, or Top query differ")
+    from .fsgen import FsgenCompileError, _semantic_native_body
+    try:
+        if _semantic_native_body(sketch_body) != semantic_sketch_body:
+            raise Unsupported("FSGen sketch source payload differs from its semantic projection")
+    except FsgenCompileError as exc:
+        raise Unsupported("FSGen sketch source payload is invalid") from exc
     _validate_fsgen_rectangle(sketch_body, xy)
     sketch_schema = sketch.structure.get("parameter_schema")
     extrusion_schema = extrusion.structure.get("parameter_schema")
