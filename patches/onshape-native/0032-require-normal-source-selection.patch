@@ -1,0 +1,141 @@
+From c2eabcb10f1024347882c2143e55221c174b0ef1 Mon Sep 17 00:00:00 2001
+From: patcybermind <pato.gonzalezcabrera@gmail.com>
+Date: Sat, 14 Nov 2026 05:38:52 -0500
+Subject: [PATCH] Require exact normal browser source selection before
+ extrusion
+
+---
+ extension/page-adapter.js               | 13 +++++++---
+ skills/onshape-native-modeling/SKILL.md | 26 +++++++++++++++++++
+ tests/adapter.test.mjs                  | 33 +++++++++++++++++++++++--
+ 3 files changed, 66 insertions(+), 6 deletions(-)
+
+diff --git a/extension/page-adapter.js b/extension/page-adapter.js
+index 38157f7..304513f 100644
+--- a/extension/page-adapter.js
++++ b/extension/page-adapter.js
+@@ -520,10 +520,15 @@ export async function pageCommand(job) {
+     };
+     const row = unique(`div.os-list-item[feature-id="${sketchId}"][feature-type="newSketch"]`);
+     const toolbar = unique('div.tool[command-id="extrude"]');
+-    row.click();
+-    for (let attempt=0;attempt<20 && !row.classList.contains("selected");attempt++)
+-      await new Promise(resolve=>setTimeout(resolve,100));
+-    if (!row.classList.contains("selected") ||
++    // Selection is supplied by a normal browser input action. HTMLElement.click
++    // does not select this Onshape row. Preserve the verified selection instead.
++    const selectedRows = [...document.querySelectorAll('div.os-list-item.selected[feature-id]')]
++      .filter(node=>node.getClientRects().length > 0);
++    if (selectedRows.length !== 1 || selectedRows[0] !== row || !row.classList.contains("selected"))
++      return {error:"Select the exact source sketch row with normal browser input before starting Extrude; no Extrude action sent.",
++        reason:"source_sketch_selection_required",write_stage:"pre_dispatch",
++        sketch_feature_id:sketchId,outcome:"Use supported browser selection, then recheck exact target and revision."};
++    if (
+         getElementMicroversion() !== job.expected_element_microversion ||
+         elementModel?.get("idEditingFeature") || controller.connection?.isClosed?.() !== false ||
+         controller.getActiveElementTabId() !== target.eid ||
+diff --git a/skills/onshape-native-modeling/SKILL.md b/skills/onshape-native-modeling/SKILL.md
+index d806048..d6cdd84 100644
+--- a/skills/onshape-native-modeling/SKILL.md
++++ b/skills/onshape-native-modeling/SKILL.md
+@@ -28,6 +28,32 @@ verify saved solid geometry and human editability. If the tool returns
+ `needs_readback`, inspect the pinned journal and exact editor state; never invoke
+ the tool again on that target until the uncertain operation is reconciled.
+ 
++The standalone MCP plate command does not yet orchestrate the normal browser
++selection needed between saving the sketch and starting Extrude. For this H2
++workflow, use the official Browser plugin as the trusted-input step; do not
++substitute synthetic DOM clicks or a REST write fallback. After the sketch is
++positively reconciled as observed and the journal has no unresolved write:
++
++1. Read the exact target and saved sketch feature ID from native readback and
++   its matching sketch journal operation. Verify the same document, workspace,
++   Part Studio and idle editor through the Browser plugin.
++2. Inspect the current DOM and find the unique visible source sketch row. Use
++   normal Browser input to select that observed row. Verify that it is the
++   only visible `div.os-list-item.selected[feature-id]`, with the exact source
++   feature ID; preserve an already-correct selection. Recheck revision and idle
++   state. Do not guess a feature ID, selector match, or screen coordinate.
++3. Continue with the installed H2 CLI:
++   `h2cad experimental-create-plate SOURCE --did DID --wid WID --eid EID --bridge-config CONFIG --tab-id TAB --journal JOURNAL --resume-sketch-op-id OBSERVED_SKETCH_OP`.
++   Use the original source and pinned journal/config. This resumes only after
++   a saved sketch and before any extrusion exists; it does not replay sketch
++   creation or recover a partially submitted extrusion. Reconcile uncertain
++   writes before further modeling, and use their exact existing operation IDs.
++
++`source_sketch_selection_required` is a pre-dispatch selection diagnostic, not
++evidence of created geometry. The bridge rechecks the exact selected source
++before initiating Extrude. Agent-orchestrated Browser selection is currently
++required; do not describe the standalone plate tool as fully autonomous.
++
+ ## Resolve the task target
+ 
+ 1. With a supplied link, call `resolve_target(url="USER_URL")`. With “this model”,
+diff --git a/tests/adapter.test.mjs b/tests/adapter.test.mjs
+index b52241d..9361e57 100644
+--- a/tests/adapter.test.mjs
++++ b/tests/adapter.test.mjs
+@@ -323,7 +323,7 @@ test('selected sole source sketch starts a NEW solid extrusion with editor-bound
+   const sketch={featureId:sketchId,featureType:'newSketch',nodeId:'sketch-node',
+     entities:[{},{},{},{}],constraints:Array.from({length:11},()=>({}))};
+   const root={children:[sketch,{$type:'bsedit.GBTMRollback',nodeId:'rollback'}]};
+-  let editing=null,revision='a'.repeat(24),selected=false,toolbarClicks=0;
++  let editing=null,revision='a'.repeat(24),selected=true,toolbarClicks=0;
+   const QueryCall=class {constructor(){this.elementId='';this.queries=[];this.qFunction='';this.additionalArguments=[];
+     this.queryNodeIdToInContextNodeId={};} getMessageName(){return 'ui.GBTUiGetQueryDataCall';}};
+   const Region=class {constructor(){this.deterministicIds=[];this.featureId='';this.filterInnerLoops=false;}
+@@ -333,7 +333,8 @@ test('selected sole source sketch starts a NEW solid extrusion with editor-bound
+       evaluationDetails:{entityType:0,fullOperationId:'',status:0},hasErrorEntity:false}]}),temp);
+   modules.__controller.documentModel.get=k=>k==='microversionId'?{theId:micro}:
+     {get:x=>x==='microversionId'?revision:x==='idEditingFeature'?editing:null};
+-  const row={getClientRects:()=>[1],getAttribute:()=>null,classList:{contains:name=>name==='selected'&&selected},click:()=>{selected=true;}};
++  const row={getClientRects:()=>[1],getAttribute:()=>null,classList:{contains:name=>name==='selected'&&selected},
++    click:()=>{throw Error('Do not alter the normal browser selection');}};
+   const toolbar={getClientRects:()=>[1],getAttribute:()=>null,classList:{contains:()=>false},click:()=>{
+     toolbarClicks++;editing='newExtrude_0';revision='b'.repeat(24);
+     root.children.splice(1,0,{featureId:editing,featureType:'extrude',nodeId:'extrude-node',parameters:[
+@@ -341,6 +342,7 @@ test('selected sole source sketch starts a NEW solid extrusion with editor-bound
+       {parameterId:'endBound',value:'BLIND'},{parameterId:'depth',value:25},
+       {parameterId:'entities',queries:[region]}]});}};
+   globalThis.document={querySelectorAll:selector=>selector===`div.os-list-item[feature-id="${sketchId}"][feature-type="newSketch"]`?[row]:
++    selector==='div.os-list-item.selected[feature-id]'?[row]:
+     selector==='div.tool[command-id="extrude"]'?[toolbar]:[]};
+   const result=await pageCommand({kind:'partstudio_begin_source_extrude',op_id:'begin-extrude-'+'a'.repeat(32),target:temp,
+     expected_element_microversion:'a'.repeat(24),sketch_feature_id:sketchId});
+@@ -352,6 +354,33 @@ test('selected sole source sketch starts a NEW solid extrusion with editor-bound
+   assert.deepEqual(sent.map(m=>m.getMessageName()),['ui.GBTUiGetQueryDataCall']);
+ });
+ 
++for (const selection of ['missing','wrong','multiple','stale','revision']) {
++test(`source Extrude rejects ${selection} selection without toolbar action`,async()=>{
++  const temp={did:'4e078dec822b4e509616b1cb',wid:'af0627de07264acf086e646a',eid:'1926791d173990d5d45f70ef'};
++  const sketchId='sourceSketch_0';
++  const root={children:[{featureId:sketchId,featureType:'newSketch',nodeId:'sketch-node',
++    entities:[{},{},{},{}],constraints:Array.from({length:11},()=>({}))},{$type:'bsedit.GBTMRollback'}]};
++  setup(undefined,false,'a'.repeat(24),root,{},null,temp);
++  let clicks=0;
++  const row={getClientRects:()=>[1],getAttribute:()=>null,
++    classList:{contains:name=>name==='selected'},click:()=>clicks++};
++  const other={...row};
++  const selected=selection==='missing'?[]:selection==='multiple'?[row,other]:
++    selection==='wrong'||selection==='stale'?[other]:[row];
++  globalThis.document={querySelectorAll:selector=>
++    selector===`div.os-list-item[feature-id="${sketchId}"][feature-type="newSketch"]`?[row]:
++    selector==='div.os-list-item.selected[feature-id]'?selected:
++    selector==='div.tool[command-id="extrude"]'?[{...row,classList:{contains:()=>false}}]:[]};
++  const result=await pageCommand({kind:'partstudio_begin_source_extrude',
++    op_id:'begin-extrude-'+'a'.repeat(32),target:temp,
++    expected_element_microversion:(selection==='revision'?'b':'a').repeat(24),sketch_feature_id:sketchId});
++  assert.equal(result.write_stage,'pre_dispatch');
++  if(selection!=='revision') assert.equal(result.reason,'source_sketch_selection_required');
++  assert.equal(clicks,0);
++  assert.equal(sent.length,0);
++});
++}
++
+ test('source Extrude refuses an extra sketch profile before toolbar action',async()=>{
+   const temp={did:'4e078dec822b4e509616b1cb',wid:'af0627de07264acf086e646a',eid:'1926791d173990d5d45f70ef'};
+   const root={children:[{featureId:'sourceSketch_0',featureType:'newSketch',nodeId:'sketch-node',
+-- 
+2.54.0.windows.1
+
