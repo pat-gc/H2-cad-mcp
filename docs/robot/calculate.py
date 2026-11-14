@@ -2,6 +2,7 @@
 import json
 import math
 from pathlib import Path
+from kinematics import inverse_aligned
 
 G = 9.81
 L1, L2, TOOL = .220, .160, .020
@@ -54,9 +55,7 @@ def main():
     points=[]
     # With wrist offset aligned with link 2, effective second link is .180 m.
     for x,y in [(.4,0),(.3,-.2),(.3,0),(.3,.2)]:
-        c=(x*x+y*y-L1*L1-(L2+TOOL)**2)/(2*L1*(L2+TOOL))
-        q2=math.acos(max(-1,min(1,c)))
-        q1=math.atan2(y,x)-math.atan2((L2+TOOL)*math.sin(q2), L1+(L2+TOOL)*math.cos(q2))
+        q1, _, q2, _ = inverse_aligned(x*1000, y*1000, 0)
         points.append(dict(x_mm=x*1000,y_mm=y*1000,base_deg=math.degrees(q1),elbow_deg=math.degrees(q2),wrist_deg=0))
     belts=[]
     for axis,n,c in [('base',100,.080),('elbow',80,.070),('wrist',60,.065)]:

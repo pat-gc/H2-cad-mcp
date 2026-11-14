@@ -1,0 +1,37 @@
+{
+  "status": "kinematics verified; collision and hardware checks outstanding",
+  "coverage": {
+    "x_mm": 300,
+    "y_mm": [
+      -200,
+      200
+    ],
+    "lift_mm": [
+      0,
+      200
+    ],
+    "sample_spacing_mm": 1,
+    "sample_count": 802
+  },
+  "angle_ranges_deg": {
+    "base": [
+      -56.94413715222949,
+      10.659761709826215
+    ],
+    "elbow": [
+      51.595295885302626,
+      83.32937018328616
+    ],
+    "wrist": [
+      0.0,
+      0.0
+    ]
+  },
+  "max_forward_error_mm": 8.038873388460929e-14,
+  "minimum_abs_planar_jacobian_determinant_mm2": 31032.2412983658,
+  "maximum_reach_mm": 400.0,
+  "maximum_reach_is_singular": true,
+  "tool_yaw_policy": "wrist zero; yaw varies with base plus elbow",
+  "collision_verified": false,
+  "native_assembly_verified": false
+}
