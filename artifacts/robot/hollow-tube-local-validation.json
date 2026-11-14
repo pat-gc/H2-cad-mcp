@@ -1,0 +1,85 @@
+{
+  "source_sha256": "9c0905259e5d59800d66a809dae21a03930efa4a9e1a8a9ae191212ddedd755e",
+  "source_features": 8,
+  "dimensions_mm": {
+    "outer": 20.0,
+    "wall": 2.0,
+    "length": 220.0,
+    "inner": 16.0
+  },
+  "solid_count": 1,
+  "kernel_valid": true,
+  "volume_mm3": 31679.999999999996,
+  "expected_volume_mm3": 31680.0,
+  "bounds_mm": [
+    -10.0,
+    -10.0,
+    0,
+    10.0,
+    10.0,
+    220.0
+  ],
+  "through_bore_probes_mm": [
+    [
+      0,
+      0,
+      0
+    ],
+    [
+      0,
+      0,
+      110.0
+    ],
+    [
+      0,
+      0,
+      220.0
+    ]
+  ],
+  "four_wall_probes_mm": [
+    [
+      9.0,
+      0,
+      110.0
+    ],
+    [
+      -9.0,
+      0,
+      110.0
+    ],
+    [
+      0,
+      9.0,
+      110.0
+    ],
+    [
+      0,
+      -9.0,
+      110.0
+    ]
+  ],
+  "source_plan_supported": true,
+  "local_validation": {
+    "status": "passed",
+    "geometry": {
+      "parts": 1,
+      "volume_mm3": 31680.0,
+      "area_mm2": 31968.0,
+      "bbox_mm": [
+        -10.0,
+        -10.0,
+        0.0,
+        10.0,
+        10.0,
+        220.0
+      ]
+    },
+    "warnings": [],
+    "error": null,
+    "provenance": "FSGen local OpenCascade only",
+    "remote": "not_run",
+    "native_editability": "not_run"
+  },
+  "native_verification": "not_run",
+  "component_class": "hollow square tube modeling primitive, not 2020 T-slot extrusion"
+}
