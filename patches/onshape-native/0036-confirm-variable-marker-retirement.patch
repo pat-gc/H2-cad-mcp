@@ -1,0 +1,155 @@
+From 49af2db9ef7a2440eb70df939be75daab7d43f3e Mon Sep 17 00:00:00 2001
+From: patcybermind <pato.gonzalezcabrera@gmail.com>
+Date: Sat, 14 Nov 2026 06:22:18 -0500
+Subject: [PATCH] fix: confirm saved variable marker retirement for empty idle
+ sentinel
+
+---
+ extension/page-adapter.js     | 13 ++++++++++---
+ onshape_native/bridge.py      | 28 +++++++++++++++++++++++++++-
+ tests/adapter.test.mjs        | 23 +++++++++++++++++++++++
+ tests/test_variable_writer.py |  7 +++++--
+ 4 files changed, 65 insertions(+), 6 deletions(-)
+
+diff --git a/extension/page-adapter.js b/extension/page-adapter.js
+index 92bfedf..57dd58d 100644
+--- a/extension/page-adapter.js
++++ b/extension/page-adapter.js
+@@ -308,18 +308,25 @@ export async function pageCommand(job) {
+   }
+   if (job.kind === "state") {
+     const marker = controller.__onshapeNativeIncompleteFeatureEdit;
++    const rawEditing = elementModel?.get("idEditingFeature");
++    const idle = rawEditing == null || rawEditing === "";
++    let retirement = job.retire_acknowledged_op_id ? {
++      op_id:job.retire_acknowledged_op_id,status:marker ? "blocked" : "absent"} : null;
+     if (job.retire_acknowledged_op_id && marker?.stage === "await-saved-readback" &&
+         marker.op_id === job.retire_acknowledged_op_id &&
+         controller.connection?.isClosed?.() === false &&
+-        elementModel?.get("idEditingFeature") == null &&
++        idle &&
++        (!marker.target || ["did","wid","eid"].every(k=>marker.target[k]===target[k])) &&
+         getElementMicroversion() !== marker.expected_revision &&
+         location.pathname === `/documents/${target.did}/w/${target.wid}/e/${target.eid}`) {
+       const root = controller.documentClientCache?.getModelTreeState(target.eid)?.diffableModelTree?.getRoot();
+       const matches = root?.children?.filter(node=>node?.featureId===marker.feature_id);
+-      if (matches?.length === 1 && matches[0].nodeId === marker.node_id)
++      if (matches?.length === 1 && matches[0].nodeId === marker.node_id) {
+         delete controller.__onshapeNativeIncompleteFeatureEdit;
++        retirement.status="retired";
++      }
+     }
+-    return state();
++    return {...state(),...(retirement ? {marker_retirement:retirement} : {})};
+   }
+   if (job.kind === "ui_inspect") {
+     const nodes = [...document.querySelectorAll('button,input,select,textarea,[role="button"],[role="tab"],[role="menuitem"],[contenteditable="true"]')]
+diff --git a/onshape_native/bridge.py b/onshape_native/bridge.py
+index 6fcb8ad..de008d5 100644
+--- a/onshape_native/bridge.py
++++ b/onshape_native/bridge.py
+@@ -1259,11 +1259,37 @@ def create_app(config=None):
+             return JSONResponse({"status": "blocked", "reason": "Pinned journal or bridge safety state differs"}, 409)
+         try:
+             first = await broker.dispatch({"kind": "state", "target": target, "tab_id": body["tab_id"]})
++            # Prove the journaled saved definition before asking this controller
++            # to retire its local marker. The transaction below repeats proof
++            # before changing durable state or releasing the write barrier.
++            with sqlite3.connect(path, timeout=2) as db:
++                db.row_factory = sqlite3.Row
++                row = db.execute("SELECT * FROM writes WHERE op_id=?", (body["op_id"],)).fetchone()
++                if (row is None or row["state"] not in {"sent", "unknown", "observed"}
++                        or row["action"] != "experimental_variable_populate"
++                        or row["target"] != "/".join(target[k] for k in ("did", "wid", "eid"))):
++                    raise ValueError("Matching variable journal required before marker retirement")
++                unresolved = db.execute("SELECT op_id FROM writes WHERE state IN ('prepared','sent','unknown')").fetchall()
++                if ((row["state"] == "observed" and unresolved) or (row["state"] != "observed"
++                        and (len(unresolved) != 1 or unresolved[0]["op_id"] != body["op_id"]))):
++                    raise ValueError("Another unresolved operation prevents marker retirement")
++                intent = json.loads(row["intent"])
++                index = intent["source_index"]
++                if (intent["before_state"].get("element_microversion") != row["expected_revision"]
++                        or type(index) is not int or not 0 <= index < len(intent["source_stages"])
++                        or intent["source_stages"][index]["logical_id"] != row["logical_id"]):
++                    raise ValueError("Variable revision intent differs")
++                verify_saved_source_variable(intent["before_state"], intent["expected_tree"], first,
++                                             target, intent["source_stages"][intent["source_index"]])
+             live = await broker.dispatch({"kind": "state", "target": target, "tab_id": body["tab_id"],
+                                           "retire_acknowledged_op_id": body["op_id"]})
++            retirement = live.get("marker_retirement")
++            if (not isinstance(retirement, dict) or retirement.get("op_id") != body["op_id"]
++                    or retirement.get("status") not in {"retired", "absent"}):
++                raise ValueError("Saved variable controller marker retirement unconfirmed")
+             if any(first.get(k) != live.get(k) for k in ("target", "connected", "editingFeatureId", "element_microversion", "tree")):
+                 raise ValueError("Variable changed during independent readback")
+-        except (BridgeError, ValueError) as error:
++        except (BridgeError, ValueError, OSError, sqlite3.Error, KeyError, TypeError, IndexError) as error:
+             return JSONResponse({"status": "blocked", "reason": str(error)}, 409)
+         async with broker.command_lock:
+             if not safety_ready():
+diff --git a/tests/adapter.test.mjs b/tests/adapter.test.mjs
+index ad520a2..497e19e 100644
+--- a/tests/adapter.test.mjs
++++ b/tests/adapter.test.mjs
+@@ -962,3 +962,26 @@ test('native variable populates only fresh LENGTH defaults and keeps pending unt
+     }
+   }
+ });
++
++
++test('saved marker retirement recognizes only known idle sentinels and exact marker identity',async()=>{
++  const temp={did:'4e078dec822b4e509616b1cb',wid:'af0627de07264acf086e646a',eid:'e'.repeat(24)};
++  const op='variable-'+'a'.repeat(32);
++  for(const idle of [null,undefined,'']){
++    for(const fault of [null,'active','wrong-op','wrong-node','same-revision','wrong-target','absent']){
++      const root={children:[{featureId:'saved_0',nodeId:'saved-node'}]};
++      const modules=setup(undefined,false,'b'.repeat(24),root,{},null,temp);
++      const controller=modules.__controller;
++      controller.documentModel.get=k=>k==='microversionId'?{theId:micro}:{get:x=>x==='microversionId'?'b'.repeat(24):x==='idEditingFeature'?(fault==='active'?'newwidth_0':idle):null};
++      if(fault!=='absent')controller.__onshapeNativeIncompleteFeatureEdit={op_id:fault==='wrong-op'?'other':op,
++        stage:'await-saved-readback',feature_id:'saved_0',node_id:fault==='wrong-node'?'other':'saved-node',
++        expected_revision:(fault==='same-revision'?'b':'a').repeat(24),
++        target:{...temp,eid:fault==='wrong-target'?'f'.repeat(24):temp.eid}};
++      const result=await pageCommand({kind:'state',target:temp,retire_acknowledged_op_id:op});
++      const expected=fault==='absent'?'absent':fault?'blocked':'retired';
++      assert.deepEqual(result.marker_retirement,{op_id:op,status:expected});
++      assert.equal(!!controller.__onshapeNativeIncompleteFeatureEdit,expected==='blocked');
++      assert.equal(sent.length,0);
++    }
++  }
++});
+diff --git a/tests/test_variable_writer.py b/tests/test_variable_writer.py
+index eaa5fd4..9cc902c 100644
+--- a/tests/test_variable_writer.py
++++ b/tests/test_variable_writer.py
+@@ -48,7 +48,7 @@ def test_exact_saved_variable_proof(fault):
+ 
+ 
+ @pytest.mark.asyncio
+-@pytest.mark.parametrize("fault", [None, "unstable", "busy", "changed", "other_pending", "source", "expected", "wrong_row"])
++@pytest.mark.parametrize("fault", [None, "unstable", "busy", "changed", "other_pending", "source", "expected", "wrong_row", "marker_blocked", "marker_missing", "marker_wrong_op"])
+ async def test_variable_reconcile_is_read_only_and_preserves_unknown_on_mismatch(tmp_path, fault):
+     before, expected, after, stage = states()
+     journal = tmp_path / "journal.sqlite"
+@@ -76,6 +76,9 @@ async def test_variable_reconcile_is_read_only_and_preserves_unknown_on_mismatch
+         dispatched.append(job)
+         assert job["kind"] == "state"
+         live = copy.deepcopy(after)
++        if job.get("retire_acknowledged_op_id") and fault != "marker_missing":
++            live["marker_retirement"] = {"op_id": "other" if fault == "marker_wrong_op" else OP,
++                                         "status": "blocked" if fault == "marker_blocked" else "absent"}
+         if fault == "busy": live["editingFeatureId"] = before["editingFeatureId"]
+         if fault == "changed": live["tree"]["children"][-1]["nodeId"] = "changed"
+         if fault == "unstable" and len(dispatched) == 2: live["element_microversion"] = "c" * 24
+@@ -84,7 +87,7 @@ async def test_variable_reconcile_is_read_only_and_preserves_unknown_on_mismatch
+     async with httpx.AsyncClient(transport=httpx.ASGITransport(app), base_url="http://127.0.0.1:8766", headers={"Authorization": "Bearer " + TOKEN}) as client:
+         response = await client.post("/local/reconcile_saved_source_variable", json={"op_id": OP, "tab_id": 7})
+     assert response.status_code == (409 if fault else 200), response.text
+-    assert len(dispatched) == 2
++    assert len(dispatched) == (1 if fault in {"busy", "changed", "source", "expected", "wrong_row", "other_pending"} else 2)
+     assert broker.unknown_write is bool(fault)
+     with sqlite3.connect(journal) as db:
+         assert db.execute("SELECT state FROM writes WHERE op_id=?", (OP,)).fetchone()[0] == ("unknown" if fault else "observed")
+-- 
+2.54.0.windows.1
+
