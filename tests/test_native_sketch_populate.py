@@ -268,10 +268,13 @@ async def test_known_applied_invalid_sketch_is_recorded_but_remains_blocking(tmp
 
 
 class BeginBridge:
-    def __init__(self, *, altered=False, old_page=False):
+    def __init__(self, *, altered=False, old_page=False, outside_exact_dependencies=False,
+                 query_feature="Top"):
         self.calls = []
         self.altered = altered
         self.old_page = old_page
+        self.outside_exact_dependencies = outside_exact_dependencies
+        self.query_feature = query_feature
 
     async def health(self):
         return {"extension_connected": True, "capabilities": ["h2_native_begin_top_sketch_server_v1",
@@ -287,9 +290,11 @@ class BeginBridge:
                     "plane_query_ids": ["bound-top"]}
         if job["kind"] == "native":
             return {"result": {"$type": "ui.GBTUiGetQueryDataResponse", "queryData": [{
-                "deterministicIds": ["bound-top"], "featureId": "Top", "selectionName": "Face",
-                "evaluationDetails": {"fullOperationId": "Top.planeOp", "entityType": 2, "status": 0},
-                "hasErrorEntity": False, "outsideExactDependencies": False}]}}
+                "deterministicIds": ["bound-top"], "featureId": self.query_feature, "selectionName": "Face",
+                "evaluationDetails": {"fullOperationId": self.query_feature + ".planeOp", "entityType": 2, "status": 0,
+                                      **({} if self.outside_exact_dependencies is None else
+                                         {"outsideExactDependencies": self.outside_exact_dependencies})},
+                "hasErrorEntity": False}]}}
         assert job["kind"] == "state"
         after = len(self.calls) > 1
         rollback = {"$type": "bsedit.GBTMRollback", "nodeId": "rollback-node"}
@@ -321,6 +326,20 @@ async def test_top_sketch_initiation_unrelated_tree_change_stays_unknown(tmp_pat
     journal = Journal(tmp_path / "intent.sqlite")
     with pytest.raises(UncertainWrite, match="outcome unknown"):
         await NativeBackend(bridge, tab_id=17).begin_test_top_sketch(TARGET, journal)
+    assert journal.has_unresolved()
+    journal.close()
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("kwargs", [{"outside_exact_dependencies": True},
+                                    {"outside_exact_dependencies": None},
+                                    {"query_feature": "Front"}])
+async def test_top_sketch_independent_query_rejects_untrusted_face(tmp_path, kwargs):
+    bridge = BeginBridge(**kwargs)
+    journal = Journal(tmp_path / "intent.sqlite")
+    with pytest.raises(UncertainWrite, match="outcome unknown"):
+        await NativeBackend(bridge, tab_id=17).begin_test_top_sketch(TARGET, journal)
+    assert [x["kind"] for x in bridge.calls] == ["state", "partstudio_begin_top_sketch", "state", "native"]
     assert journal.has_unresolved()
     journal.close()
 

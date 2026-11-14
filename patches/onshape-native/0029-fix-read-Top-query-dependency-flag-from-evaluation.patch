@@ -1,0 +1,94 @@
+From 902eb39e89469199c31bc24d067a9644c6af557a Mon Sep 17 00:00:00 2001
+From: patcybermind <pato.gonzalezcabrera@gmail.com>
+Date: Fri, 13 Nov 2026 22:36:38 -0500
+Subject: [PATCH] fix: read Top query dependency flag from evaluation details
+
+---
+ extension/page-adapter.js |  2 +-
+ pyproject.toml            |  7 +++++++
+ tests/adapter.test.mjs    | 13 +++++++++----
+ 3 files changed, 17 insertions(+), 5 deletions(-)
+
+diff --git a/extension/page-adapter.js b/extension/page-adapter.js
+index a46951f..633fc68 100644
+--- a/extension/page-adapter.js
++++ b/extension/page-adapter.js
+@@ -373,7 +373,7 @@ export async function pageCommand(job) {
+         item?.featureId!=="Top" || item?.selectionName!=="Face" ||
+         item?.evaluationDetails?.fullOperationId!=="Top.planeOp" ||
+         item?.evaluationDetails?.entityType!==2 || item?.evaluationDetails?.status!==0 ||
+-        item?.hasErrorEntity!==false || item?.outsideExactDependencies!==false)
++        item?.hasErrorEntity!==false || item?.evaluationDetails?.outsideExactDependencies!==false)
+       throw new Error("Current candidate does not resolve the unique Top face; outcome unknown.");
+     if (!sameEditor() || modelRoot()?.children?.filter(node=>node?.featureId===sketch.featureId)?.length!==1)
+       throw new Error("Top editor changed during query resolution; outcome unknown.");
+diff --git a/pyproject.toml b/pyproject.toml
+index 90b3ea0..c43f110 100644
+--- a/pyproject.toml
++++ b/pyproject.toml
+@@ -1,3 +1,7 @@
++[build-system]
++requires = ["setuptools>=68"]
++build-backend = "setuptools.build_meta"
++
+ [project]
+ name = "codex-onshape-native"
+ version = "0.5.0"
+@@ -5,6 +9,9 @@ description = "Onshape browser-session REST and native editor commands over a lo
+ requires-python = ">=3.11"
+ dependencies = ["mcp>=1.12,<2", "httpx>=0.28,<1", "pillow>=11,<13", "uvicorn>=0.35,<1", "websockets>=15,<17"]
+ 
++[tool.setuptools.packages.find]
++include = ["onshape_native*"]
++
+ [dependency-groups]
+ dev = ["pytest>=8,<10", "pytest-asyncio>=0.25,<2", "pyyaml>=6,<7"]
+ 
+diff --git a/tests/adapter.test.mjs b/tests/adapter.test.mjs
+index 8af9325..2210141 100644
+--- a/tests/adapter.test.mjs
++++ b/tests/adapter.test.mjs
+@@ -225,7 +225,7 @@ test('normal Sketch allocation binds Top through a freshly resolved typed query'
+   const modules=setup(undefined,false,revision,root,{Query,QueryList,Sketch,QueryCall,Change,Reference,Specify},m=>{
+     if(m.getMessageName()==='ui.GBTUiGetQueryDataCall') return {getMessageName:()=> 'ui.GBTUiGetQueryDataResponse',
+       queryData:[{deterministicIds:['JDC'],featureId:'Top',selectionName:'Face',hasErrorEntity:false,
+-        outsideExactDependencies:false,evaluationDetails:{fullOperationId:'Top.planeOp',entityType:2,status:0}}]};
++        evaluationDetails:{fullOperationId:'Top.planeOp',entityType:2,status:0,outsideExactDependencies:false}}]};
+     if(m.getMessageName()==='ui.GBTUiSpecifyFeature'){
+       root.children[1]=m.featureChange.newNode;revision='c'.repeat(24);
+       return {errorEnum:0};
+@@ -258,7 +258,10 @@ test('normal Sketch allocation binds Top through a freshly resolved typed query'
+   assert.ok(sent[1].featureChange.newNode.parameters[0].queries[0] instanceof Query);
+ });
+ 
+-test('typed Top binding rejects a wrong-plane query before SpecifyFeature',async()=>{
++for (const [caseName,queryFeature,outsideFlag] of [
++  ['wrong plane','Front',false],['outside dependencies','Top',true],
++  ['missing dependency flag','Top',undefined]]) {
++test(`typed Top binding rejects ${caseName} before SpecifyFeature`,async()=>{
+   const temp={did:'4e078dec822b4e509616b1cb',wid:'af0627de07264acf086e646a',eid:'9a062f0eef8bb961f8c84f8e'};
+   const Type=(name,defaults)=>class {constructor(){Object.assign(this,defaults);}
+     getMessageName(){return name;} getClassId(){return 1;}};
+@@ -274,8 +277,9 @@ test('typed Top binding rejects a wrong-plane query before SpecifyFeature',async
+   let revision='a'.repeat(24),editing=null;
+   const modules=setup(undefined,false,revision,root,{Query,QueryList,Sketch,QueryCall},()=>({
+     getMessageName:()=> 'ui.GBTUiGetQueryDataResponse',queryData:[{
+-      deterministicIds:['JDC'],featureId:'Front',selectionName:'Face',hasErrorEntity:false,
+-      outsideExactDependencies:false,evaluationDetails:{fullOperationId:'Front.planeOp',entityType:2,status:0}}]}),temp);
++      deterministicIds:['JDC'],featureId:queryFeature,selectionName:'Face',hasErrorEntity:false,
++      evaluationDetails:{fullOperationId:`${queryFeature}.planeOp`,entityType:2,status:0,
++        ...(outsideFlag===undefined?{}:{outsideExactDependencies:outsideFlag})}}]}),temp);
+   modules.__controller.documentModel.get=k=>k==='microversionId'?{theId:micro}:
+     {get:x=>x==='microversionId'?revision:x==='idEditingFeature'?editing:null};
+   const control=click=>({getClientRects:()=>[1],getAttribute:()=>null,classList:{contains:()=>false},click});
+@@ -290,6 +294,7 @@ test('typed Top binding rejects a wrong-plane query before SpecifyFeature',async
+   assert.deepEqual(sent.map(m=>m.getMessageName()),['ui.GBTUiGetQueryDataCall']);
+   assert.deepEqual(root.children[1].parameters[0].queries,[]);
+ });
++}
+ 
+ test('selected sole source sketch starts a NEW solid extrusion with editor-bound region',async()=>{
+   const temp={did:'4e078dec822b4e509616b1cb',wid:'af0627de07264acf086e646a',eid:'1926791d173990d5d45f70ef'};
+-- 
+2.54.0.windows.1
+

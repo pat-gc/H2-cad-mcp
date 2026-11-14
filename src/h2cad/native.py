@@ -762,7 +762,7 @@ class NativeBackend:
                         or item.get("featureId") != "Top" or item.get("selectionName") != "Face"
                         or detail.get("fullOperationId") != "Top.planeOp" or detail.get("entityType") != 2
                         or detail.get("status") != 0 or item.get("hasErrorEntity") is not False
-                        or item.get("outsideExactDependencies") is not False):
+                        or detail.get("outsideExactDependencies") is not False):
                     raise UncertainWrite("Bound sketch plane does not resolve to Top")
                 stable = await self.raw_state(target)
                 if (stable.get("connected") is not True
