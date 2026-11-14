@@ -1,4 +1,4 @@
-> **Stopped at user reserve:** account meter reached 90% remaining (10% used). All workers are stopped. Resume only on a new user instruction.
+> **Active budget:** user resumed until 85% remaining (15% used). Last meter 10% used. Root owns live Browser/bridge/journal; plane_mapping owns bounded offline body-scope proof work. Check usage between batches and stop at15% used.
 >
 > **Saved live state:** Robot - Seven Hole Carrier, EID e37ca903af44622ca6919031 / tab 941741361, revision c130f5d8bed1a97d87b830a4. Nine source features, two solids; source-run, mass properties and 12-to-14-to-12 exact tree restoration passed. No unresolved writes; reload guard false. Source47 is documentation-only; paired runtime46 remains active.
 >

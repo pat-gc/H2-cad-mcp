@@ -1,0 +1,25 @@
+{
+  "status": "rendered",
+  "source_sha256": "9c0905259e5d59800d66a809dae21a03930efa4a9e1a8a9ae191212ddedd755e",
+  "image_sha256": "9f3b8b36f46e263b6fe9f14a4d96a3d871fcb3a3cb425eecefb6482627870f4f",
+  "image": "hollow-tube-local-preview.png",
+  "geometry": {
+    "parts": 1,
+    "volume_mm3": 31680.0,
+    "area_mm2": 31968.0,
+    "bbox_mm": [
+      -10.0,
+      -10.0,
+      0.0,
+      10.0,
+      10.0,
+      220.0
+    ]
+  },
+  "kernel_valid_solids": 1,
+  "warnings": [],
+  "provenance": "FSGen local OpenCascade",
+  "remote": "not_run",
+  "native_compatibility": "not_checked",
+  "native_editability": "not_run"
+}

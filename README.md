@@ -43,11 +43,16 @@ editably, retaining that resource.
 ```powershell
 python -m h2cad compile path/to/part.fs --did DID --wid WID --eid EID --output desired.json
 python -m h2cad validate path/to/part.fs
+python -m h2cad preview path/to/part.fs --output artifacts/part-preview.png
 python -m h2cad plan --base examples/collaboration/base.json --observed examples/collaboration/observed.json --desired examples/collaboration/desired.json
 python scripts/benchmark.py --source upstream/onshape-fsgen/examples/native/plate.fs --iterations 3
 ```
 
 `compile` and `validate` require the optional pinned FSGen installation.
+`preview` renders the actual local solids and writes a neighboring JSON report
+with source/image hashes, geometry metrics and solid validity. It requires the
+local rendering dependencies and makes no Onshape call. A local preview does not
+establish native feature support; check the capability matrix before pushing.
 `plan` is an offline three-way merge; it returns conflicts rather than
 overwriting concurrent changes. The example has a human sketch radius change
 and an independent AI extrusion depth change. The planner preserves both.

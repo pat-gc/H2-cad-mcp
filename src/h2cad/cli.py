@@ -69,6 +69,9 @@ def build_parser() -> argparse.ArgumentParser:
     blueprint_cmd.add_argument("--output", type=Path)
     validate_cmd = commands.add_parser("validate", help="run FSGen local geometry validation")
     validate_cmd.add_argument("source")
+    preview_cmd = commands.add_parser("preview", help="render actual local solids and save a provenance report; no Onshape writes")
+    preview_cmd.add_argument("source", type=Path)
+    preview_cmd.add_argument("--output", type=Path, required=True)
     source_run_cmd = commands.add_parser("experimental-source-run", help="checkpoint source-order execution; Browser still allocates drafts")
     source_run_cmd.add_argument("action", choices=("init", "next", "apply", "record-measurements"))
     source_run_cmd.add_argument("--measurements", type=Path, help="Browser mass-property evidence JSON for record-measurements")
@@ -477,6 +480,11 @@ def main(argv: list[str] | None = None) -> int:
             from .fsgen import compile_fsgen
             from .native import stage_minimal_pair
             value = stage_minimal_pair(compile_fsgen(Path(args.source), _target(args))).to_dict()
+        elif args.command == "preview":
+            from .preview import preview_fsgen
+            value = preview_fsgen(args.source, args.output)
+            _print(value)
+            return 0
         elif args.command == "validate":
             from .validation import validate_fsgen
             value = validate_fsgen(Path(args.source)).to_dict()
