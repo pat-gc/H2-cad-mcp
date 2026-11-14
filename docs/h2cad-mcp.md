@@ -40,6 +40,16 @@ current exact editor state, then use the appropriate read-only reconciliation
 path before any new creation attempt. If H2 or FSGen is absent from the MCP
 environment, installation must be repaired before using the tool.
 
+The CLI additionally supports `experimental-create-plate ...
+--resume-sketch-op-id OP_ID` for an interrupted run whose source sketch has
+already been positively reconciled to `observed`, before any extrusion was
+allocated. It reruns local validation and checks the exact target, source
+blueprint, entity prefix, saved feature identity, and origin/solver evidence.
+It skips both sketch stages and uses the existing live extrusion preflight.
+Unresolved writes or an existing extrusion stop continuation; this is not a
+generic retry or a resume path after extrusion allocation. The MCP wrapper
+does not yet expose this CLI option.
+
 This first tool supports one validated Top rectangle and one blind extrusion in
 an isolated empty test Part Studio. Variables, offset planes, circles, dependent
 expressions, multi-body car creation, and assemblies are outside its current
