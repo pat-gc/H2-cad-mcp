@@ -94,6 +94,7 @@ def build_parser() -> argparse.ArgumentParser:
     _add_target(inspect_cmd)
     inspect_cmd.add_argument("--bridge-config", type=Path, required=True)
     inspect_cmd.add_argument("--tab-id", type=int)
+    inspect_cmd.add_argument("--output", type=Path, help="Save exact state JSON for a later pre-allocation baseline")
     geometry_cmd = commands.add_parser("inspect-geometry", help="read native solid inventory, volume and area through the session bridge")
     _add_target(geometry_cmd)
     geometry_cmd.add_argument("--bridge-config", type=Path, required=True)
@@ -497,6 +498,8 @@ async def _bridge_action(args: argparse.Namespace) -> tuple[object, int]:
 def main(argv: list[str] | None = None) -> int:
     args = build_parser().parse_args(argv)
     try:
+        if args.command == "inspect" and args.output and args.output.resolve() == args.bridge_config.resolve():
+            raise ValueError("State output must not overwrite bridge config")
         if args.command == "experimental-source-run" and args.output:
             protected = [args.source, args.run_state, args.journal, args.bridge_config, args.measurements, args.baseline]
             if any(path is not None and args.output.resolve() == path.resolve() for path in protected):

@@ -5,12 +5,10 @@ by its `onshape_native` MCP/session bridge and H2 CLI. An agent validates the FS
 source locally, allocates each blank feature through normal Browser controls,
 then delegates source geometry to the deterministic CLI and verifies the durable
 journal result. There is no second orchestrator and no single autonomous car MCP
-call. The complete native car and assemblies are not yet accepted; consult
-[current verification status](STATUS.md) rather than inferring acceptance from
-the presence of a command.
-
-The source Chassis sketch and extrusion have saved-definition evidence. Final
-geometry verification and the remaining car groups are underway.
+call. The complete native car and isolated bearing-carrier fixtures have live
+geometry and edit/restore evidence. The car assembly has eight placed occurrences
+and no mates; general source-backed assemblies and the robotic arm remain
+unfinished. Consult [current verification status](STATUS.md) for acceptance.
 
 After bootstrap, the packaged instructions are
 `upstream/onshape-native/skills/onshape-native-modeling/SKILL.md`, with the complete
@@ -93,7 +91,7 @@ read provenance. Unknown creators, unobserved Boolean operations, changed source
 definitions and revision changes reject the inspection. `write_ready: false`
 means this evidence does not enable repeated cuts or replace write-time checks.
 
-For a fresh REMOVE draft, capture its saved state with `h2cad inspect` before
+For a fresh REMOVE draft, capture its saved state with `h2cad inspect --output out/baseline.json` before
 allocation, then check the actual UI selection against that baseline:
 
 ```powershell
