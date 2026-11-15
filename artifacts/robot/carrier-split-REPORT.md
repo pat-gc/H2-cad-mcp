@@ -49,3 +49,9 @@ the active editor previews either two bodies (a temporary shallow cut) or four
 each saved body also resolved its expected creator and operation in the new draft.
 These observations support a future write-time preflight; they do not yet prove
 an actual sequential cut or its final geometry.
+
+The [live draft scope inspection](carrier-split-draft-scope-proof.json) now
+independently resolves all saved bodies during a fresh REMOVE draft and verifies
+the actual selected query set. Selecting both JQD/JQH passed; removing one from
+selection rejected before any write. The draft was canceled. This checks scope,
+not cut direction or final regeneration, and keeps `write_ready: false`.

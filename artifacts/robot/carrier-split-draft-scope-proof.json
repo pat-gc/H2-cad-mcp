@@ -1,0 +1,54 @@
+{
+  "allowed_operation_ids": [
+    "F3hgpZaazvOORTW_2.boolean.opBoolean",
+    "FfQqD1D77pgFCAA_0.opExtrude"
+  ],
+  "baseline_element_microversion": "d559ebfd48db73fba2a05d78",
+  "body_partitions": {
+    "Carrier blank": [
+      "JQD",
+      "JQH"
+    ],
+    "Untouched witness": [
+      "JMD"
+    ]
+  },
+  "document_microversion": "fb6532f39280688e48bd9764",
+  "draft_element_microversion": "f2e493ca3a7751484333a71b",
+  "draft_feature_id": "FHmtFqIaJgeUL3F_2",
+  "independently_verified": true,
+  "missing_evidence": [
+    "native writer/reconciliation integration"
+  ],
+  "scope_body_ids": [
+    "JQD",
+    "JQH"
+  ],
+  "selected_scope_requirement": {
+    "body_ids": [
+      "JQD",
+      "JQH"
+    ],
+    "defaultScope": false,
+    "match": "exact_set"
+  },
+  "single_survivor": false,
+  "snapshot_sha256": "8789bad1bddb58c9874239750b361164976d3050a3a13e07d68ef61b6d758ad1",
+  "source_sha256": "8c39327db2eb9daa1acd0036c3f2df64178a938ea79c0846ebeb640bc88da9ee",
+  "target": {
+    "did": "4e078dec822b4e509616b1cb",
+    "eid": "4bae4e36c39e40e64e8146d1",
+    "wid": "af0627de07264acf086e646a"
+  },
+  "target_feature_id": "FfQqD1D77pgFCAA_0",
+  "target_logical_id": "Carrier blank",
+  "target_op_id": "extrude-585e2ef0f8ff416a85116d7c3c6e54f4",
+  "ui_scope_selection_verified": true,
+  "write_ready": false,
+  "negative_live_check": {
+    "selection": "one of two carrier descendants",
+    "rejected": true,
+    "message": "UI-selected scope must equal the complete required body set"
+  },
+  "draft_canceled": true
+}

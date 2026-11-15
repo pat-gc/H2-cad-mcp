@@ -66,29 +66,11 @@ async def collect_native_geometry(backend, target):
         raise Unsupported("Exact configured native target and tab required")
     before=await backend.raw_state(target)
     _stable(before,before,target)
-    schemas=[];reads=[];query_nodes=set()
-    async def schema(name, required):
-        response=await backend.bridge.command({"kind":"schema","target":target.to_dict(),
-                                               "tab_id":backend.tab_id,"name":name})
-        defaults=response.get("defaults")
-        if (response.get("name")!=name or not isinstance(defaults,dict) or defaults.get("$type")!=name
-                or set(defaults)!={"$type"}|set(required)):
-            raise Unsupported("Native measurement schema differs from observed fields: "+name)
-        schemas.append(copy.deepcopy(response))
-        return {k:copy.deepcopy(v) for k,v in defaults.items() if k!="$type"}
-    async def native(name,body):
-        response=await backend.bridge.command({"kind":"native","target":target.to_dict(),"tab_id":backend.tab_id,
-                                               "command":name,"body":body})
-        result=response.get("result")
-        if (not isinstance(result,dict) or any(response.get(k) for k in ("error","errorCode","errorEnum"))
-                or any(result.get(k) for k in ("error","errorCode","errorEnum"))
-                or response.get("microversion_before")!=before["microversion"]
-                or response.get("microversion_after")!=before["microversion"]):
-            raise Unsupported("Native read failed or document revision changed")
-        current=await backend.raw_state(target)
-        _stable(before,current,target)
-        reads.append({"command":name,"body":copy.deepcopy(body),"response":copy.deepcopy(response)})
-        return response
+    from .native_read_session import NativeReadSession
+    session = NativeReadSession(backend, target, before["microversion"], lambda current: _stable(before, current, target))
+    schema, native = session.schema, session.native
+    schemas, reads = session.schemas, session.reads
+    query_nodes = set()
 
     request=await schema("ui.document.GBTUiQueryInsertables",
                          {"targetElementId","sourceElementId","documentMicroversionId","filter"})

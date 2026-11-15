@@ -73,7 +73,8 @@ def build_parser() -> argparse.ArgumentParser:
     preview_cmd.add_argument("source", type=Path)
     preview_cmd.add_argument("--output", type=Path, required=True)
     source_run_cmd = commands.add_parser("experimental-source-run", help="checkpoint source-order execution; Browser still allocates drafts")
-    source_run_cmd.add_argument("action", choices=("init", "next", "apply", "record-measurements", "measure-native", "inspect-scope"))
+    source_run_cmd.add_argument("action", choices=("init", "next", "apply", "record-measurements", "measure-native", "inspect-scope", "inspect-draft-scope"))
+    source_run_cmd.add_argument("--baseline", type=Path, help="Saved pre-allocation state JSON; required for inspect-draft-scope")
     source_run_cmd.add_argument("--logical-id", help="Observed source NEW body to inspect; required for inspect-scope")
     source_run_cmd.add_argument("--output", type=Path, help="Save full evidence; inspect-scope prints a compact summary")
     source_run_cmd.add_argument("--measurements", type=Path, help="Browser mass-property evidence JSON for record-measurements")
@@ -334,6 +335,13 @@ async def _bridge_action(args: argparse.Namespace) -> tuple[object, int]:
                         raise ValueError("inspect-scope requires --logical-id")
                     from .native_body_scope import inspect_current_body_scope
                     return await inspect_current_body_scope(args.run_state, backend, args.source, target, journal, args.logical_id), 0
+                if args.action == "inspect-draft-scope":
+                    if not args.logical_id or args.baseline is None:
+                        raise ValueError("inspect-draft-scope requires --logical-id and --baseline")
+                    from .native_draft_scope import inspect_draft_body_scope
+                    baseline = json.loads(args.baseline.read_text(encoding="utf-8"))
+                    return await inspect_draft_body_scope(args.run_state, backend, args.source, target, journal,
+                        args.logical_id, baseline, require_selected_scope=True), 0
                 action = next_action if args.action == "next" else apply_staged
                 return await action(args.run_state, backend, args.source, target, journal), 0
             finally:
@@ -490,7 +498,7 @@ def main(argv: list[str] | None = None) -> int:
     args = build_parser().parse_args(argv)
     try:
         if args.command == "experimental-source-run" and args.output:
-            protected = [args.source, args.run_state, args.journal, args.bridge_config, args.measurements]
+            protected = [args.source, args.run_state, args.journal, args.bridge_config, args.measurements, args.baseline]
             if any(path is not None and args.output.resolve() == path.resolve() for path in protected):
                 raise ValueError("Evidence output must not overwrite source, run state, journal, bridge config or measurement input")
         result_status = 0
@@ -525,8 +533,8 @@ def main(argv: list[str] | None = None) -> int:
                 args.output.write_text(json.dumps(value, indent=2, ensure_ascii=False, sort_keys=True) + "\n", encoding="utf-8")
             if args.command == "inspect-geometry":
                 _print({k: v for k, v in value.items() if k != "raw_provenance"})
-            elif args.command == "experimental-source-run" and args.action == "inspect-scope":
-                _print({k: v for k, v in value.items() if k not in ("geometry", "history_proofs")})
+            elif args.command == "experimental-source-run" and args.action in ("inspect-scope", "inspect-draft-scope"):
+                _print({k: v for k, v in value.items() if k not in ("geometry", "history_proofs", "raw_provenance", "inventory_proof")})
             else:
                 _print(value)
             return status

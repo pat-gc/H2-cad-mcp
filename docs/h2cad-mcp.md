@@ -93,6 +93,20 @@ read provenance. Unknown creators, unobserved Boolean operations, changed source
 definitions and revision changes reject the inspection. `write_ready: false`
 means this evidence does not enable repeated cuts or replace write-time checks.
 
+For a fresh REMOVE draft, capture its saved state with `h2cad inspect` before
+allocation, then check the actual UI selection against that baseline:
+
+```powershell
+& .\.venv\Scripts\python.exe -m h2cad experimental-source-run inspect-draft-scope @runArgs --logical-id 'Carrier blank' --baseline out/baseline.json --output out/draft-scope.json
+```
+
+This action requires explicit scope, resolves every saved body through fresh
+native queries, and rejects omitted descendants or an added witness. Historical
+inventory refers to the saved document revision; preview geometry can differ.
+It is read-only: `ui_scope_selection_verified: true` does not establish cut
+direction, final geometry, or readiness to commit. Source-run and direct-writer
+repeated-cut guards remain enabled until paired writer integration is complete.
+
 `experimental-source-run` coordinates the existing guarded writers in source
 order. It pins the source hash, target, journal and locally validated plan in a
 run file. It does not allocate Browser drafts or create assemblies. The CLI is

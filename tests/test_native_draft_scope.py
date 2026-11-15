@@ -27,6 +27,7 @@ async def setup(tmp_path, fault=None):
     if fault=='baseline_change':draft['tree']['children'][0]['name']='human edit'
     if fault=='nonterminal':draft['tree']['children'].insert(-1,{'featureId':'extra','nodeId':'extra'})
     if fault=='tab':draft['tab_id']+=1
+    if fault=='unchanged_element':draft['element_microversion']=baseline['element_microversion']
     if fault=='pending':journal.prepare(op_id='pending',target='other',expected_revision='x',action='x',logical_id='x',intent={})
     nreads=0
     async def state(given):
@@ -88,7 +89,7 @@ async def test_actual_saved_split_bodies_resolve_during_fresh_preview_without_wr
 
 
 @pytest.mark.asyncio
-@pytest.mark.parametrize('fault',['suppressed','existing_edit','baseline_change','nonterminal','tab','pending',
+@pytest.mark.parametrize('fault',['suppressed','existing_edit','baseline_change','nonterminal','tab','unchanged_element','pending',
     'revision_race','journal_race','wrong_historical_element','missing_body','foreign_operation','foreign_creator'])
 async def test_fail_closed_draft_history_inventory_and_query_faults(tmp_path,fault):
     path,backend,source,target,journal,baseline,calls=await setup(tmp_path,fault)

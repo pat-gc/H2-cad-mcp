@@ -12,6 +12,7 @@ def render_local_solids(built, path: Path, title: str):
     import numpy as np
     from OCP.BRepMesh import BRepMesh_IncrementalMesh
     from OCP.TopLoc import TopLoc_Location
+    from OCP.TopAbs import TopAbs_REVERSED
     from fsgen.fslite.runner import G
 
     triangles=[]; body_indices=[]
@@ -21,11 +22,11 @@ def render_local_solids(built, path: Path, title: str):
         for face in G.subshapes(body.shape, G.TopAbs_FACE):
             loc=TopLoc_Location()
             mesh=G.BRep_Tool.Triangulation_s(G.TopoDS.Face(face), loc)
-            if mesh is None:
-                continue
+            if mesh is None or mesh.NbTriangles() == 0:
+                raise ValueError("Local geometry renderer could not tessellate every face")
             points=[mesh.Node(i).Transformed(loc.Transformation()) for i in range(1,mesh.NbNodes()+1)]
             points=np.array([[p.X(),p.Y(),p.Z()] for p in points])*1000
-            reverse=G.TopoDS.Face(face).Orientation()==1
+            reverse=G.TopoDS.Face(face).Orientation()==TopAbs_REVERSED
             for i in range(1,mesh.NbTriangles()+1):
                 a,b,c=mesh.Triangle(i).Get()
                 triangles.append(points[[a-1,c-1,b-1] if reverse else [a-1,b-1,c-1]])
@@ -74,11 +75,11 @@ def render_local_solids(built, path: Path, title: str):
                 ax.spines[['top','right']].set_visible(False)
             else:
                 ax.set_axis_off()
-                ax.text(0,.01,'True proportions Â· millimetres',transform=ax.transAxes,fontsize=9)
+                ax.text(0,.01,'True proportions - millimetres',transform=ax.transAxes,fontsize=9)
         count=len(built.run.solids)
         handles=[Patch(facecolor=palette[i%len(palette)],label=f'Part {i+1}') for i in range(min(count,10))]
         fig.legend(handles=handles,loc='lower center',bbox_to_anchor=(.5,.005),ncols=min(count,5),frameon=False,
-                   title=f'{count} actual local solid'+('s' if count!=1 else '')+(f' Â· first 10 colours shown' if count>10 else ''))
+                   title=f'{count} actual local solid'+('s' if count!=1 else '')+(f' - first 10 colours shown' if count>10 else ''))
         fig.savefig(path,dpi=140,facecolor='white')
     finally:
         plt.close(fig)
