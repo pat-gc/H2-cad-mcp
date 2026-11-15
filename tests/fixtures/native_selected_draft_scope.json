@@ -1,0 +1,1117 @@
+{
+  "draft_node": {
+    "$type": "bsedit.GBTMFeature",
+    "featureId": "FHmtFqIaJgeUL3F_2",
+    "featureType": "extrude",
+    "hasUserCode": false,
+    "name": "Extrude 4",
+    "nameParseNode": {
+      "$type": "tree.GBTNodeReference",
+      "nodeId": ""
+    },
+    "namespace": "",
+    "nodeId": "MElBeHf8xnLOCuacC",
+    "parameterLibraries": [],
+    "parameters": [
+      {
+        "$type": "bsedit.GBTMParameterEnum",
+        "enumName": "OperationDomain",
+        "hasUserCode": false,
+        "libraryRelationType": 0,
+        "namespace": "",
+        "nodeId": "+cDOZQQBDlG4qIUG",
+        "parameterId": "domain",
+        "parameterName": "",
+        "sourceParseTreeNodes": {},
+        "value": "MODEL"
+      },
+      {
+        "$type": "bsedit.GBTMParameterEnum",
+        "enumName": "ExtendedToolBodyType",
+        "hasUserCode": false,
+        "libraryRelationType": 0,
+        "namespace": "",
+        "nodeId": "tQ5qeodcWiiPC1EF",
+        "parameterId": "bodyType",
+        "parameterName": "",
+        "sourceParseTreeNodes": {},
+        "value": "SOLID"
+      },
+      {
+        "$type": "bsedit.GBTMParameterEnum",
+        "enumName": "NewBodyOperationType",
+        "hasUserCode": false,
+        "libraryRelationType": 0,
+        "namespace": "",
+        "nodeId": "euVxPIl/D1FGYhMd",
+        "parameterId": "operationType",
+        "parameterName": "",
+        "sourceParseTreeNodes": {},
+        "value": "REMOVE"
+      },
+      {
+        "$type": "bsedit.GBTMParameterEnum",
+        "enumName": "NewSurfaceOperationType",
+        "hasUserCode": false,
+        "libraryRelationType": 0,
+        "namespace": "",
+        "nodeId": "ns8RVtwqrGqkV7ii",
+        "parameterId": "surfaceOperationType",
+        "parameterName": "",
+        "sourceParseTreeNodes": {},
+        "value": "NEW"
+      },
+      {
+        "$type": "bsedit.GBTMParameterEnum",
+        "enumName": "FlatOperationType",
+        "hasUserCode": false,
+        "libraryRelationType": 0,
+        "namespace": "",
+        "nodeId": "Sm3OKJ4JeZNlcW+1",
+        "parameterId": "flatOperationType",
+        "parameterName": "",
+        "sourceParseTreeNodes": {},
+        "value": "REMOVE"
+      },
+      {
+        "$type": "bsedit.GBTMParameterQueryList",
+        "filter": {
+          "$type": "bsedit.GBTAndFilter",
+          "operand1": {
+            "$type": "bsedit.GBTOrFilter",
+            "operand1": {
+              "$type": "bsedit.GBTAndFilter",
+              "operand1": {
+                "$type": "bsedit.GBTAndFilter",
+                "operand1": {
+                  "$type": "bsedit.GBTFlatSheetMetalFilter",
+                  "allows": 2
+                },
+                "operand2": {
+                  "$type": "bsedit.GBTSketchObjectFilter",
+                  "isSketchObject": true,
+                  "objectType": 1
+                }
+              },
+              "operand2": {
+                "$type": "bsedit.GBTEntityTypeFilter",
+                "entityType": 2
+              }
+            },
+            "operand2": {
+              "$type": "bsedit.GBTAndFilter",
+              "operand1": {
+                "$type": "bsedit.GBTAndFilter",
+                "operand1": {
+                  "$type": "bsedit.GBTGeometryFilter",
+                  "geometryType": 3
+                },
+                "operand2": {
+                  "$type": "bsedit.GBTFlatSheetMetalFilter",
+                  "allows": 0
+                }
+              },
+              "operand2": {
+                "$type": "bsedit.GBTEntityTypeFilter",
+                "entityType": 2
+              }
+            }
+          },
+          "operand2": {
+            "$type": "bsedit.GBTConstructionObjectFilter",
+            "isConstruction": false
+          }
+        },
+        "hasUserCode": false,
+        "libraryRelationType": 0,
+        "nodeId": "aH287496vwWiETXM",
+        "parameterId": "entities",
+        "parameterName": "",
+        "queries": [
+          {
+            "$type": "bsedit.GBTMIndividualSketchRegionQuery",
+            "deterministicIds": [
+              "JOC"
+            ],
+            "featureId": "FAjvx8sOHcRlzkL_2",
+            "filterInnerLoops": true,
+            "hasUserCode": false,
+            "nodeId": "Mm86yt6k40K3opxAL",
+            "queryString": "",
+            "sourceParseTreeNodes": {}
+          }
+        ],
+        "sourceParseTreeNodes": {}
+      },
+      {
+        "$type": "bsedit.GBTMParameterQueryList",
+        "filter": {
+          "$type": "bsedit.GBTAndFilter",
+          "operand1": {
+            "$type": "bsedit.GBTAndFilter",
+            "operand1": {
+              "$type": "bsedit.GBTAndFilter",
+              "operand1": {
+                "$type": "bsedit.GBTEntityTypeFilter",
+                "entityType": 1
+              },
+              "operand2": {
+                "$type": "bsedit.GBTSketchObjectFilter",
+                "isSketchObject": true,
+                "objectType": 1
+              }
+            },
+            "operand2": {
+              "$type": "bsedit.GBTModifiableEntityOnlyFilter",
+              "modifiableOnly": true
+            }
+          },
+          "operand2": {
+            "$type": "bsedit.GBTConstructionObjectFilter",
+            "isConstruction": false
+          }
+        },
+        "hasUserCode": false,
+        "libraryRelationType": 0,
+        "nodeId": "V71e3bGE2wWYJQv5",
+        "parameterId": "surfaceEntities",
+        "parameterName": "",
+        "queries": [],
+        "sourceParseTreeNodes": {}
+      },
+      {
+        "$type": "bsedit.GBTMParameterQueryList",
+        "filter": {
+          "$type": "bsedit.GBTOrFilter",
+          "operand1": {
+            "$type": "bsedit.GBTAndFilter",
+            "operand1": {
+              "$type": "bsedit.GBTAndFilter",
+              "operand1": {
+                "$type": "bsedit.GBTAndFilter",
+                "operand1": {
+                  "$type": "bsedit.GBTEntityTypeFilter",
+                  "entityType": 2
+                },
+                "operand2": {
+                  "$type": "bsedit.GBTGeometryFilter",
+                  "geometryType": 3
+                }
+              },
+              "operand2": {
+                "$type": "bsedit.GBTConstructionObjectFilter",
+                "isConstruction": false
+              }
+            },
+            "operand2": {
+              "$type": "bsedit.GBTModifiableEntityOnlyFilter",
+              "modifiableOnly": false
+            }
+          },
+          "operand2": {
+            "$type": "bsedit.GBTAndFilter",
+            "operand1": {
+              "$type": "bsedit.GBTAndFilter",
+              "operand1": {
+                "$type": "bsedit.GBTAndFilter",
+                "operand1": {
+                  "$type": "bsedit.GBTEntityTypeFilter",
+                  "entityType": 1
+                },
+                "operand2": {
+                  "$type": "bsedit.GBTSketchObjectFilter",
+                  "isSketchObject": true,
+                  "objectType": 1
+                }
+              },
+              "operand2": {
+                "$type": "bsedit.GBTConstructionObjectFilter",
+                "isConstruction": false
+              }
+            },
+            "operand2": {
+              "$type": "bsedit.GBTModifiableEntityOnlyFilter",
+              "modifiableOnly": true
+            }
+          }
+        },
+        "hasUserCode": false,
+        "libraryRelationType": 0,
+        "nodeId": "m2dMNNTB53LZPAPV",
+        "parameterId": "wallShape",
+        "parameterName": "",
+        "queries": [],
+        "sourceParseTreeNodes": {}
+      },
+      {
+        "$type": "bsedit.GBTMParameterBoolean",
+        "hasUserCode": false,
+        "libraryRelationType": 0,
+        "nodeId": "51wdo6qB0qJo/LYX",
+        "parameterId": "midplane",
+        "parameterName": "",
+        "sourceParseTreeNodes": {},
+        "value": false
+      },
+      {
+        "$type": "bsedit.GBTMParameterQuantity",
+        "expression": "5 mm",
+        "hasUserCode": false,
+        "isInteger": false,
+        "libraryRelationType": 0,
+        "nodeId": "spVAk8wDP3vUZPp3",
+        "parameterId": "thickness1",
+        "parameterName": "",
+        "sourceParseTreeNodes": {},
+        "units": "millimeter",
+        "value": 5
+      },
+      {
+        "$type": "bsedit.GBTMParameterBoolean",
+        "hasUserCode": false,
+        "libraryRelationType": 0,
+        "nodeId": "rSxPpsgWaNo2L7Yi",
+        "parameterId": "flipWall",
+        "parameterName": "",
+        "sourceParseTreeNodes": {},
+        "value": false
+      },
+      {
+        "$type": "bsedit.GBTMParameterQuantity",
+        "expression": "0 mm",
+        "hasUserCode": false,
+        "isInteger": false,
+        "libraryRelationType": 0,
+        "nodeId": "pLykaDF9ZzhR15uR",
+        "parameterId": "thickness2",
+        "parameterName": "",
+        "sourceParseTreeNodes": {},
+        "units": "millimeter",
+        "value": 0
+      },
+      {
+        "$type": "bsedit.GBTMParameterQuantity",
+        "expression": "5 mm",
+        "hasUserCode": false,
+        "isInteger": false,
+        "libraryRelationType": 0,
+        "nodeId": "0uqev5V/winPA2Z7",
+        "parameterId": "thickness",
+        "parameterName": "",
+        "sourceParseTreeNodes": {},
+        "units": "millimeter",
+        "value": 5
+      },
+      {
+        "$type": "bsedit.GBTMParameterEnum",
+        "enumName": "BoundingType",
+        "hasUserCode": false,
+        "libraryRelationType": 0,
+        "namespace": "",
+        "nodeId": "Zd5bKNXX0WaxjgK2",
+        "parameterId": "endBound",
+        "parameterName": "",
+        "sourceParseTreeNodes": {},
+        "value": "BLIND"
+      },
+      {
+        "$type": "bsedit.GBTMParameterBoolean",
+        "hasUserCode": false,
+        "libraryRelationType": 0,
+        "nodeId": "3prXVAEPXzhC+Rgv",
+        "parameterId": "oppositeDirection",
+        "parameterName": "",
+        "sourceParseTreeNodes": {},
+        "value": true
+      },
+      {
+        "$type": "bsedit.GBTMParameterQuantity",
+        "expression": "25 mm",
+        "hasUserCode": false,
+        "isInteger": false,
+        "libraryRelationType": 0,
+        "nodeId": "etLv6Imhgjo36PYv",
+        "parameterId": "depth",
+        "parameterName": "",
+        "sourceParseTreeNodes": {},
+        "units": "millimeter",
+        "value": 25
+      },
+      {
+        "$type": "bsedit.GBTMParameterQueryList",
+        "filter": {
+          "$type": "bsedit.GBTOrFilter",
+          "operand1": {
+            "$type": "bsedit.GBTAndFilter",
+            "operand1": {
+              "$type": "bsedit.GBTAndFilter",
+              "operand1": {
+                "$type": "bsedit.GBTEntityTypeFilter",
+                "entityType": 2
+              },
+              "operand2": {
+                "$type": "bsedit.GBTSketchObjectFilter",
+                "isSketchObject": false,
+                "objectType": 0
+              }
+            },
+            "operand2": {
+              "$type": "bsedit.GBTAllowMeshGeometryFilter",
+              "allowsMeshGeometry": true
+            }
+          },
+          "operand2": {
+            "$type": "bsedit.GBTBodyTypeFilter",
+            "bodyType": 4
+          }
+        },
+        "hasUserCode": false,
+        "libraryRelationType": 0,
+        "nodeId": "oB0BDYrIsYqjNumS",
+        "parameterId": "endBoundEntityFace",
+        "parameterName": "",
+        "queries": [],
+        "sourceParseTreeNodes": {}
+      },
+      {
+        "$type": "bsedit.GBTMParameterQueryList",
+        "filter": {
+          "$type": "bsedit.GBTAndFilter",
+          "operand1": {
+            "$type": "bsedit.GBTAndFilter",
+            "operand1": {
+              "$type": "bsedit.GBTAndFilter",
+              "operand1": {
+                "$type": "bsedit.GBTEntityTypeFilter",
+                "entityType": 3
+              },
+              "operand2": {
+                "$type": "bsedit.GBTOrFilter",
+                "operand1": {
+                  "$type": "bsedit.GBTBodyTypeFilter",
+                  "bodyType": 0
+                },
+                "operand2": {
+                  "$type": "bsedit.GBTBodyTypeFilter",
+                  "bodyType": 1
+                }
+              }
+            },
+            "operand2": {
+              "$type": "bsedit.GBTSketchObjectFilter",
+              "isSketchObject": false,
+              "objectType": 0
+            }
+          },
+          "operand2": {
+            "$type": "bsedit.GBTAllowMeshGeometryFilter",
+            "allowsMeshGeometry": true
+          }
+        },
+        "hasUserCode": false,
+        "libraryRelationType": 0,
+        "nodeId": "pV2vwfEdWL+tHOWG",
+        "parameterId": "endBoundEntityBody",
+        "parameterName": "",
+        "queries": [],
+        "sourceParseTreeNodes": {}
+      },
+      {
+        "$type": "bsedit.GBTMParameterQueryList",
+        "filter": {
+          "$type": "bsedit.GBTOrFilter",
+          "operand1": {
+            "$type": "bsedit.GBTEntityTypeFilter",
+            "entityType": 0
+          },
+          "operand2": {
+            "$type": "bsedit.GBTMateConnectorFilter",
+            "allowImplicitMateConnector": false,
+            "excludeSuppressed": false,
+            "isMateConnectorInferenceEnabledByDefault": false,
+            "requiresOccurrence": false
+          }
+        },
+        "hasUserCode": false,
+        "libraryRelationType": 0,
+        "nodeId": "tph2NewyjjveWJfx",
+        "parameterId": "endBoundEntityVertex",
+        "parameterName": "",
+        "queries": [],
+        "sourceParseTreeNodes": {}
+      },
+      {
+        "$type": "bsedit.GBTMParameterBoolean",
+        "hasUserCode": false,
+        "libraryRelationType": 0,
+        "nodeId": "lqVf9yv70CBGz5GB",
+        "parameterId": "hasOffset",
+        "parameterName": "",
+        "sourceParseTreeNodes": {},
+        "value": false
+      },
+      {
+        "$type": "bsedit.GBTMParameterQuantity",
+        "expression": "25 mm",
+        "hasUserCode": false,
+        "isInteger": false,
+        "libraryRelationType": 0,
+        "nodeId": "cgvG1BAjSiguOTFh",
+        "parameterId": "offsetDistance",
+        "parameterName": "",
+        "sourceParseTreeNodes": {},
+        "units": "millimeter",
+        "value": 25
+      },
+      {
+        "$type": "bsedit.GBTMParameterBoolean",
+        "hasUserCode": false,
+        "libraryRelationType": 0,
+        "nodeId": "xzO+x/SRYk7TOi2v",
+        "parameterId": "offsetOppositeDirection",
+        "parameterName": "",
+        "sourceParseTreeNodes": {},
+        "value": false
+      },
+      {
+        "$type": "bsedit.GBTMParameterBoolean",
+        "hasUserCode": false,
+        "libraryRelationType": 0,
+        "nodeId": "zK1OtNZ679TKKfTG",
+        "parameterId": "hasExtrudeDirection",
+        "parameterName": "",
+        "sourceParseTreeNodes": {},
+        "value": false
+      },
+      {
+        "$type": "bsedit.GBTMParameterQueryList",
+        "filter": {
+          "$type": "bsedit.GBTOrFilter",
+          "operand1": {
+            "$type": "bsedit.GBTOrFilter",
+            "operand1": {
+              "$type": "bsedit.GBTOrFilter",
+              "operand1": {
+                "$type": "bsedit.GBTOrFilter",
+                "operand1": {
+                  "$type": "bsedit.GBTGeometryFilter",
+                  "geometryType": 0
+                },
+                "operand2": {
+                  "$type": "bsedit.GBTOrFilter",
+                  "operand1": {
+                    "$type": "bsedit.GBTGeometryFilter",
+                    "geometryType": 1
+                  },
+                  "operand2": {
+                    "$type": "bsedit.GBTOrFilter",
+                    "operand1": {
+                      "$type": "bsedit.GBTGeometryFilter",
+                      "geometryType": 2
+                    },
+                    "operand2": {
+                      "$type": "bsedit.GBTOrFilter",
+                      "operand1": {
+                        "$type": "bsedit.GBTGeometryFilter",
+                        "geometryType": 4
+                      },
+                      "operand2": {
+                        "$type": "bsedit.GBTOrFilter",
+                        "operand1": {
+                          "$type": "bsedit.GBTGeometryFilter",
+                          "geometryType": 5
+                        },
+                        "operand2": {
+                          "$type": "bsedit.GBTGeometryFilter",
+                          "geometryType": 12
+                        }
+                      }
+                    }
+                  }
+                }
+              },
+              "operand2": {
+                "$type": "bsedit.GBTMateConnectorFilter",
+                "allowImplicitMateConnector": false,
+                "excludeSuppressed": false,
+                "isMateConnectorInferenceEnabledByDefault": false,
+                "requiresOccurrence": false
+              }
+            },
+            "operand2": {
+              "$type": "bsedit.GBTGeometryFilter",
+              "geometryType": 3
+            }
+          },
+          "operand2": {
+            "$type": "bsedit.GBTBodyTypeFilter",
+            "bodyType": 4
+          }
+        },
+        "hasUserCode": false,
+        "libraryRelationType": 0,
+        "nodeId": "1IXr8lOsdKvJ98CA",
+        "parameterId": "extrudeDirection",
+        "parameterName": "",
+        "queries": [],
+        "sourceParseTreeNodes": {}
+      },
+      {
+        "$type": "bsedit.GBTMParameterBoolean",
+        "hasUserCode": false,
+        "libraryRelationType": 0,
+        "nodeId": "gf7wmcJpdssjgI08",
+        "parameterId": "startOffset",
+        "parameterName": "",
+        "sourceParseTreeNodes": {},
+        "value": false
+      },
+      {
+        "$type": "bsedit.GBTMParameterEnum",
+        "enumName": "StartOffsetType",
+        "hasUserCode": false,
+        "libraryRelationType": 0,
+        "namespace": "",
+        "nodeId": "RA3tyoViOnEdCwfq",
+        "parameterId": "startOffsetBound",
+        "parameterName": "",
+        "sourceParseTreeNodes": {},
+        "value": "BLIND"
+      },
+      {
+        "$type": "bsedit.GBTMParameterQuantity",
+        "expression": "25 mm",
+        "hasUserCode": false,
+        "isInteger": false,
+        "libraryRelationType": 0,
+        "nodeId": "sqkOR8ob1bhxp+Sr",
+        "parameterId": "startOffsetDistance",
+        "parameterName": "",
+        "sourceParseTreeNodes": {},
+        "units": "millimeter",
+        "value": 25
+      },
+      {
+        "$type": "bsedit.GBTMParameterBoolean",
+        "hasUserCode": false,
+        "libraryRelationType": 0,
+        "nodeId": "Orh3mWUGwcKPjAGy",
+        "parameterId": "startOffsetOppositeDirection",
+        "parameterName": "",
+        "sourceParseTreeNodes": {},
+        "value": false
+      },
+      {
+        "$type": "bsedit.GBTMParameterQueryList",
+        "filter": {
+          "$type": "bsedit.GBTOrFilter",
+          "operand1": {
+            "$type": "bsedit.GBTOrFilter",
+            "operand1": {
+              "$type": "bsedit.GBTOrFilter",
+              "operand1": {
+                "$type": "bsedit.GBTAndFilter",
+                "operand1": {
+                  "$type": "bsedit.GBTGeometryFilter",
+                  "geometryType": 3
+                },
+                "operand2": {
+                  "$type": "bsedit.GBTEntityTypeFilter",
+                  "entityType": 2
+                }
+              },
+              "operand2": {
+                "$type": "bsedit.GBTEntityTypeFilter",
+                "entityType": 1
+              }
+            },
+            "operand2": {
+              "$type": "bsedit.GBTEntityTypeFilter",
+              "entityType": 0
+            }
+          },
+          "operand2": {
+            "$type": "bsedit.GBTBodyTypeFilter",
+            "bodyType": 4
+          }
+        },
+        "hasUserCode": false,
+        "libraryRelationType": 0,
+        "nodeId": "VRtjSJgPBoNySfXh",
+        "parameterId": "startOffsetEntity",
+        "parameterName": "",
+        "queries": [],
+        "sourceParseTreeNodes": {}
+      },
+      {
+        "$type": "bsedit.GBTMParameterBoolean",
+        "hasUserCode": false,
+        "libraryRelationType": 0,
+        "nodeId": "vil6OkvxYE1IuAX8",
+        "parameterId": "symmetric",
+        "parameterName": "",
+        "sourceParseTreeNodes": {},
+        "value": false
+      },
+      {
+        "$type": "bsedit.GBTMParameterBoolean",
+        "hasUserCode": false,
+        "libraryRelationType": 0,
+        "nodeId": "o2pjsMQneVSAlFfT",
+        "parameterId": "hasDraft",
+        "parameterName": "",
+        "sourceParseTreeNodes": {},
+        "value": false
+      },
+      {
+        "$type": "bsedit.GBTMParameterQuantity",
+        "expression": "3 deg",
+        "hasUserCode": false,
+        "isInteger": false,
+        "libraryRelationType": 0,
+        "nodeId": "AtBq4LW5+xvRWWpG",
+        "parameterId": "draftAngle",
+        "parameterName": "",
+        "sourceParseTreeNodes": {},
+        "units": "degree",
+        "value": 3
+      },
+      {
+        "$type": "bsedit.GBTMParameterBoolean",
+        "hasUserCode": false,
+        "libraryRelationType": 0,
+        "nodeId": "S9WlrNDnP5hD3yqr",
+        "parameterId": "draftPullDirection",
+        "parameterName": "",
+        "sourceParseTreeNodes": {},
+        "value": false
+      },
+      {
+        "$type": "bsedit.GBTMParameterBoolean",
+        "hasUserCode": false,
+        "libraryRelationType": 0,
+        "nodeId": "sGYPvepJceYvskys",
+        "parameterId": "hasSecondDirection",
+        "parameterName": "",
+        "sourceParseTreeNodes": {},
+        "value": false
+      },
+      {
+        "$type": "bsedit.GBTMParameterEnum",
+        "enumName": "BoundingType",
+        "hasUserCode": false,
+        "libraryRelationType": 0,
+        "namespace": "",
+        "nodeId": "6JTCk3h/rw21kK1I",
+        "parameterId": "secondDirectionBound",
+        "parameterName": "",
+        "sourceParseTreeNodes": {},
+        "value": "BLIND"
+      },
+      {
+        "$type": "bsedit.GBTMParameterBoolean",
+        "hasUserCode": false,
+        "libraryRelationType": 0,
+        "nodeId": "+YyT0wh21S+8VIQk",
+        "parameterId": "secondDirectionOppositeDirection",
+        "parameterName": "",
+        "sourceParseTreeNodes": {},
+        "value": true
+      },
+      {
+        "$type": "bsedit.GBTMParameterQuantity",
+        "expression": "25 mm",
+        "hasUserCode": false,
+        "isInteger": false,
+        "libraryRelationType": 0,
+        "nodeId": "5O6CVEXOpq24AY5t",
+        "parameterId": "secondDirectionDepth",
+        "parameterName": "",
+        "sourceParseTreeNodes": {},
+        "units": "millimeter",
+        "value": 25
+      },
+      {
+        "$type": "bsedit.GBTMParameterQueryList",
+        "filter": {
+          "$type": "bsedit.GBTOrFilter",
+          "operand1": {
+            "$type": "bsedit.GBTAndFilter",
+            "operand1": {
+              "$type": "bsedit.GBTAndFilter",
+              "operand1": {
+                "$type": "bsedit.GBTEntityTypeFilter",
+                "entityType": 2
+              },
+              "operand2": {
+                "$type": "bsedit.GBTSketchObjectFilter",
+                "isSketchObject": false,
+                "objectType": 0
+              }
+            },
+            "operand2": {
+              "$type": "bsedit.GBTAllowMeshGeometryFilter",
+              "allowsMeshGeometry": true
+            }
+          },
+          "operand2": {
+            "$type": "bsedit.GBTBodyTypeFilter",
+            "bodyType": 4
+          }
+        },
+        "hasUserCode": false,
+        "libraryRelationType": 0,
+        "nodeId": "ByzK7juaRyPzz85i",
+        "parameterId": "secondDirectionBoundEntityFace",
+        "parameterName": "",
+        "queries": [],
+        "sourceParseTreeNodes": {}
+      },
+      {
+        "$type": "bsedit.GBTMParameterQueryList",
+        "filter": {
+          "$type": "bsedit.GBTAndFilter",
+          "operand1": {
+            "$type": "bsedit.GBTAndFilter",
+            "operand1": {
+              "$type": "bsedit.GBTAndFilter",
+              "operand1": {
+                "$type": "bsedit.GBTEntityTypeFilter",
+                "entityType": 3
+              },
+              "operand2": {
+                "$type": "bsedit.GBTOrFilter",
+                "operand1": {
+                  "$type": "bsedit.GBTBodyTypeFilter",
+                  "bodyType": 0
+                },
+                "operand2": {
+                  "$type": "bsedit.GBTBodyTypeFilter",
+                  "bodyType": 1
+                }
+              }
+            },
+            "operand2": {
+              "$type": "bsedit.GBTSketchObjectFilter",
+              "isSketchObject": false,
+              "objectType": 0
+            }
+          },
+          "operand2": {
+            "$type": "bsedit.GBTAllowMeshGeometryFilter",
+            "allowsMeshGeometry": true
+          }
+        },
+        "hasUserCode": false,
+        "libraryRelationType": 0,
+        "nodeId": "vUo8bfWqCHUZST4s",
+        "parameterId": "secondDirectionBoundEntityBody",
+        "parameterName": "",
+        "queries": [],
+        "sourceParseTreeNodes": {}
+      },
+      {
+        "$type": "bsedit.GBTMParameterQueryList",
+        "filter": {
+          "$type": "bsedit.GBTOrFilter",
+          "operand1": {
+            "$type": "bsedit.GBTEntityTypeFilter",
+            "entityType": 0
+          },
+          "operand2": {
+            "$type": "bsedit.GBTMateConnectorFilter",
+            "allowImplicitMateConnector": false,
+            "excludeSuppressed": false,
+            "isMateConnectorInferenceEnabledByDefault": false,
+            "requiresOccurrence": false
+          }
+        },
+        "hasUserCode": false,
+        "libraryRelationType": 0,
+        "nodeId": "NDI5HZJDJ3yeIUT9",
+        "parameterId": "secondDirectionBoundEntityVertex",
+        "parameterName": "",
+        "queries": [],
+        "sourceParseTreeNodes": {}
+      },
+      {
+        "$type": "bsedit.GBTMParameterBoolean",
+        "hasUserCode": false,
+        "libraryRelationType": 0,
+        "nodeId": "Lg+hHGLDYYWgy57N",
+        "parameterId": "hasSecondDirectionOffset",
+        "parameterName": "",
+        "sourceParseTreeNodes": {},
+        "value": false
+      },
+      {
+        "$type": "bsedit.GBTMParameterQuantity",
+        "expression": "25 mm",
+        "hasUserCode": false,
+        "isInteger": false,
+        "libraryRelationType": 0,
+        "nodeId": "Pd9ZBcy1eMGyLCar",
+        "parameterId": "secondDirectionOffsetDistance",
+        "parameterName": "",
+        "sourceParseTreeNodes": {},
+        "units": "millimeter",
+        "value": 25
+      },
+      {
+        "$type": "bsedit.GBTMParameterBoolean",
+        "hasUserCode": false,
+        "libraryRelationType": 0,
+        "nodeId": "wgmgR9NvNVfGnyhV",
+        "parameterId": "secondDirectionOffsetOppositeDirection",
+        "parameterName": "",
+        "sourceParseTreeNodes": {},
+        "value": false
+      },
+      {
+        "$type": "bsedit.GBTMParameterBoolean",
+        "hasUserCode": false,
+        "libraryRelationType": 0,
+        "nodeId": "9OCBI2YbGQ552jdj",
+        "parameterId": "hasSecondDirectionDraft",
+        "parameterName": "",
+        "sourceParseTreeNodes": {},
+        "value": false
+      },
+      {
+        "$type": "bsedit.GBTMParameterQuantity",
+        "expression": "3 deg",
+        "hasUserCode": false,
+        "isInteger": false,
+        "libraryRelationType": 0,
+        "nodeId": "vufpSpnH5+qRNz+M",
+        "parameterId": "secondDirectionDraftAngle",
+        "parameterName": "",
+        "sourceParseTreeNodes": {},
+        "units": "degree",
+        "value": 3
+      },
+      {
+        "$type": "bsedit.GBTMParameterBoolean",
+        "hasUserCode": false,
+        "libraryRelationType": 0,
+        "nodeId": "8ouziNZ9M16wWhB/",
+        "parameterId": "secondDirectionDraftPullDirection",
+        "parameterName": "",
+        "sourceParseTreeNodes": {},
+        "value": false
+      },
+      {
+        "$type": "bsedit.GBTMParameterBoolean",
+        "hasUserCode": false,
+        "libraryRelationType": 0,
+        "nodeId": "ImxIxdNww/TKAnOu",
+        "parameterId": "defaultScope",
+        "parameterName": "",
+        "sourceParseTreeNodes": {},
+        "value": false
+      },
+      {
+        "$type": "bsedit.GBTMParameterQueryList",
+        "filter": {
+          "$type": "bsedit.GBTAndFilter",
+          "operand1": {
+            "$type": "bsedit.GBTAndFilter",
+            "operand1": {
+              "$type": "bsedit.GBTAndFilter",
+              "operand1": {
+                "$type": "bsedit.GBTEntityTypeFilter",
+                "entityType": 3
+              },
+              "operand2": {
+                "$type": "bsedit.GBTBodyTypeFilter",
+                "bodyType": 0
+              }
+            },
+            "operand2": {
+              "$type": "bsedit.GBTModifiableEntityOnlyFilter",
+              "modifiableOnly": true
+            }
+          },
+          "operand2": {
+            "$type": "bsedit.GBTAllowMeshGeometryFilter",
+            "allowsMeshGeometry": true
+          }
+        },
+        "hasUserCode": false,
+        "libraryRelationType": 0,
+        "nodeId": "8VeXQCKlsU//ZKRz",
+        "parameterId": "booleanScope",
+        "parameterName": "",
+        "queries": [
+          {
+            "$type": "bsedit.GBTMIndividualQuery",
+            "deterministicIds": [
+              "JQD"
+            ],
+            "hasUserCode": false,
+            "nodeId": "F4Wn2w1Gudo8pBd",
+            "queryString": "",
+            "sourceParseTreeNodes": {}
+          },
+          {
+            "$type": "bsedit.GBTMIndividualQuery",
+            "deterministicIds": [
+              "JQH"
+            ],
+            "hasUserCode": false,
+            "nodeId": "FC3GkgdlY6ugkrA",
+            "queryString": "",
+            "sourceParseTreeNodes": {}
+          }
+        ],
+        "sourceParseTreeNodes": {}
+      },
+      {
+        "$type": "bsedit.GBTMParameterBoolean",
+        "hasUserCode": false,
+        "libraryRelationType": 0,
+        "nodeId": "SCZ2cUhiVXu0qGEO",
+        "parameterId": "defaultSurfaceScope",
+        "parameterName": "",
+        "sourceParseTreeNodes": {},
+        "value": true
+      },
+      {
+        "$type": "bsedit.GBTMParameterQueryList",
+        "filter": {
+          "$type": "bsedit.GBTAndFilter",
+          "operand1": {
+            "$type": "bsedit.GBTAndFilter",
+            "operand1": {
+              "$type": "bsedit.GBTAndFilter",
+              "operand1": {
+                "$type": "bsedit.GBTAndFilter",
+                "operand1": {
+                  "$type": "bsedit.GBTEntityTypeFilter",
+                  "entityType": 3
+                },
+                "operand2": {
+                  "$type": "bsedit.GBTBodyTypeFilter",
+                  "bodyType": 1
+                }
+              },
+              "operand2": {
+                "$type": "bsedit.GBTModifiableEntityOnlyFilter",
+                "modifiableOnly": true
+              }
+            },
+            "operand2": {
+              "$type": "bsedit.GBTAllowMeshGeometryFilter",
+              "allowsMeshGeometry": true
+            }
+          },
+          "operand2": {
+            "$type": "bsedit.GBTSketchObjectFilter",
+            "isSketchObject": false,
+            "objectType": 0
+          }
+        },
+        "hasUserCode": false,
+        "libraryRelationType": 0,
+        "nodeId": "yg7wUUtDqzd44Onn",
+        "parameterId": "booleanSurfaceScope",
+        "parameterName": "",
+        "queries": [],
+        "sourceParseTreeNodes": {}
+      }
+    ],
+    "returnAfterSubfeatures": false,
+    "sourceParseTreeNodes": {},
+    "subFeatures": [],
+    "suppressed": false,
+    "suppressedParseNode": {
+      "$type": "tree.GBTNodeReference",
+      "nodeId": ""
+    },
+    "suppressionState": null
+  },
+  "draft_element_revision": "f2e493ca3a7751484333a71b",
+  "request": {
+    "elementId": "4bae4e36c39e40e64e8146d1",
+    "queries": [
+      {
+        "$type": "bsedit.GBTMIndividualQuery",
+        "deterministicIds": [
+          "JQD"
+        ],
+        "hasUserCode": false,
+        "nodeId": "F4Wn2w1Gudo8pBd",
+        "queryString": "",
+        "sourceParseTreeNodes": {}
+      },
+      {
+        "$type": "bsedit.GBTMIndividualQuery",
+        "deterministicIds": [
+          "JQH"
+        ],
+        "hasUserCode": false,
+        "nodeId": "FC3GkgdlY6ugkrA",
+        "queryString": "",
+        "sourceParseTreeNodes": {}
+      }
+    ],
+    "qFunction": "",
+    "additionalArguments": [],
+    "queryNodeIdToInContextNodeId": {}
+  },
+  "response": {
+    "microversion_after": "fb6532f39280688e48bd9764",
+    "microversion_before": "fb6532f39280688e48bd9764",
+    "next": "Read native_state and check regeneration; an acknowledgement alone does not prove correct geometry.",
+    "result": {
+      "$type": "ui.GBTUiGetQueryDataResponse",
+      "queryData": [
+        {
+          "$type": "display.GBTQueryData",
+          "deterministicIds": [
+            "JQD"
+          ],
+          "evaluationDetails": {
+            "$type": "display.GBTQueryEvaluationDetails",
+            "candidates": [],
+            "entityType": 3,
+            "fidelity": 1,
+            "fullOperationId": "F3hgpZaazvOORTW_2.boolean.opBoolean",
+            "outsideExactDependencies": false,
+            "status": 0
+          },
+          "featureId": "FfQqD1D77pgFCAA_0",
+          "hasErrorEntity": false,
+          "isTemporaryFakeDataForSelection": false,
+          "nodeId": "",
+          "queryVariableName": "",
+          "selectionName": "Part",
+          "specializedPurpose": 0
+        },
+        {
+          "$type": "display.GBTQueryData",
+          "deterministicIds": [
+            "JQH"
+          ],
+          "evaluationDetails": {
+            "$type": "display.GBTQueryEvaluationDetails",
+            "candidates": [],
+            "entityType": 3,
+            "fidelity": 1,
+            "fullOperationId": "F3hgpZaazvOORTW_2.boolean.opBoolean",
+            "outsideExactDependencies": false,
+            "status": 0
+          },
+          "featureId": "FfQqD1D77pgFCAA_0",
+          "hasErrorEntity": false,
+          "isTemporaryFakeDataForSelection": false,
+          "nodeId": "",
+          "queryVariableName": "",
+          "selectionName": "Part",
+          "specializedPurpose": 0
+        }
+      ]
+    },
+    "tab_id": 941741361
+  }
+}

@@ -96,3 +96,50 @@ async def test_fail_closed_draft_history_inventory_and_query_faults(tmp_path,fau
         with pytest.raises((Unsupported,UncertainWrite)):
             await inspect_draft_body_scope(path,backend,source,target,journal,'Carrier blank',baseline)
     finally:journal.close()
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize('fault',[None,'omitted','witness','duplicate','all_scope','user_code','query_string',
+    'new_operation','missing_result','duplicate_result','wrong_creator','wrong_operation','selected_revision'])
+async def test_actual_selected_scope_and_fresh_combined_readback(tmp_path,fault):
+    path,backend,source,target,journal,baseline,calls=await setup(tmp_path)
+    f=json.loads((FIXTURE.parent/'native_selected_draft_scope.json').read_text())
+    state=await backend.raw_state(target)
+    index=next(i for i,n in enumerate(state['tree']['children']) if n.get('featureId')==state['editingFeatureId'])
+    state['tree']['children'][index]=copy.deepcopy(f['draft_node'])
+    state['editingFeatureId']=f['draft_node']['featureId'];state['element_microversion']=f['draft_element_revision']
+    params={p['parameterId']:p for p in state['tree']['children'][index]['parameters']}
+    selected=params['booleanScope']['queries']
+    if fault=='omitted':selected.pop()
+    if fault=='witness':selected[1]['deterministicIds']=['JMD']
+    if fault=='duplicate':selected[1]['deterministicIds']=selected[0]['deterministicIds'][:]
+    if fault=='all_scope':params['defaultScope']['value']=True
+    if fault=='user_code':selected[0]['hasUserCode']=True
+    if fault=='query_string':selected[0]['queryString']='qEverything(EntityType.BODY)'
+    if fault=='new_operation':params['operationType']['value']='NEW'
+    async def current(_):return copy.deepcopy(state)
+    backend.raw_state=current
+    original=backend.bridge.command
+    async def command(job):
+        if job.get('command')=='ui.GBTUiGetQueryDataCall' and len(job['body']['queries'])==2:
+            calls.append(copy.deepcopy(job));response=copy.deepcopy(f['response'])
+            rows=response['result']['queryData']
+            if fault=='missing_result':rows.pop()
+            if fault=='duplicate_result':rows[1]=copy.deepcopy(rows[0])
+            if fault=='wrong_creator':rows[0]['featureId']='foreign'
+            if fault=='wrong_operation':rows[0]['evaluationDetails']['fullOperationId']='foreign.boolean.opBoolean'
+            if fault=='selected_revision':state['element_microversion']='0'*24
+            return response
+        return await original(job)
+    backend.bridge.command=command
+    try:
+        if fault:
+            with pytest.raises(Unsupported):
+                await inspect_draft_body_scope(path,backend,source,target,journal,'Carrier blank',baseline,require_selected_scope=True)
+        else:
+            proof=await inspect_draft_body_scope(path,backend,source,target,journal,'Carrier blank',baseline,require_selected_scope=True)
+            assert proof['ui_scope_selection_verified'] and not proof['write_ready']
+            assert proof['scope_body_ids']==['JQD','JQH']
+            assert proof['raw_provenance']['reads'][-1]['body']['queries']==selected
+            assert len(proof['raw_provenance']['reads'])==5
+    finally:journal.close()

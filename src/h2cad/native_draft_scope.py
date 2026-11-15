@@ -37,7 +37,9 @@ def _draft_stable(before, after, target, baseline):
         raise Unsupported("Draft changed or does not preserve the exact saved baseline")
 
 
-async def inspect_draft_body_scope(runpath, backend, source, target, journal, logical_id, baseline):
+async def inspect_draft_body_scope(runpath, backend, source, target, journal, logical_id, baseline, *, require_selected_scope=False):
+    if type(require_selected_scope) is not bool:
+        raise Unsupported("Selected-scope verification option must be boolean")
     if backend.create_target!=target.to_dict() or backend.tab_id is None:
         raise Unsupported("Exact configured native target and tab required")
     baseline=copy.deepcopy(baseline)
@@ -124,6 +126,61 @@ async def inspect_draft_body_scope(runpath, backend, source, target, journal, lo
                 or name is None or operation not in allowed[name]):
             raise Unsupported("Draft body does not resolve to its observed source operation lineage")
         bodies.append({"body_id":ident,"logical_id":name,"creator_feature_id":creator,"full_operation_id":operation})
+    if require_selected_scope:
+        draft=next(n for n in before["tree"]["children"] if n.get("featureId")==before["editingFeatureId"])
+        def parameter(name, kind):
+            rows=[p for p in draft.get("parameters",[]) if p.get("parameterId")==name]
+            if len(rows)!=1 or rows[0].get("$type")!=kind:
+                raise Unsupported("Exact typed scope parameter required: "+name)
+            return rows[0]
+        operation=parameter("operationType","bsedit.GBTMParameterEnum")
+        body_type=parameter("bodyType","bsedit.GBTMParameterEnum")
+        if (operation.get("value")!="REMOVE" or operation.get("enumName")!="NewBodyOperationType"
+                or body_type.get("value")!="SOLID" or body_type.get("enumName")!="ExtendedToolBodyType"
+                or parameter("defaultScope","bsedit.GBTMParameterBoolean").get("value") is not False):
+            raise Unsupported("Explicit solid REMOVE scope required; automatic all-body scope is unsupported")
+        selected=parameter("booleanScope","bsedit.GBTMParameterQueryList").get("queries")
+        required=sorted(b["body_id"] for b in bodies if b["logical_id"]==logical_id)
+        selected_ids=[]; selected_nodes=set()
+        if not isinstance(selected,list) or not selected:
+            raise Unsupported("Nonempty explicit selected body queries required")
+        for query in selected:
+            if not isinstance(query,dict):
+                raise Unsupported("Typed selected query object required")
+            ids=query.get("deterministicIds")
+            if (query.get("$type")!="bsedit.GBTMIndividualQuery" or query.get("hasUserCode") is not False
+                    or query.get("queryString")!="" or query.get("sourceParseTreeNodes")!={}
+                    or not isinstance(ids,list) or len(ids)!=1 or not isinstance(ids[0],str)
+                    or not isinstance(query.get("nodeId"),str) or not query["nodeId"]
+                    or query["nodeId"] in selected_nodes):
+                raise Unsupported("One explicit native body identity per selected query required")
+            selected_ids.extend(ids);selected_nodes.add(query["nodeId"])
+        if len(set(selected_ids))!=len(selected_ids) or sorted(selected_ids)!=required:
+            raise Unsupported("UI-selected scope must equal the complete required body set")
+        selected_request=await schema("ui.GBTUiGetQueryDataCall",{"elementId","messageId","queries","qFunction",
+            "additionalArguments","queryNodeIdToInContextNodeId"})
+        if (selected_request["queries"]!=[] or selected_request["qFunction"]!=""
+                or selected_request["additionalArguments"]!=[] or selected_request["queryNodeIdToInContextNodeId"]!={}):
+            raise Unsupported("Default explicit selected query read required")
+        selected_request.update(elementId=target.eid,queries=copy.deepcopy(selected))
+        selected_response=await native("ui.GBTUiGetQueryDataCall",selected_request)
+        result=selected_response["result"];rows=result.get("queryData")
+        if result.get("$type")!="ui.GBTUiGetQueryDataResponse" or not isinstance(rows,list) or len(rows)!=len(required):
+            raise Unsupported("Every selected body requires its own fresh query result")
+        observed=[]
+        for row in rows:
+            ids=row.get("deterministicIds");detail=row.get("evaluationDetails",{})
+            if (not isinstance(ids,list) or len(ids)!=1 or ids[0] not in required
+                    or row.get("featureId")!=histories[logical_id]["target_feature_id"]
+                    or detail.get("fullOperationId") not in allowed[logical_id]
+                    or row.get("selectionName")!="Part" or row.get("hasErrorEntity") is not False
+                    or row.get("isTemporaryFakeDataForSelection") is not False
+                    or detail.get("entityType")!=3 or detail.get("status")!=0
+                    or detail.get("outsideExactDependencies") is not False):
+                raise Unsupported("Selected scope readback does not resolve the required source bodies")
+            observed.extend(ids)
+        if sorted(observed)!=required:
+            raise Unsupported("Selected scope readback omits or duplicates a required body")
     after=await backend.raw_state(target)
     _draft_stable(before,after,target,baseline)
     for name,history in histories.items():
@@ -141,7 +198,8 @@ async def inspect_draft_body_scope(runpath, backend, source, target, journal, lo
         "document_microversion":before["microversion"],"baseline_element_microversion":baseline["element_microversion"],
         "scope_body_ids":required,"single_survivor":len(required)==1,"body_partitions":partitions,
         "selected_scope_requirement":{"match":"exact_set","body_ids":list(required),"defaultScope":False},
-        "independently_verified":True,"write_ready":False,"ui_scope_selection_verified":False,
+        "independently_verified":True,"write_ready":False,"ui_scope_selection_verified":require_selected_scope,
         "allowed_operation_ids":sorted(allowed[logical_id]),"history_proofs":histories,"inventory_proof":inventory,
-        "missing_evidence":["actual UI-selected scope equality and native writer/reconciliation integration"],
+        "missing_evidence":(["native writer/reconciliation integration"] if require_selected_scope else
+            ["actual UI-selected scope equality and native writer/reconciliation integration"]),
         "raw_provenance":{"baseline":baseline,"before_state":before,"after_state":after,"schemas":schemas,"reads":reads}}
