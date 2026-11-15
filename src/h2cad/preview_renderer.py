@@ -67,15 +67,18 @@ def render_local_solids(built, path: Path, title: str):
             if xlabel:
                 ax.set_xlabel(xlabel);ax.set_ylabel(ylabel)
                 ax.xaxis.set_major_locator(MaxNLocator(nbins=3));ax.yaxis.set_major_locator(MaxNLocator(nbins=4))
+                if extent[0] < extent[1]*.25:
+                    ax.set_xticks([(lo[0]+hi[0])/2])
+                    ax.set_xlabel(f'{xlabel} · width {extent[0]:g} mm',fontsize=9)
                 ax.tick_params(labelsize=9)
                 ax.spines[['top','right']].set_visible(False)
             else:
                 ax.set_axis_off()
-                ax.text(0,.01,'True proportions · millimetres',transform=ax.transAxes,fontsize=9)
+                ax.text(0,.01,'True proportions Â· millimetres',transform=ax.transAxes,fontsize=9)
         count=len(built.run.solids)
         handles=[Patch(facecolor=palette[i%len(palette)],label=f'Part {i+1}') for i in range(min(count,10))]
         fig.legend(handles=handles,loc='lower center',bbox_to_anchor=(.5,.005),ncols=min(count,5),frameon=False,
-                   title=f'{count} actual local solid'+('s' if count!=1 else '')+(f' · first 10 colours shown' if count>10 else ''))
+                   title=f'{count} actual local solid'+('s' if count!=1 else '')+(f' Â· first 10 colours shown' if count>10 else ''))
         fig.savefig(path,dpi=140,facecolor='white')
     finally:
         plt.close(fig)
