@@ -5,9 +5,8 @@ import re
 
 from .backend import Unsupported
 from .native_body_sets import _OBSERVED_INSERTABLE_FILTER, inspect_historical_server_body_inventory
-from .native_body_history import inspect_source_body_history
+from .native_body_history import inspect_source_body_histories
 from .native_geometry import _stable
-from .source_run import _adopt, _load, _lock
 
 
 def _draft_stable(before, after, target, baseline):
@@ -48,15 +47,9 @@ async def inspect_draft_body_scope(runpath, backend, source, target, journal, lo
     if before.get("tab_id")!=backend.tab_id or baseline.get("tab_id")!=backend.tab_id:
         raise Unsupported("Baseline and active draft must belong to the configured tab")
     _draft_stable(before,before,target,baseline)
-    with _lock(runpath):
-        run,_=_load(runpath,source,target,journal)
-        _adopt(run,journal)
-        originals=[f["logical_id"] for f in run["plan"] if f["kind"]=="extrude"
-            and f["stage"]["operation_type"]=="NEW" and f["logical_id"] in run["bindings"]]
-    if logical_id not in originals:
+    histories=inspect_source_body_histories(runpath,source,target,journal,current_state=baseline)
+    if logical_id not in histories:
         raise Unsupported("Requested scope must be an observed original source NEW body")
-    histories={name:inspect_source_body_history(runpath,source,target,journal,
-        logical_id=name,current_state=baseline) for name in originals}
     by_creator={h["target_feature_id"]:name for name,h in histories.items()}
     if len(by_creator)!=len(histories):
         raise Unsupported("Original source creator identities are not unique")
@@ -166,9 +159,8 @@ async def inspect_draft_body_scope(runpath, backend, source, target, journal, lo
             raise Unsupported("Selected scope readback omits or duplicates a required body")
     after=await backend.raw_state(target)
     _draft_stable(before,after,target,baseline)
-    for name,history in histories.items():
-        if inspect_source_body_history(runpath,source,target,journal,logical_id=name,current_state=baseline)!=history:
-            raise Unsupported("Source history changed during draft inspection")
+    if inspect_source_body_histories(runpath,source,target,journal,current_state=baseline)!=histories:
+        raise Unsupported("Source history changed during draft inspection")
     partitions={name:sorted(b["body_id"] for b in bodies if b["logical_id"]==name) for name in histories}
     required=partitions[logical_id]
     if not required:

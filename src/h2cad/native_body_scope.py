@@ -8,9 +8,8 @@ from __future__ import annotations
 import copy
 
 from .backend import Unsupported
-from .native_body_history import inspect_source_body_history
+from .native_body_history import inspect_source_body_histories
 from .native_geometry import _stable, collect_native_geometry
-from .source_run import _adopt, _load, _lock
 
 
 async def inspect_current_body_scope(runpath, backend, source, target, journal, logical_id):
@@ -18,22 +17,15 @@ async def inspect_current_body_scope(runpath, backend, source, target, journal, 
     before = geometry["raw_provenance"]["before_state"]
     after = geometry["raw_provenance"]["after_state"]
     _stable(before, after, target)
-    with _lock(runpath):
-        run, _ = _load(runpath, source, target, journal)
-        _adopt(run, journal)
-        originals = [f["logical_id"] for f in run["plan"] if f["kind"] == "extrude"
-                     and f["stage"]["operation_type"] == "NEW" and f["logical_id"] in run["bindings"]]
-    if logical_id not in originals:
+    histories = inspect_source_body_histories(runpath, source, target, journal, current_state=before)
+    originals = list(histories)
+    if logical_id not in histories:
         raise Unsupported("Requested scope must be an observed original source NEW body")
-    histories = {}
-    by_creator = {}
-    for name in originals:
-        first = inspect_source_body_history(runpath, source, target, journal, logical_id=name, current_state=before)
-        second = inspect_source_body_history(runpath, source, target, journal, logical_id=name, current_state=after)
-        if first != second or first["target_feature_id"] in by_creator:
-            raise Unsupported("Source history changed during body scope inspection")
-        histories[name] = first
-        by_creator[first["target_feature_id"]] = name
+    if inspect_source_body_histories(runpath, source, target, journal, current_state=after) != histories:
+        raise Unsupported("Source history changed during body scope inspection")
+    by_creator = {history["target_feature_id"]: name for name, history in histories.items()}
+    if len(by_creator) != len(histories):
+        raise Unsupported("Original source creator identities are not unique")
     inventory = geometry["inventory_proof"]
     if (inventory.get("server_enumeration_verified") is not True or inventory.get("target") != target.to_dict()
             or inventory.get("element_microversion") != before["element_microversion"]
@@ -62,10 +54,8 @@ async def inspect_current_body_scope(runpath, backend, source, target, journal, 
     _stable(before, final, target)
     # Recheck durable provenance after the final live read; do not cache an old
     # observed operation across a concurrent journal or checkpoint change.
-    for name, previous in histories.items():
-        if inspect_source_body_history(runpath, source, target, journal,
-                                       logical_id=name, current_state=final) != previous:
-            raise Unsupported("Source journal history changed before scope inspection completed")
+    if inspect_source_body_histories(runpath, source, target, journal, current_state=final) != histories:
+        raise Unsupported("Source journal history changed before scope inspection completed")
     history = histories[logical_id]
     return {"target": target.to_dict(), "source_sha256": history["source_sha256"],
             "element_microversion": final["element_microversion"], "document_microversion": final["microversion"],

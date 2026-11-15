@@ -13,6 +13,25 @@ from test_native_geometry import setup as geometry_setup
 ROOT=Path(__file__).resolve().parents[1]
 
 
+@pytest.mark.asyncio
+async def test_history_parsing_is_batched_but_reloaded_at_each_snapshot(tmp_path, monkeypatch):
+    from h2cad import native_body_history
+    path, backend, source, target, journal, calls = scenario(tmp_path)
+    original = native_body_history._load
+    loads = []
+    def counted(*args):
+        loads.append(True)
+        return original(*args)
+    monkeypatch.setattr(native_body_history, "_load", counted)
+    try:
+        proof = await inspect_current_body_scope(path, backend, source, target, journal, "Carrier blank")
+        assert len(proof["history_proofs"]) == 2
+        # Before/after/final each reload once, independently of body count.
+        assert len(loads) == 3
+    finally:
+        journal.close()
+
+
 def scenario(tmp_path,prefix="split",fault=None):
     backend,target,calls,records=geometry_setup(prefix=prefix)
     source=(ROOT/"fixtures/native/carrier_split_scope_sample.fs" if prefix=="split"
