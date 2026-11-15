@@ -1,0 +1,39 @@
+{
+  "target": {
+    "did": "4e078dec822b4e509616b1cb",
+    "eid": "4bae4e36c39e40e64e8146d1",
+    "wid": "af0627de07264acf086e646a"
+  },
+  "cases": [
+    {
+      "case": "historical-shallow-preview",
+      "ui_preview_parts": 2,
+      "editing_feature_id": "F3hgpZaazvOORTW_2",
+      "active_element_revision": "185d24fac0be98abbf73a918",
+      "requested_saved_document_revision": "fb6532f39280688e48bd9764",
+      "returned_saved_element_revision": "d559ebfd48db73fba2a05d78",
+      "saved_body_ids": [
+        "JMD",
+        "JQD",
+        "JQH"
+      ],
+      "read_preserved_state": true
+    },
+    {
+      "case": "historical-new-draft",
+      "ui_preview_parts": 4,
+      "editing_feature_id": "FePnavvawb7K5FH_2",
+      "active_element_revision": "041b741cb9edf5085c52c0ee",
+      "requested_saved_document_revision": "fb6532f39280688e48bd9764",
+      "returned_saved_element_revision": "d559ebfd48db73fba2a05d78",
+      "saved_body_ids": [
+        "JMD",
+        "JQD",
+        "JQH"
+      ],
+      "read_preserved_state": true
+    }
+  ],
+  "edits_canceled": true,
+  "write_ready": false
+}

@@ -36,9 +36,16 @@ feature tree exactly matches the original. Final element revision:
 [hidden-witness screenshot](carrier-hidden-witness.jpg).
 
 This establishes scoped first-cut behavior, split-body identification and automatic
-mass-property comparison. It does not authorize repeated cuts: complete source
-journal/modification-chain binding and independent write-time scope verification
-remain unimplemented. Mass properties do not prove topology, bounds, fit or motion.
+mass-property comparison. It does not authorize repeated cuts: independent
+write-time scope verification remains unimplemented. Mass properties do not prove topology, bounds, fit or motion.
 The actual 2020 profile and robotic arm assembly remain unfinished.
 
-A follow-up [source-history inspection](carrier-split-history-proof.json) matched the live saved fixture and journal, including the original NEW and observed REMOVE. It remains read-only and must be joined to current inventory before any future write integration.
+A follow-up [source-history inspection](carrier-split-history-proof.json) matched the live saved fixture and journal, including the original NEW and observed REMOVE. The [joined scope inspection](carrier-split-scope-proof.json) now rechecks this history with fresh inventory and queries at the same snapshot: carrier descendants JQD/JQH, witness JMD. The CLI command retains full provenance and grants no write authority.
+
+Two [historical inventory experiments](historical-draft-inventory-proof.json)
+confirmed that the saved document revision returns all three saved bodies while
+the active editor previews either two bodies (a temporary shallow cut) or four
+(a fresh NEW extrusion). Both temporary edits were canceled. A fresh query for
+each saved body also resolved its expected creator and operation in the new draft.
+These observations support a future write-time preflight; they do not yet prove
+an actual sequential cut or its final geometry.

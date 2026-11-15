@@ -80,6 +80,19 @@ regenerates dependent geometry. Assemblies remain outside this source writer.
 
 ## Experimental source-run checkpoints
 
+The read-only `inspect-scope` action joins the observed source journal with fresh
+native body inventory and queries at one saved revision:
+
+```powershell
+& .\.venv\Scripts\python.exe -m h2cad experimental-source-run inspect-scope @runArgs --logical-id 'Carrier blank' --output out/scope-proof.json
+```
+
+The console reports the exact body-ID set belonging to that source NEW feature,
+including descendants of its observed cuts. The output file retains full native
+read provenance. Unknown creators, unobserved Boolean operations, changed source
+definitions and revision changes reject the inspection. `write_ready: false`
+means this evidence does not enable repeated cuts or replace write-time checks.
+
 `experimental-source-run` coordinates the existing guarded writers in source
 order. It pins the source hash, target, journal and locally validated plan in a
 run file. It does not allocate Browser drafts or create assemblies. The CLI is

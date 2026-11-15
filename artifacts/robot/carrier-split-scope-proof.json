@@ -1,0 +1,53 @@
+{
+  "allowed_operation_ids": [
+    "F3hgpZaazvOORTW_2.boolean.opBoolean",
+    "FfQqD1D77pgFCAA_0.opExtrude"
+  ],
+  "body_partitions": {
+    "Carrier blank": [
+      "JQD",
+      "JQH"
+    ],
+    "Untouched witness": [
+      "JMD"
+    ]
+  },
+  "document_microversion": "fb6532f39280688e48bd9764",
+  "element_microversion": "d559ebfd48db73fba2a05d78",
+  "independently_verified": true,
+  "missing_evidence": [
+    "fresh active-draft scope resolution and native write/reconciliation integration"
+  ],
+  "observed_removes": [
+    {
+      "feature_id": "F3hgpZaazvOORTW_2",
+      "logical_id": "Carrier through bores",
+      "op_id": "extrude-45e7bb388acf4d6b97c90124059d3667"
+    }
+  ],
+  "scope_body_ids": [
+    "JQD",
+    "JQH"
+  ],
+  "selected_scope_requirement": {
+    "body_ids": [
+      "JQD",
+      "JQH"
+    ],
+    "defaultScope": false,
+    "match": "exact_set"
+  },
+  "single_survivor": false,
+  "snapshot_sha256": "8789bad1bddb58c9874239750b361164976d3050a3a13e07d68ef61b6d758ad1",
+  "source_sha256": "8c39327db2eb9daa1acd0036c3f2df64178a938ea79c0846ebeb640bc88da9ee",
+  "target": {
+    "did": "4e078dec822b4e509616b1cb",
+    "eid": "4bae4e36c39e40e64e8146d1",
+    "wid": "af0627de07264acf086e646a"
+  },
+  "target_feature_id": "FfQqD1D77pgFCAA_0",
+  "target_logical_id": "Carrier blank",
+  "target_op_id": "extrude-585e2ef0f8ff416a85116d7c3c6e54f4",
+  "verification_scope": "current inventory, explicit observed operation lineage and source definitions at one saved snapshot",
+  "write_ready": false
+}
