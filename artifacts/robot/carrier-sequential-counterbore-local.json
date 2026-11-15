@@ -1,7 +1,7 @@
 {
   "status": "rendered",
   "source_sha256": "87cd2d11ab33e7a0ba3822c2a76f39f2688ca9f0368ca23c874e663823a2ad80",
-  "image_sha256": "0390ecafe154f171c700539c393ca973f32bdbecff562c76eac75757da3f80c7",
+  "image_sha256": "493fc0a39ca9e2e02e9e0e79b41e566b2f744dd911c3559d7fc50935346697fc",
   "image": "carrier-sequential-counterbore-local.png",
   "geometry": {
     "parts": 2,
@@ -19,6 +19,7 @@
   "kernel_valid_solids": 2,
   "warnings": [],
   "provenance": "FSGen local OpenCascade",
+  "renderer": "H2 orthographic solid tessellation (millimetres)",
   "remote": "not_run",
   "native_compatibility": "not_checked",
   "native_editability": "not_run"

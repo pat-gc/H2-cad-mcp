@@ -1,7 +1,7 @@
 {
   "status": "rendered",
   "source_sha256": "acc9073ae8285f06c1e20ca5ca4268a43505f1d57b2cfd5f09c20ac402f6fb53",
-  "image_sha256": "63baf4675808c580ba21836466fb088a65bf0fd75ec222c1a522c3625740c87d",
+  "image_sha256": "170a7c518543e10c51c5e53370fb7d4b4ba8f7b4e1be7e0d9247b3eef3c5ff88",
   "image": "carrier-sequential-split-local.png",
   "geometry": {
     "parts": 3,
@@ -19,6 +19,7 @@
   "kernel_valid_solids": 3,
   "warnings": [],
   "provenance": "FSGen local OpenCascade",
+  "renderer": "H2 orthographic solid tessellation (millimetres)",
   "remote": "not_run",
   "native_compatibility": "not_checked",
   "native_editability": "not_run"
