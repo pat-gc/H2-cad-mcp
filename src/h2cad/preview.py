@@ -8,6 +8,7 @@ from pathlib import Path
 from tempfile import TemporaryDirectory
 
 from .fsgen import FsgenUnavailable
+from .preview_renderer import render_local_solids
 
 
 def preview_fsgen(source: Path, output: Path) -> dict:
@@ -17,7 +18,7 @@ def preview_fsgen(source: Path, output: Path) -> dict:
     if source.resolve() in (output.resolve(), report_path.resolve()):
         raise ValueError("Preview outputs must not overwrite their source")
     try:
-        from fsgen.native.local import build_local, render
+        from fsgen.native.local import build_local
         from fsgen.native.script import trace
         from OCP.BRepCheck import BRepCheck_Analyzer
     except ImportError as exc:
@@ -34,7 +35,7 @@ def preview_fsgen(source: Path, output: Path) -> dict:
     output.parent.mkdir(parents=True, exist_ok=True)
     with TemporaryDirectory(prefix="h2-preview-", dir=output.parent) as temp:
         image = Path(temp) / "model.png"
-        if render(built, image, "LOCAL OPENCASCADE PREVIEW - NO ONSHAPE WRITE") != image or not image.is_file():
+        if render_local_solids(built, image, "LOCAL OPENCASCADE PREVIEW - NO ONSHAPE WRITE") != image or not image.is_file():
             raise ValueError("Local geometry renderer did not produce an image")
         data = image.read_bytes()
         if not data.startswith(b"\x89PNG\r\n\x1a\n"):
@@ -43,6 +44,7 @@ def preview_fsgen(source: Path, output: Path) -> dict:
                   "image_sha256": hashlib.sha256(data).hexdigest(), "image": output.name,
                   "geometry": built.metrics(), "kernel_valid_solids": len(built.run.solids),
                   "warnings": list(built.warnings), "provenance": "FSGen local OpenCascade",
+                  "renderer": "H2 orthographic solid tessellation (millimetres)",
                   "remote": "not_run", "native_compatibility": "not_checked",
                   "native_editability": "not_run"}
         report = Path(temp) / "report.json"
