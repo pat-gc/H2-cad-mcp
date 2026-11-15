@@ -8,8 +8,9 @@ Native QueryInsertables includes hidden bodies, and the split fixture enumerates
 both descendants with the original creator and a Boolean full operation ID.
 `native_body_sets.py` checks this evidence; `native_geometry.py` independently
 collects per-body volume/area at stable document and element revisions. These
-read-only contracts do not grant write authority. Remaining work is source-journal
-modification-chain binding and independent scope verification during write preflight.
+read-only contracts do not grant write authority. Source-journal history is now joined to current inventory, and a read-only draft
+inspector rechecks saved historical inventory and current query resolution.
+Independent enforcement in the paired native writer remains unfinished.
 
 ## Current routes
 
@@ -36,10 +37,10 @@ native body to resolve to that NEW feature ID with `fullOperationId` equal to
 An earlier REMOVE normally adds a sibling feature rather than modifying those
 original saved definitions. Consequently, patch46 does **not categorically reject
 a second REMOVE**. The second would pass its lineage guard only if the current
-body query still reports the original NEW feature and operation. That behavior
-after a prior cut has not been independently observed here. If Onshape reports
-a later feature instead, the current guard rejects it; do not loosen that guard
-or substitute guessed IDs.
+body query still reports the original NEW feature and operation. Live evidence now shows a single surviving seven-hole carrier still reports its
+original NEW operation, while split descendants report the observed cut Boolean
+operation. The current runtime rejects those split descendants; do not loosen
+that guard or substitute guessed IDs.
 
 More importantly, unchanged original definitions do not prove the current number
 of bodies. A first cut can split an initially single-profile NEW body into two.
@@ -53,8 +54,8 @@ body's creator, so this distinction matters locally as well.
 It rejects repeated targeting before local validation, checkpoint creation, or
 Browser allocation, including a split-producing first cut. First-cut carrier
 and hollow-tube workflows remain allowed. This is a coordinator restriction;
-the direct extrusion writer and Native runtime were not changed and must not be
-advertised as proven repeated-cut support.
+the direct H2 extrusion writer now enforces the same restriction. Native runtime
+46 itself remains unchanged and must not be advertised as proven repeated-cut support.
 
 ## Smallest next implementation step
 
@@ -98,3 +99,19 @@ validation.
 - `src/h2cad/native_sketches.py`, `native_rectangles.py`, `native_circles.py`: profile limits.
 - `upstream/onshape-fsgen/fsgen/native/script.py`: `skPolyline` emits consecutive lines.
 - `upstream/onshape-fsgen/fsgen/native/local.py`: subtraction retains creator on resulting solids.
+
+## Sequential local acceptance fixtures
+
+`fixtures/robot/carrier_sequential_counterbore.fs` applies a second, 3 mm deep,
+32 mm diameter counterbore around the existing 28 mm through bore. The carrier
+remains one body, with a shoulder below the counterbore. Including its untouched
+witness, expected volume is 44699.8176 mm³ at 12 mm thickness.
+
+`fixtures/robot/carrier_sequential_split.fs` adds two 6 mm through holes, one in
+each descendant of the first split. Both descendants must be cut. Including the
+untouched witness, expected volume is 49001.4160 mm³ at 12 mm thickness.
+
+`tests/test_robot_sequential_cuts.py` checks analytical per-body volumes, kernel
+validity, material/void probes, witness preservation and 12/14 mm thickness
+variants. Both native plans remain explicitly rejected until writer integration.
+These are geometric acceptance fixtures, not released bearing fits.
