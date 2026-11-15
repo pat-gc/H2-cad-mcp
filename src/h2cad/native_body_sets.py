@@ -126,6 +126,42 @@ def inspect_server_body_inventory(*, target: Target, element_revision: str,
     Captured hidden-body and split-body samples cover this parser shape. No supplied
     `complete` flag can upgrade this result to write authorization.
     """
+    return _inspect_server_inventory(target=target, element_revision=element_revision,
+        request=request, response=response, document_revision=document_revision,
+        requested_document_revision=None)
+
+
+def inspect_historical_server_body_inventory(*, target: Target,
+        historical_document_revision: str, historical_element_revision: str,
+        current_document_revision: str, request: dict, response: dict) -> dict:
+    """Inspect an explicit historical snapshot while pinning the current envelope.
+
+    The historical document selects the snapshot; returned rows must name its
+    expected element revision. The response envelope describes the current
+    document, including during an active edit, and must not be treated as the
+    revision of the enumerated bodies. This is read-only evidence, never a scope
+    write authorization or a proof of the historical document/element pairing.
+    """
+    if not re.fullmatch(r"[a-f0-9]{24}", str(historical_document_revision)):
+        raise Unsupported("Exact historical document revision required")
+    proof = _inspect_server_inventory(target=target,
+        element_revision=historical_element_revision, request=request,
+        response=response, document_revision=current_document_revision,
+        requested_document_revision=historical_document_revision)
+    # Avoid the latest inspector's document_microversion shorthand: these are
+    # different namespaces and different snapshots, not interchangeable tokens.
+    proof.pop("document_microversion")
+    proof.update(snapshot_mode="historical",
+        historical_document_microversion=historical_document_revision,
+        current_document_microversion=current_document_revision)
+    return proof
+
+
+def _inspect_server_inventory(*, target: Target, element_revision: str,
+        request: dict, response: dict, document_revision: str,
+        requested_document_revision: str | None) -> dict:
+    expected_request_revision = (None if requested_document_revision is None else
+        {"$type": "document.GBTMicroversionId", "theId": requested_document_revision})
     td=target.to_dict()
     if (not re.fullmatch(r"[a-f0-9]{24}",str(element_revision))
             or not re.fullmatch(r"[a-f0-9]{24}",str(document_revision))
@@ -135,7 +171,7 @@ def inspect_server_body_inventory(*, target: Target, element_revision: str,
             or set(request)!={"targetElementId","sourceElementId","documentMicroversionId","filter"}
             or request["sourceElementId"]!=td["eid"]
             or (request["targetElementId"]!="" and not re.fullmatch(r"[a-f0-9]{24}",str(request["targetElementId"])))
-            or request["documentMicroversionId"] is not None
+            or request["documentMicroversionId"] != expected_request_revision
             or request["filter"]!=_OBSERVED_INSERTABLE_FILTER):
         raise Unsupported("Exact observed include-parts server inventory request required")
     result=response.get("result",{})

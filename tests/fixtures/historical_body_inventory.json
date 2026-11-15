@@ -1,0 +1,376 @@
+{
+  "target": {
+    "did": "4e078dec822b4e509616b1cb",
+    "wid": "af0627de07264acf086e646a",
+    "eid": "4bae4e36c39e40e64e8146d1"
+  },
+  "historical_document_revision": "338e320cdb965992fcb74687",
+  "historical_element_revision": "ffa8966499beb0ab5fbf504b",
+  "current_document_revision": "fb6532f39280688e48bd9764",
+  "request": {
+    "targetElementId": "",
+    "filter": {
+      "$type": "bsedit.GBTInsertablesFilter",
+      "includeParts": true,
+      "includeSurfaces": true,
+      "includeSketches": true,
+      "includeReferenceFeatures": false,
+      "includeAssemblies": false,
+      "includeFeatureStudios": false,
+      "includeBlobs": false,
+      "allowedBlobMimeTypes": [],
+      "excludeNewerFSVersions": false,
+      "maxFeatureScriptVersion": 0,
+      "includePartStudios": true,
+      "includeFeatures": false,
+      "includeMeshes": true,
+      "includeWires": false,
+      "includeFlattenedBodies": true,
+      "includeApplications": false,
+      "allowedApplicationMimeTypes": [],
+      "includeCompositeParts": true,
+      "includeFSTables": false,
+      "includeFSComputedPartPropertyFunctions": false,
+      "includeVariables": false,
+      "includeVariableStudios": false,
+      "allowedBlobExtensions": [],
+      "includeSketchesOnFlat": true,
+      "isObsoletion": false,
+      "onlyCustomStandardContent": false
+    },
+    "sourceElementId": "4bae4e36c39e40e64e8146d1",
+    "documentMicroversionId": {
+      "$type": "document.GBTMicroversionId",
+      "theId": "338e320cdb965992fcb74687"
+    }
+  },
+  "response": {
+    "microversion_after": "fb6532f39280688e48bd9764",
+    "microversion_before": "fb6532f39280688e48bd9764",
+    "next": "Read native_state and check regeneration; an acknowledgement alone does not prove correct geometry.",
+    "result": {
+      "$type": "ui.document.GBTUiQueryAssemblyInsertableElementsResponse",
+      "configuration": {},
+      "configurationKey": "",
+      "contents": [
+        {
+          "$type": "ui.document.GBTUiInsertablePartStudio",
+          "asParametricPartStudio": false,
+          "children": [
+            {
+              "$type": "ui.document.GBTUiInsertablePart",
+              "areFaultsIgnored": false,
+              "bodyType": 0,
+              "children": [],
+              "configurationId": "",
+              "configurationParameterValues": [],
+              "deterministicId": "JMD",
+              "disableReason": 0,
+              "documentId": "4e078dec822b4e509616b1cb",
+              "documentVersionId": "",
+              "element": {
+                "$type": "document.GBTDocumentElement",
+                "dataType": "onshape/partstudio",
+                "elementId": "4bae4e36c39e40e64e8146d1",
+                "microversion": {
+                  "$type": "document.GBTMicroversionId",
+                  "theId": "ffa8966499beb0ab5fbf504b"
+                },
+                "name": "Robot - Split Scope Test",
+                "nodeId": "HLEW2QsmOKzheemY",
+                "type": 0
+              },
+              "hasFaults": false,
+              "highBoxCorner": {
+                "$type": "math.GBTVector3d",
+                "x": 0,
+                "y": 0,
+                "z": 0
+              },
+              "insertableQuery": "redacted fixture opaque value",
+              "isFlattenedBody": false,
+              "isMesh": false,
+              "lowBoxCorner": {
+                "$type": "math.GBTVector3d",
+                "x": 0,
+                "y": 0,
+                "z": 0
+              },
+              "meshState": 0,
+              "partIdentity": {
+                "$type": "partstudio.GBTPSOIdentity",
+                "theId": ""
+              },
+              "partName": "Part 1",
+              "partNumber": "",
+              "partPurpose": 0,
+              "partQuery": "redacted fixture opaque value",
+              "revision": "",
+              "revisionId": "",
+              "thumbnailUri": "redacted fixture opaque value",
+              "unflattenedPartDeterministicId": "",
+              "versionName": ""
+            },
+            {
+              "$type": "ui.document.GBTUiInsertablePart",
+              "areFaultsIgnored": false,
+              "bodyType": 0,
+              "children": [],
+              "configurationId": "",
+              "configurationParameterValues": [],
+              "deterministicId": "JQD",
+              "disableReason": 0,
+              "documentId": "4e078dec822b4e509616b1cb",
+              "documentVersionId": "",
+              "element": {
+                "$type": "document.GBTDocumentElement",
+                "dataType": "onshape/partstudio",
+                "elementId": "4bae4e36c39e40e64e8146d1",
+                "microversion": {
+                  "$type": "document.GBTMicroversionId",
+                  "theId": "ffa8966499beb0ab5fbf504b"
+                },
+                "name": "Robot - Split Scope Test",
+                "nodeId": "HLEW2QsmOKzheemY",
+                "type": 0
+              },
+              "hasFaults": false,
+              "highBoxCorner": {
+                "$type": "math.GBTVector3d",
+                "x": 0,
+                "y": 0,
+                "z": 0
+              },
+              "insertableQuery": "redacted fixture opaque value",
+              "isFlattenedBody": false,
+              "isMesh": false,
+              "lowBoxCorner": {
+                "$type": "math.GBTVector3d",
+                "x": 0,
+                "y": 0,
+                "z": 0
+              },
+              "meshState": 0,
+              "partIdentity": {
+                "$type": "partstudio.GBTPSOIdentity",
+                "theId": ""
+              },
+              "partName": "Part 2",
+              "partNumber": "",
+              "partPurpose": 0,
+              "partQuery": "redacted fixture opaque value",
+              "revision": "",
+              "revisionId": "",
+              "thumbnailUri": "redacted fixture opaque value",
+              "unflattenedPartDeterministicId": "",
+              "versionName": ""
+            },
+            {
+              "$type": "ui.document.GBTUiInsertablePart",
+              "areFaultsIgnored": false,
+              "bodyType": 0,
+              "children": [],
+              "configurationId": "",
+              "configurationParameterValues": [],
+              "deterministicId": "JQH",
+              "disableReason": 0,
+              "documentId": "4e078dec822b4e509616b1cb",
+              "documentVersionId": "",
+              "element": {
+                "$type": "document.GBTDocumentElement",
+                "dataType": "onshape/partstudio",
+                "elementId": "4bae4e36c39e40e64e8146d1",
+                "microversion": {
+                  "$type": "document.GBTMicroversionId",
+                  "theId": "ffa8966499beb0ab5fbf504b"
+                },
+                "name": "Robot - Split Scope Test",
+                "nodeId": "HLEW2QsmOKzheemY",
+                "type": 0
+              },
+              "hasFaults": false,
+              "highBoxCorner": {
+                "$type": "math.GBTVector3d",
+                "x": 0,
+                "y": 0,
+                "z": 0
+              },
+              "insertableQuery": "redacted fixture opaque value",
+              "isFlattenedBody": false,
+              "isMesh": false,
+              "lowBoxCorner": {
+                "$type": "math.GBTVector3d",
+                "x": 0,
+                "y": 0,
+                "z": 0
+              },
+              "meshState": 0,
+              "partIdentity": {
+                "$type": "partstudio.GBTPSOIdentity",
+                "theId": ""
+              },
+              "partName": "Part 3",
+              "partNumber": "",
+              "partPurpose": 0,
+              "partQuery": "redacted fixture opaque value",
+              "revision": "",
+              "revisionId": "",
+              "thumbnailUri": "redacted fixture opaque value",
+              "unflattenedPartDeterministicId": "",
+              "versionName": ""
+            },
+            {
+              "$type": "ui.document.GBTUiInsertableFeatureGeometry",
+              "children": [],
+              "configurationId": "",
+              "configurationParameterValues": [],
+              "disableReason": 0,
+              "documentId": "4e078dec822b4e509616b1cb",
+              "documentVersionId": "",
+              "element": {
+                "$type": "document.GBTDocumentElement",
+                "dataType": "onshape/partstudio",
+                "elementId": "4bae4e36c39e40e64e8146d1",
+                "microversion": {
+                  "$type": "document.GBTMicroversionId",
+                  "theId": "ffa8966499beb0ab5fbf504b"
+                },
+                "name": "Robot - Split Scope Test",
+                "nodeId": "HLEW2QsmOKzheemY",
+                "type": 0
+              },
+              "featureId": "FT7u4OFknZfiN5k_0",
+              "featureName": "Sketch 1",
+              "featureType": "newSketch",
+              "insertableQuery": "redacted fixture opaque value",
+              "isOnFlat": false,
+              "partNumber": "",
+              "revision": "",
+              "revisionId": "",
+              "thumbnailUri": "redacted fixture opaque value",
+              "versionName": ""
+            },
+            {
+              "$type": "ui.document.GBTUiInsertableFeatureGeometry",
+              "children": [],
+              "configurationId": "",
+              "configurationParameterValues": [],
+              "disableReason": 0,
+              "documentId": "4e078dec822b4e509616b1cb",
+              "documentVersionId": "",
+              "element": {
+                "$type": "document.GBTDocumentElement",
+                "dataType": "onshape/partstudio",
+                "elementId": "4bae4e36c39e40e64e8146d1",
+                "microversion": {
+                  "$type": "document.GBTMicroversionId",
+                  "theId": "ffa8966499beb0ab5fbf504b"
+                },
+                "name": "Robot - Split Scope Test",
+                "nodeId": "HLEW2QsmOKzheemY",
+                "type": 0
+              },
+              "featureId": "FkdV7bDofuTfOm7_1",
+              "featureName": "Sketch 2",
+              "featureType": "newSketch",
+              "insertableQuery": "redacted fixture opaque value",
+              "isOnFlat": false,
+              "partNumber": "",
+              "revision": "",
+              "revisionId": "",
+              "thumbnailUri": "redacted fixture opaque value",
+              "versionName": ""
+            },
+            {
+              "$type": "ui.document.GBTUiInsertableFeatureGeometry",
+              "children": [],
+              "configurationId": "",
+              "configurationParameterValues": [],
+              "disableReason": 0,
+              "documentId": "4e078dec822b4e509616b1cb",
+              "documentVersionId": "",
+              "element": {
+                "$type": "document.GBTDocumentElement",
+                "dataType": "onshape/partstudio",
+                "elementId": "4bae4e36c39e40e64e8146d1",
+                "microversion": {
+                  "$type": "document.GBTMicroversionId",
+                  "theId": "ffa8966499beb0ab5fbf504b"
+                },
+                "name": "Robot - Split Scope Test",
+                "nodeId": "HLEW2QsmOKzheemY",
+                "type": 0
+              },
+              "featureId": "FAjvx8sOHcRlzkL_2",
+              "featureName": "Sketch 3",
+              "featureType": "newSketch",
+              "insertableQuery": "redacted fixture opaque value",
+              "isOnFlat": false,
+              "partNumber": "",
+              "revision": "",
+              "revisionId": "",
+              "thumbnailUri": "redacted fixture opaque value",
+              "versionName": ""
+            }
+          ],
+          "configurationId": "",
+          "configurationParameterValues": [],
+          "configurationParameters": [],
+          "disableReason": 0,
+          "documentId": "4e078dec822b4e509616b1cb",
+          "documentVersionId": "",
+          "element": {
+            "$type": "document.GBTDocumentElement",
+            "dataType": "onshape/partstudio",
+            "elementId": "4bae4e36c39e40e64e8146d1",
+            "microversion": {
+              "$type": "document.GBTMicroversionId",
+              "theId": "ffa8966499beb0ab5fbf504b"
+            },
+            "name": "Robot - Split Scope Test",
+            "nodeId": "HLEW2QsmOKzheemY",
+            "type": 0
+          },
+          "featureScriptVersion": 3112,
+          "insertableFilter": {
+            "$type": "bsedit.GBTInsertablesFilter",
+            "allowedApplicationMimeTypes": [],
+            "allowedBlobExtensions": [],
+            "allowedBlobMimeTypes": [],
+            "excludeNewerFSVersions": false,
+            "includeApplications": false,
+            "includeAssemblies": false,
+            "includeBlobs": false,
+            "includeCompositeParts": false,
+            "includeFSComputedPartPropertyFunctions": false,
+            "includeFSTables": false,
+            "includeFeatureStudios": false,
+            "includeFeatures": false,
+            "includeFlattenedBodies": false,
+            "includeMeshes": false,
+            "includePartStudios": false,
+            "includeParts": false,
+            "includeReferenceFeatures": false,
+            "includeSketches": false,
+            "includeSketchesOnFlat": false,
+            "includeSurfaces": false,
+            "includeVariableStudios": false,
+            "includeVariables": false,
+            "includeWires": false,
+            "isObsoletion": false,
+            "maxFeatureScriptVersion": 0,
+            "onlyCustomStandardContent": false
+          },
+          "insertableQuery": "query = qUnion([ qEverything(EntityType.BODY)]);",
+          "partNumber": "",
+          "revision": "",
+          "revisionId": "",
+          "thumbnailUri": "redacted fixture opaque value",
+          "versionName": ""
+        }
+      ],
+      "updatedThumbnailUri": "redacted fixture opaque value"
+    },
+    "tab_id": 941741361
+  }
+}
